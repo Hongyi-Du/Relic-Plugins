@@ -149,15 +149,40 @@ def main():
     from app import web
     store, fixture = seed(folder, args.seed)
     app, server = web.serve(0, store)
-    fixture.update(port=app.port, token=app.token, instance=app.instance, pid=os.getpid(), home=os.environ["RELIC_HOME"])
+    fixture.update(port=app.port, token=app.token, instance=app.instance, pid=os.getpid(), home=os.environ["RELIC_HOME"],
+                   monkey_trigger=str(folder / "monkey-enabled"), live_report=str(folder / "live-updates.json"))
     (folder / "fixture.json").write_text(json.dumps(fixture, ensure_ascii=False, indent=2), encoding="utf-8")
     # Fixed producer count and bounded rate: stress event coalescing without
     # starting providers or creating one task/thread per update.
     def hints():
         ordinal = 0
+        monkey_ordinal = 0
+        events_published = stored_messages = 0
         while not app.stopping.wait(.1):
-            if ordinal % 50 < 10:
+            monkey_active = (folder / "monkey-enabled").exists()
+            if monkey_active:
+                target = fixture["orgs"][(monkey_ordinal // 20) % len(fixture["orgs"])]
+                if monkey_ordinal % 20 == 0:
+                    # Genuine stored messages plus ordinary app event delivery;
+                    # no provider, wake, CLI, or extra thread per message.
+                    with store.db() as db:
+                        db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) VALUES(?,?,?,?,?,?,?,?)",
+                                   (target["id"], "human", json.dumps(target["members"]),
+                                    f"合成实时更新 {stored_messages + 1}\n\n" + message_body(stored_messages + 1, 0),
+                                    None, dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), 0, None))
+                    stored_messages += 1
+                app.bus.publish({"type": "org", "org": target["id"]})
+                events_published += 1
+                monkey_ordinal += 1
+            elif ordinal % 50 < 10:
                 app.bus.publish({"type": "org", "org": fixture["orgs"][ordinal % 13]["id"]})
+            if ordinal % 10 == 0:
+                data = {"events_published": events_published, "stored_messages": stored_messages,
+                        "worker_threads": 1, "monkey_active": monkey_active,
+                        "source": "Real app.bus SSE hints and synthetic rows in the isolated real store"}
+                temporary = folder / "live-updates.tmp"
+                temporary.write_text(json.dumps(data), encoding="utf-8")
+                temporary.replace(folder / "live-updates.json")
             ordinal += 1
     worker = threading.Thread(target=hints, name="synthetic-sse-bursts", daemon=True)
     worker.start()

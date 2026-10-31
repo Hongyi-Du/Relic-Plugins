@@ -63,7 +63,7 @@ public sealed partial class MainWindow
                     SetForegroundWindow(handle);
                     await CaptureMoveScreenPointer(monitor.WorkArea.X + monitor.WorkArea.Width - 10,
                         monitor.WorkArea.Y + monitor.WorkArea.Height - 10);
-                    await Task.Delay(350); root.UpdateLayout();
+                    await WaitForMarkdown(); await Task.Delay(350); root.UpdateLayout();
                     if (error.IsOpen) throw new InvalidOperationException("Production UI reported: " + error.Message);
                     if (!editor.IsDocumentReady) throw new InvalidOperationException("Native composer did not initialize: " + editor.InitializationFailure);
                     if (WholeWindowForeground() != handle) throw new InvalidOperationException("Relic is not the foreground window for desktop capture");

@@ -79,7 +79,7 @@ public sealed partial class NativePathText : UserControl
             EnsureSourceMeasurement();
             var actual = measured!.IntrinsicWidths ?? throw new InvalidOperationException("Production source layout has no intrinsic measurements");
             intrinsic = NativeBannerFlex.NormalText(sourceMap.Paint, measured.Clusters, paintBoundaries!.Lines, paintBoundaries.Characters);
-            bannerIntrinsicEvidence = new JsonObject
+            if (NativeLabelInterop.CaptureDiagnostics) bannerIntrinsicEvidence = new JsonObject
             {
                 ["source"] = "Actual source layout clusters and ICU boundaries used by the production normal-whitespace line selector",
                 ["status"] = "measured", ["paint_text"] = sourceMap.Paint,
@@ -104,6 +104,7 @@ public sealed partial class NativePathText : UserControl
     internal void ObserveBannerAllocation(double available, double gap, double iconBase,
         NativeBannerFlex.Allocation allocation, bool measuredFlex)
     {
+        if (!NativeLabelInterop.CaptureDiagnostics) return;
         bannerAllocationEvidence = new JsonObject
         {
             ["source"] = "Actual NativeBannerLayout production measure and arrange allocation",
@@ -268,7 +269,7 @@ public sealed partial class NativePathText : UserControl
                 var height = ascent + descent; var y = desiredHeight + ascent - baseline;
                 var sourceStart = sourceMap.SourceStart(segment.Start); var sourceEnd = sourceMap.SourceEnd(segment.End);
                 lines.Add(new PaintedLine(sourceStart, sourceEnd, segment.Start, segment.End, segment.Emergency, label, y, height));
-                receiptLines.Add(new JsonObject { ["start_utf16"] = sourceStart, ["end_utf16"] = sourceEnd,
+                if (NativeLabelInterop.CaptureDiagnostics) receiptLines.Add(new JsonObject { ["start_utf16"] = sourceStart, ["end_utf16"] = sourceEnd,
                     ["source_text"] = SourceText[sourceStart..sourceEnd], ["paint_text"] = label.Text,
                     ["paint_start_utf16"] = segment.Start, ["paint_end_utf16"] = segment.End,
                     ["emergency"] = segment.Emergency, ["label_y"] = y,
@@ -280,7 +281,7 @@ public sealed partial class NativePathText : UserControl
             // indivisible word is arranged at its actual width inside it, so a
             // framework desired-size clip does not silently truncate that word.
             if (textStyle.NormalWhitespace) desiredWidth = Math.Min(desiredWidth, width);
-            layoutEvidence = new JsonObject { ["available_width"] = width, ["icu"] = boundaries!.Evidence.DeepClone(),
+            if (NativeLabelInterop.CaptureDiagnostics) layoutEvidence = new JsonObject { ["available_width"] = width, ["icu"] = boundaries!.Evidence.DeepClone(),
                 ["paint_icu"] = paintBoundaries!.Evidence.DeepClone(), ["source_measurement"] = measured.Evidence.DeepClone(),
                 ["parent_strut_measurement"] = strut?.Evidence.DeepClone(), ["text_style"] = StyleReceipt(),
                 ["parent_strut_size"] = textStyle.StrutSize, ["parent_strut_line_height"] = textStyle.StrutLineHeight,

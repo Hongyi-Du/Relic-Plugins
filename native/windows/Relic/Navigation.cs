@@ -127,7 +127,6 @@ public sealed partial class MainWindow
             thumb.DragDelta += (_, e) => { if (left) sideWidth = Math.Clamp(sideWidth + e.HorizontalChange, 180, 460); else if (pane == "files") fileWidth = Math.Clamp(fileWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); else panelWidth = Math.Clamp(panelWidth - e.HorizontalChange, 280, Math.Max(280, root.ActualWidth * .6)); LayoutColumns(); };
             thumb.DragCompleted += (_, _) => SaveViewState();
         }
-        root.SizeChanged += (_, _) => LayoutColumns();
     }
     private void RefreshResizeLabels()
     {

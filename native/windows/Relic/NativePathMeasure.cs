@@ -59,7 +59,7 @@ internal static class NativePathMeasure
                     || !float.IsFinite(minimum) || minimum < 0)
                     throw new InvalidOperationException("Actual DirectWrite intrinsic widths must be finite and nonnegative");
                 intrinsic = new(metrics.Width, metrics.WidthIncludingTrailingWhitespace, minimum);
-                intrinsicEvidence = new JsonObject
+                if (CaptureDiagnostics) intrinsicEvidence = new JsonObject
                 {
                     ["source"] = "GetMetrics and DetermineMinWidth on the actual production source-measurement IDWriteTextLayout",
                     ["quantity"] = "Production flex and line-breaking input, not a per-line drawing layout or final glyph bounds",
@@ -78,11 +78,12 @@ internal static class NativePathMeasure
             foreach (var cluster in Read<ClusterMetrics>(layout, 62))
             {
                 clusters.Add(new NativePathLineBreaks.Cluster(position, cluster.Length, cluster.Width));
-                raw.Add(new JsonObject { ["start_utf16"] = position, ["length_utf16"] = cluster.Length,
+                if (CaptureDiagnostics) raw.Add(new JsonObject { ["start_utf16"] = position, ["length_utf16"] = cluster.Length,
                     ["width"] = cluster.Width, ["raw_flags"] = cluster.Flags });
                 position += cluster.Length;
             }
             if (position != text.Length) throw new InvalidOperationException("Measured path clusters do not cover the actual source");
+            if (!CaptureDiagnostics) return new NativePathMeasurement(clusters, lines[0].Height, lines[0].Baseline, new JsonObject(), intrinsic);
             return new NativePathMeasurement(clusters, lines[0].Height, lines[0].Baseline, new JsonObject
             {
                 ["source"] = "Production unwrapped DirectWrite layout used to choose source line ranges",

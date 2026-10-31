@@ -68,8 +68,14 @@ The fixture contains 13 organizations, 42 members in its busiest organization,
 four members in each of the other 12, a 5,500-message group, three 1,250-message
 groups, long Markdown messages, private messages for every seat, 420 tasks,
 hundreds of notices, and protocol/episode records. It exercises the real server
-and store, including SSE hints at a bounded 10 Hz burst rate. A fixed random
-seed controls content and action order.
+and store, including SSE hints at a bounded 10 Hz burst rate during exhaustive
+actions. Once heartbeat `action` starts with `random` or `monkey`, the same one
+producer switches to continuous 10 Hz hints and inserts one genuine synthetic
+message every two seconds. `live_updates` retains actual published/stored counts.
+This monkey-phase addition was fixed before the first passing candidate and
+does not affect the initial-load baseline. The driver removes its trigger on
+cleanup; no thread is created per message. A fixed random seed controls content
+and action order.
 
 `native-responsiveness.yml` runs candidate measurements as a required job.
 Its `mode=baseline` workflow-dispatch input labels a pre-fix measurement but does

@@ -39,7 +39,7 @@ public sealed class NativeLabel : Panel
     private float layoutWidth = -1, layoutHeight = -1, resolvedLineHeight;
     private double arrangedWidth, arrangedHeight, scale;
     private int pixelWidth, pixelHeight;
-    private bool queued, rendering;
+    private bool queued, rendering, drawDirty = true;
     private long layoutRevision, surfaceRevision, drawOrdinal;
     private JsonObject? receipt;
     private NativeLabelReadback? readback;
@@ -284,7 +284,10 @@ public sealed class NativeLabel : Panel
     {
         // A rasterization-scale change changes the actual image's pixel/DIP
         // placement too, not just the surface allocation used by the renderer.
-        if (sender.RasterizationScale != scale) InvalidateArrange();
+        // Size changes are handled by this label's own measure/arrange. Do not
+        // redraw every label merely because another part of the root changed.
+        if (sender.RasterizationScale == scale) return;
+        InvalidateArrange();
         InvalidateDraw(); QueueDraw();
     }
     private void ObserveForeground()
@@ -336,7 +339,7 @@ public sealed class NativeLabel : Panel
         pixelWidth = pixelHeight = 0; fallbackConfiguration = null; lineSpacingConfiguration = null;
         resolvedLineHeight = lineHeight; InvalidateDraw();
     }
-    private void InvalidateDraw() { receipt = null; }
+    private void InvalidateDraw() { receipt = null; drawDirty = true; }
 
     private void EnsureLayout(float width, float height)
     {
@@ -365,14 +368,14 @@ public sealed class NativeLabel : Panel
                 {
                     var baseline = lines[0].Baseline + (lineHeight - lines[0].Height) / 2;
                     var effectiveHeight = lineHeight;
-                    lineSpacingConfiguration = new JsonObject
+                    lineSpacingConfiguration = CaptureDiagnostics ? new JsonObject
                     {
                         ["source"] = "Actual production IDWriteTextLayout natural line metrics and subsequent SetLineSpacing",
                         ["policy"] = primaryFontLineSpacing ? "primary-font-integer-metrics-floor-half-leading" : "natural-line-symmetric-half-leading",
                         ["layout_com_identity"] = ComIdentity(layout),
                         ["natural_first_line_height"] = lines[0].Height, ["natural_first_line_baseline"] = lines[0].Baseline,
                         ["requested_line_height"] = lineHeight
-                    };
+                    } : null;
                     if (primaryFontLineSpacing)
                     {
                         // .msg .who has an explicit line-height:1.3. Its strut
@@ -381,14 +384,20 @@ public sealed class NativeLabel : Panel
                         var primary = NativeListMarkerFont.ReadForLine(familyList, fontSize, locale, weight);
                         var spacing = NativePrimaryLineMetrics.FromPrimary(primary.Metrics, lineHeight);
                         effectiveHeight = (float)spacing.Height; baseline = (float)spacing.Baseline;
-                        lineSpacingConfiguration["primary_font"] = primary.Evidence;
-                        lineSpacingConfiguration["leading_before"] = spacing.LeadingBefore;
-                        lineSpacingConfiguration["leading_after"] = spacing.LeadingAfter;
+                        if (lineSpacingConfiguration != null)
+                        {
+                            lineSpacingConfiguration["primary_font"] = primary.Evidence;
+                            lineSpacingConfiguration["leading_before"] = spacing.LeadingBefore;
+                            lineSpacingConfiguration["leading_after"] = spacing.LeadingAfter;
+                        }
                     }
                     var spacingResult = Method<SetLineSpacing>(layout, 10)(layout, 1, effectiveHeight, baseline);
-                    lineSpacingConfiguration["set_line_spacing_hresult"] = spacingResult;
-                    lineSpacingConfiguration["applied_height"] = effectiveHeight;
-                    lineSpacingConfiguration["applied_baseline"] = baseline;
+                    if (lineSpacingConfiguration != null)
+                    {
+                        lineSpacingConfiguration["set_line_spacing_hresult"] = spacingResult;
+                        lineSpacingConfiguration["applied_height"] = effectiveHeight;
+                        lineSpacingConfiguration["applied_baseline"] = baseline;
+                    }
                     Check(spacingResult);
                     resolvedLineHeight = effectiveHeight;
                 }
@@ -498,8 +507,8 @@ public sealed class NativeLabel : Panel
     }
     private void QueueDraw()
     {
-        if (queued || rendering || !IsLoaded) return; queued = true;
-        if (!DispatcherQueue.TryEnqueue(() => { queued = false; if (IsLoaded) Render(); })) queued = false;
+        if (queued || rendering || !drawDirty || !IsLoaded) return; queued = true;
+        if (!DispatcherQueue.TryEnqueue(() => { queued = false; if (IsLoaded && drawDirty) Render(); })) queued = false;
     }
     private void EnsureSurface(int width, int height)
     {
@@ -546,17 +555,21 @@ public sealed class NativeLabel : Panel
             var color = foreground.Color;
             var paint = new ColorF { R = color.R / 255f, G = color.G / 255f, B = color.B / 255f, A = (float)(color.A / 255d * foreground.Opacity) };
             Check(Method<CreateBrush>(context, 8)(context, ref paint, IntPtr.Zero, out brush));
-            var trimming = ReadTrimming();
+            var trimming = CaptureDiagnostics ? ReadTrimming() : null;
             using var renderer = new NativeLabelRenderer(context, brush, (float)scale, transform, trimmingSign);
             drawOrdinal++;
             var drawResult = Method<DrawLayout>(layout, 58)(layout, IntPtr.Zero, renderer.Pointer, 0, 0);
             if (renderer.CallbackFailure != null) throw new InvalidOperationException(renderer.CallbackFailure);
             Check(drawResult);
-            Check(Method<GetTextMetrics>(layout, 60)(layout, out var metrics));
-            var lines = new JsonArray(); foreach (var line in ReadLines())
-                lines.Add(new JsonObject { ["length_utf16"] = line.Length, ["trailing_whitespace_utf16"] = line.TrailingWhitespaceLength,
-                    ["newline_utf16"] = line.NewlineLength, ["height"] = line.Height, ["baseline"] = line.Baseline, ["is_trimmed"] = line.IsTrimmed != 0 });
-            var hitTest = ReadHitTestBounds();
+            TextMetrics metrics = default; JsonArray? lines = null, hitTest = null;
+            if (CaptureDiagnostics)
+            {
+                Check(Method<GetTextMetrics>(layout, 60)(layout, out metrics));
+                lines = new JsonArray(); foreach (var line in ReadLines())
+                    lines.Add(new JsonObject { ["length_utf16"] = line.Length, ["trailing_whitespace_utf16"] = line.TrailingWhitespaceLength,
+                        ["newline_utf16"] = line.NewlineLength, ["height"] = line.Height, ["baseline"] = line.Baseline, ["is_trimmed"] = line.IsTrimmed != 0 });
+                hitTest = ReadHitTestBounds();
+            }
             Method<VoidCall>(context, 46)(context); clipped = false;
             // Read only the pixels written by this original production draw.
             // No second Draw/layout/target is substituted. Production sessions
@@ -567,7 +580,7 @@ public sealed class NativeLabel : Panel
             // context. A run callback alone is never treated as committed paint.
             var endResult = Method<EndSurface>(surfaceInterop, 5)(surfaceInterop); began = false;
             readback?.ObserveEndDraw(endResult); Check(endResult);
-            receipt = new JsonObject
+            if (CaptureDiagnostics) receipt = new JsonObject
             {
                 ["layout_revision"] = layoutRevision, ["surface_revision"] = surfaceRevision, ["draw_ordinal"] = drawOrdinal,
                 ["layout_com_identity"] = ComIdentity(layout),
@@ -601,7 +614,7 @@ public sealed class NativeLabel : Panel
                 ["hit_test_quantity"] = "DirectWrite HitTestTextRange advance/selection rectangles, not DOM Range ink/font bounds",
                 ["glyph_runs"] = renderer.Runs.DeepClone(), ["limitations"] = renderer.Limitations.DeepClone()
             };
-            failure = null;
+            failure = null; drawDirty = false;
         }
         catch (Exception ex) { failure = ex.ToString(); InvalidateDraw(); }
         finally

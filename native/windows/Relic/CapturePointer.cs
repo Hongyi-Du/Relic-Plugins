@@ -15,7 +15,7 @@ public sealed partial class MainWindow
     // Use the actual Windows input stream for every CI gesture instead.
     private async Task CaptureMovePointer(Point contentPoint)
     {
-        if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
+        if (!VisualCaptureEnabled && !PerformanceEnabled) throw new InvalidOperationException("CI capture input only");
         var origin = new CapturePoint();
         if (!ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Capture ClientToScreen failed");
@@ -25,7 +25,7 @@ public sealed partial class MainWindow
 
     private async Task CaptureMoveScreenPointer(int x, int y)
     {
-        if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
+        if (!VisualCaptureEnabled && !PerformanceEnabled) throw new InvalidOperationException("CI capture input only");
         var left = GetSystemMetrics(76); var top = GetSystemMetrics(77);
         var width = GetSystemMetrics(78); var height = GetSystemMetrics(79);
         if (width <= 0 || height <= 0 || x < left || x >= left + width || y < top || y >= top + height)
@@ -51,7 +51,7 @@ public sealed partial class MainWindow
 
     private void CapturePointerButton(bool down)
     {
-        if (!VisualCaptureEnabled) throw new InvalidOperationException("CI capture input only");
+        if (!VisualCaptureEnabled && !PerformanceEnabled) throw new InvalidOperationException("CI capture input only");
         SendCaptureMouse(new CaptureMouseInput { Flags = down ? 0x0002u : 0x0004u });
         capturePointerReceipts.Add(new JsonObject { ["operation"] = down ? "SendInput left down" : "SendInput left up" });
     }

@@ -20,7 +20,7 @@ public sealed partial class MainWindow
     private Image? toolbarLogoBackingOwner;
     private XamlRoot? toolbarLogoBackingRoot;
     private long toolbarLogoClipRevision;
-    private StackPanel? copiesBody;
+    private VirtualRows? copiesBody;
     private readonly HashSet<string> expandedCopies = [];
     private void DrawToolbar()
     {
@@ -140,7 +140,9 @@ public sealed partial class MainWindow
         search.PlaceholderForeground = Paint("757575");
         var searchMic = Microphone(search); searchMic.Foreground = Paint("5A5853", "B8B5AE"); searchMic.Width = searchMic.Height = 32; searchMic.MinHeight = 0; searchMic.Padding = new Thickness(0); searchMic.HorizontalContentAlignment = HorizontalAlignment.Center; searchMic.VerticalContentAlignment = VerticalAlignment.Center; searchMic.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(searchMic, 2); searchSurface.Children.Add(searchMic); sideTools.Children.Add(searchSurface);
         var caption = TwoColumns(SidebarText(T("page.tree"), 12, true), SidebarText(orgs.Count > 0 ? orgs.Count.ToString() : "", 12, true)); caption.UseLayoutRounding = false; caption.Margin = new Thickness(10, 14, 10, 6); side.Children.Add(caption);
-        var tree = new StackPanel { UseLayoutRounding = false }; side.Children.Add(tree);
+        // Keep every organization/chat as a separate lazy row in the scrolling
+        // viewport. A nested StackPanel of all members defeats virtualization.
+        var tree = side;
         var template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
         ListView Rows()
         {
@@ -215,6 +217,8 @@ public sealed partial class MainWindow
             var foldable = organizationState.Current.CanExpand; var collapsed = organizationState.Current.HidesDescendants;
             if (query.Length == 0 || orgMatch || members.Length > 0)
             {
+                tree.Children.Add(() =>
+                {
                 void Fold() => organizationState.TogglePersisted();
                 var row = new Grid { ColumnSpacing = 8, UseLayoutRounding = false }; row.ColumnDefinitions.Add(new() { Width = new GridLength(14) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
                 var arrow = (ReferenceVectorIcon)ReferenceIcon("chev", 14); arrow.Foreground = Muted; if (organizationState.Current.Expanded) { arrow.RenderTransformOrigin = new(.5, .5); arrow.RenderTransform = new Microsoft.UI.Xaml.Media.RotateTransform { Angle = 90 }; }
@@ -225,28 +229,45 @@ public sealed partial class MainWindow
                 if (!selected && item.Text("last_at").Length > 0) { var time = SidebarText(ShortWhen(item.Text("last_at")), 11.5, true); time.IsTextSelectionEnabled = false; time.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(time, 3); row.Children.Add(time); }
                 var context = new MenuFlyout(); var chart = new MenuFlyoutItem { Text = T("appmenu.org_chart") }; chart.Click += async (_, _) => await Run(() => ShowChart(id)); context.Items.Add(chart); row.ContextFlyout = context;
                 if (item.Text("status") is not ("" or "active")) row.Opacity = .55;
-                var organizationRows = Rows(); Add(organizationRows, row, () => { if (selected) { Fold(); return Task.CompletedTask; } return Select(id); }, selected, depth * 16, organization: organizationState); tree.Children.Add(organizationRows);
+                var organizationRows = Rows(); Add(organizationRows, row, () => { if (selected) { Fold(); return Task.CompletedTask; } return Select(id); }, selected, depth * 16, organization: organizationState);
+                return organizationRows;
+                });
                 if (selected && !collapsed)
                 {
-                    var kids = new StackPanel { UseLayoutRounding = false }; var chats = Rows(); kids.Children.Add(chats);
-                    if (orgMatch || Match(T("common.group_chat"))) Chat(chats, "", T("common.group_chat"), LastLine("group").Length > 0 ? LastLine("group") : T("side.group_sub"), "");
+                    var firstChat = true;
+                    void QueueChat(string who, string title, string subtitle, string avatar, string state = "", bool secretarySetup = false)
+                    {
+                        var topPadding = firstChat ? 2 : 0; firstChat = false;
+                        tree.Children.Add(() =>
+                        {
+                            var chats = Rows(); Chat(chats, who, title, subtitle, avatar, state, secretarySetup);
+                            return new Border { Child = chats, BorderThickness = new Thickness(1, 0, 0, 0),
+                                BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, topPadding, 0, 0),
+                                Margin = new Thickness(10, 0, 0, 0), UseLayoutRounding = false };
+                        });
+                    }
+                    if (orgMatch || Match(T("common.group_chat"))) QueueChat("", T("common.group_chat"), LastLine("group").Length > 0 ? LastLine("group") : T("side.group_sub"), "");
                     var secretary = snap["org"].Text("secretary"); var sec = snap.Rows("members").FirstOrDefault(m => m.Text("name") == secretary);
                     if (query.Length == 0 || Match(T("common.secretary")) || sec != null && members.Contains(sec))
                     {
-                        if (secretary.Length == 0) Chat(chats, "", T("side.set_secretary"), T("side.secretary_hint"), "", secretarySetup: true);
-                        else Chat(chats, secretary, T("common.secretary"), LastLine("member:" + secretary).Length > 0 ? LastLine("member:" + secretary) : sec.Text("doing").Length > 0 ? sec.Text("doing") : sec.Text("detail"), sec.Text("avatar"), sec.Text("state"));
+                        if (secretary.Length == 0) QueueChat("", T("side.set_secretary"), T("side.secretary_hint"), "", secretarySetup: true);
+                        else QueueChat(secretary, T("common.secretary"), LastLine("member:" + secretary).Length > 0 ? LastLine("member:" + secretary) : sec.Text("doing").Length > 0 ? sec.Text("doing") : sec.Text("detail"), sec.Text("avatar"), sec.Text("state"));
                     }
-                    foreach (var m in members.Where(m => !m.Flag("secretary"))) Chat(chats, m.Text("name"), Display(m.Text("name")), m.Text("doing").Length > 0 ? T("side.doing", ("doing", m.Text("doing"))) : LastLine("member:" + m.Text("name")).Length > 0 ? LastLine("member:" + m.Text("name")) : m.Text("role").Length > 0 ? m.Text("role") : MemberState(m.Text("state")), m.Text("avatar"), m.Text("state"));
+                    foreach (var m in members.Where(m => !m.Flag("secretary"))) QueueChat(m.Text("name"), Display(m.Text("name")), m.Text("doing").Length > 0 ? T("side.doing", ("doing", m.Text("doing"))) : LastLine("member:" + m.Text("name")).Length > 0 ? LastLine("member:" + m.Text("name")) : m.Text("role").Length > 0 ? m.Text("role") : MemberState(m.Text("state")), m.Text("avatar"), m.Text("state"));
+                    tree.Children.Add(() =>
+                    {
                     var add = QuietButton("", AddMember); add.Foreground = Muted; add.HorizontalAlignment = HorizontalAlignment.Stretch; add.Padding = new Thickness(8, 6, 8, 6); add.MinHeight = 0; add.CornerRadius = new CornerRadius(8);
-                    var addContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; addContent.Children.Add(ReferenceIcon("plus", 14)); var addText = OverviewText(T("common.add_member"), 12.5, true); addText.IsTextSelectionEnabled = false; addContent.Children.Add(addText); add.Content = addContent; kids.Children.Add(add);
+                    var addContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; addContent.Children.Add(ReferenceIcon("plus", 14)); var addText = OverviewText(T("common.add_member"), 12.5, true); addText.IsTextSelectionEnabled = false; addContent.Children.Add(addText); add.Content = addContent;
                     Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, addText.Text);
-                    tree.Children.Add(new Border { Child = kids, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, 2, 0, 8), Margin = new Thickness(10, 0, 0, 0), UseLayoutRounding = false });
+                    return new Border { Child = add, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, firstChat ? 2 : 0, 0, 8), Margin = new Thickness(10, 0, 0, 0), UseLayoutRounding = false };
+                    });
                 }
             }
             if (collapsed) return; foreach (var child in children) Node(child, depth + 1);
         }
         foreach (var item in orgs.Where(o => o.Text("parent").Length == 0 || !orgs.Any(p => p.Text("id") == o.Text("parent")))) Node(item, 0);
         if (orgs.Count == 0) side.Children.Add(new Border { Padding = new Thickness(10, 8, 10, 8), Child = OverviewText(T("side.no_orgs"), muted: true) });
+        side.Commit();
         sidebarFooter.Padding = new Thickness(8); sidebarFooter.Spacing = 0; sidebarFooter.BorderBrush = Line; sidebarFooter.BorderThickness = new Thickness(0, 1, 0, 0);
         var profile = QuietButton("", Settings); profile.Padding = new Thickness(8, 6, 8, 6); profile.CornerRadius = new CornerRadius(8); profile.HorizontalAlignment = HorizontalAlignment.Stretch; ToolTipService.SetToolTip(profile, T("page.me"));
         var identity = new Grid { ColumnSpacing = 10 }; identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); identity.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); var human = SidebarFace("human", preferences.Text("avatar"), "", false); human.VerticalAlignment = VerticalAlignment.Center; identity.Children.Add(human);
@@ -344,7 +365,7 @@ public sealed partial class MainWindow
     private async Task ShowCopies()
     {
         expandedCopies.Clear();
-        copiesBody = new StackPanel { Spacing = 12, Padding = new Thickness(22), Width = Math.Min(760, root.ActualWidth - 32) };
+        copiesBody = new VirtualRows { Spacing = 12, Padding = new Thickness(22), Width = Math.Min(760, root.ActualWidth - 32) };
         var body = copiesBody; DrawCopies();
         var scroll = Scroll(body); scroll.MaxHeight = root.ActualHeight - 56;
         var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot, Content = scroll };
@@ -375,10 +396,12 @@ public sealed partial class MainWindow
         var close = IconButton("\uE711", "common.close", () => { visibleDialog?.Hide(); return Task.CompletedTask; }); close.Width = close.Height = 30;
         content.Children.Add(OverviewHeading(heading, close));
         var intro = OverviewText(T("cc.intro"), 13, lineHeight: 22.1); intro.Foreground = Paint("5A5853", "B8B5AE"); content.Children.Add(intro);
-        var list = new StackPanel { Spacing = 10 }; content.Children.Add(list);
+        var list = content;
         if (copies.Count == 0) list.Children.Add(new Border { Padding = new Thickness(10, 8, 10, 8), Child = OverviewText(T("cc.empty"), 14, true) });
         foreach (var c in copies)
         {
+            list.Children.Add(() =>
+            {
             var card = new StackPanel { Spacing = 8 }; var live = c.Text("status") == "active" && c.Text("org_status") is "" or "active";
             var badges = new ActionRow { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
             if (!c.Flag("read"))
@@ -439,8 +462,10 @@ public sealed partial class MainWindow
                 surface.Padding = new Thickness(0); surface.Child = null;
                 surface.Child = new Border { Child = card, BorderBrush = Accent, BorderThickness = new Thickness(3, 0, 0, 0), CornerRadius = new CornerRadius(11), Padding = new Thickness(11, 12, 14, 12) };
             }
-            list.Children.Add(surface);
+            return surface;
+            });
         }
+        content.Commit();
     }
     private string CopyState(JsonNode c) => c.Text("org_status") is not ("" or "active") ? T("cc.status_ended") : c.Text("status") == "active" ? T("cc.status_active") : c.Text("status") == "retired" && c.Text("retired_by") == "human" ? T("cc.status_retired_person") : c.Text("status") == "superseded" ? T("cc.status_superseded", ("id", c.Text("superseded_by"))) : T("cc.status_retired");
 }

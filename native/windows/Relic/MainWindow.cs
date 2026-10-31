@@ -28,7 +28,9 @@ public sealed partial class MainWindow : Window
     private readonly Grid root = new();
     private readonly NativeRegionGrid titlebarRegion = new(), treeRegion = new(), chatRegion = new();
     private readonly NativeRegionGrid composerRegion = new() { Padding = new Thickness(0, 6, 0, 16) };
-    private readonly StackPanel side = new() { Spacing = 2, Padding = new Thickness(8) }, stream = new() { Spacing = 0, Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch }, detail = new() { Spacing = 14, Padding = new Thickness(16) };
+    private readonly VirtualRows side = new() { Spacing = 2, Padding = new Thickness(8) };
+    private readonly VirtualRows detail = new() { Spacing = 14, Padding = new Thickness(16) };
+    private readonly VirtualRows stream = new() { Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComposerInput editor = new();
     private readonly TextBox search = new();
     private readonly StackPanel sideTools = new() { Padding = new Thickness(8, 10, 8, 6) };
@@ -43,6 +45,7 @@ public sealed partial class MainWindow : Window
     private Button? sendButton;
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private bool refreshing, pending, closing, ready, sending, sendingThread;
+    private string renderedView = "";
     private readonly Dictionary<string, HashSet<string>> lastDecisions = new();
     private readonly Dictionary<string, string> lastMessages = new();
     private bool active = true;
@@ -171,10 +174,13 @@ public sealed partial class MainWindow : Window
                 if (org.Length > 0) PushHistory();
                 if (VisualCaptureEnabled) { _ = CaptureVisuals(); return; }
                 if (PerformanceEnabled) _ = RunPerformanceScenario();
-                _ = api.Events(ev =>
+                _ = Task.Run(() => api.Events(ev =>
                 {
-                    DispatcherQueue.TryEnqueue(async () =>
+                    var handled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    if (!DispatcherQueue.TryEnqueue(async () =>
                     {
+                        try
+                        {
                         if (ev.Text("type") == "prefs") await Run(LoadPreferences);
                         if (ev.Text("type") == "install") InstallEvent(ev);
                         if (ev.Text("type") == "plain")
@@ -184,9 +190,13 @@ public sealed partial class MainWindow : Window
                         }
                         if (ev.Text("org") == org && ev.Text("type") == "digest") { digestPending = false; if (ev["digest"] != null) digest = ev["digest"]!.DeepClone(); if (ev.Text("error").Length > 0) Note(T("digest.failed", ("error", ev.Text("error")))); }
                         Schedule();
-                    });
-                    return Task.CompletedTask;
-                }, lifetime.Token);
+                        }
+                        finally { handled.TrySetResult(); }
+                    })) handled.TrySetCanceled(lifetime.Token);
+                    // Backpressure: never queue an unbounded number of UI
+                    // callbacks. The refresh timer coalesces handled hints.
+                    return handled.Task;
+                }, lifetime.Token), lifetime.Token);
             });
         };
         ConfigureWindowPlacement();
@@ -207,6 +217,8 @@ public sealed partial class MainWindow : Window
         try
         {
             var selectedOrg = org; var selectedMember = member;
+            var oldOrgs = orgs; var oldSnap = snap; var oldMessages = messages;
+            var oldConversation = conversation; var oldLive = liveData; var oldThread = threadData;
             try { orgs = (await api.Get("/api/orgs")).Rows(); }
             catch (Exception ex) { throw new InvalidOperationException(T("boot.load_orgs_failed", ("error", ex.Message)), ex); }
             var newCopy = copyInbox.Update(await api.Get("/api/cc"));
@@ -219,7 +231,10 @@ public sealed partial class MainWindow : Window
                 var chat = await api.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit));
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                 snap = snapshot;
-                messages = olderHistory ? Transcript.MergeMessages(messages, chat.Rows("items")) : chat.Rows("items");
+                var loadedMessages = messages;
+                var mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
+                if (org != selectedOrg || member != selectedMember) { pending = true; return; }
+                messages = mergedMessages;
                 if (!olderHistory) chatMore = chat.Flag("more");
                 if (member.Length > 0)
                 {
@@ -242,9 +257,23 @@ public sealed partial class MainWindow : Window
                     }
             }
             if (active) MarkSeen();
-            DrawMenu(); DrawToolbar(); DrawSide(); DrawChat(); DrawDetail();
-            if (pane == "workspace") await Workspace();
-            if (refreshChart != null) await refreshChart();
+            var nextOrgs = orgs; var nextSnap = snap; var nextMessages = messages;
+            var nextConversation = conversation; var nextLive = liveData; var nextThread = threadData;
+            var changes = await Task.Run(() => (
+                Side: !JsonNode.DeepEquals(oldOrgs, nextOrgs) || !JsonNode.DeepEquals(oldSnap, nextSnap),
+                Chat: !JsonNode.DeepEquals(oldMessages, nextMessages) || !JsonNode.DeepEquals(oldConversation, nextConversation)
+                    || !JsonNode.DeepEquals(oldLive, nextLive),
+                Detail: !JsonNode.DeepEquals(oldSnap, nextSnap) || !JsonNode.DeepEquals(oldThread, nextThread)), lifetime.Token);
+            if (org != selectedOrg || member != selectedMember) { pending = true; return; }
+            var viewChanged = renderedView != org + "/" + member;
+            if (viewChanged) DrawMenu();
+            if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged) DrawToolbar();
+            if (changes.Side || viewChanged) DrawSide();
+            if (changes.Chat || changes.Side || viewChanged) DrawChat();
+            if (changes.Detail || viewChanged) DrawDetail();
+            renderedView = org + "/" + member;
+            if (pane == "workspace" && changes.Detail) await Workspace();
+            if (refreshChart != null && changes.Detail) await refreshChart();
         }
         finally { refreshing = false; if (pending) Schedule(); }
     }
@@ -253,7 +282,7 @@ public sealed partial class MainWindow : Window
         transientFlyout?.Hide();
         await StopVoice();
         RememberChat(); var different = org != id; org = id; member = who; conversation = new JsonObject(); liveData = new JsonObject(); messages = new JsonArray();
-        olderHistory = false;
+        olderHistory = false; chatPages = 1;
         if (different) { digest = new JsonObject(); threadId = ""; if (pane == "thread") pane = previousPane; directory = ""; workspaceMember = ""; }
         RestoreChat(); if (!fromHistory) PushHistory();
         var reveal = id; var ancestors = new HashSet<string>();
@@ -287,8 +316,19 @@ public sealed partial class MainWindow : Window
         // example, opening a file then narrows the chat and wraps a message.
         // Scrolling that later layout would move the reader past the position
         // retained when they opened the file (or started reading history).
-        root.UpdateLayout();
-        chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null, true);
+        keepLatest = true;
+        var request = ++latestRequest;
+        stream.BringLastIntoView();
+        _ = SettleLatest();
+        async Task SettleLatest()
+        {
+            try
+            {
+                await WaitForMarkdown();
+                if (!closing && keepLatest && request == latestRequest) stream.BringLastIntoView();
+            }
+            catch (TimeoutException) { /* Loading continues; never override a later user scroll. */ }
+        }
     }
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
