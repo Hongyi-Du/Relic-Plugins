@@ -56,7 +56,11 @@ struct RecordedSurface: ViewModifier {
     private var shadowOutset: CGFloat {
         shadows.map { $0.radius * 3 + max(abs($0.x), abs($0.y)) }.max() ?? 0
     }
-    func body(content: Content) -> some View {
+    @ViewBuilder func body(content: Content) -> some View {
+        if NativeDiagnostics.enabled { painted(content).onHover { hoverObservation.received($0) } }
+        else { painted(content) }
+    }
+    private func painted(_ content: Content) -> some View {
         ownedContent(content).background {
             // CSS box shadows belong to the surface outline. Applying SwiftUI
             // shadow to the content hierarchy also shadows fields/text inside
@@ -75,7 +79,7 @@ struct RecordedSurface: ViewModifier {
                 // changed its antialiased border pixels in the mounted test.
                 NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner, ownedLayer: shadows.isEmpty)
                 }
-            } else if shadows.isEmpty { shape.fill(background) }
+            } else if shadows.isEmpty { if background != .clear { shape.fill(background) } }
             else {
                 ZStack {
                     ForEach(Array(shadows.enumerated().reversed()), id: \.offset) { _, value in
@@ -95,13 +99,14 @@ struct RecordedSurface: ViewModifier {
             }
         }
             .overlay {
+                ZStack {
                 if let edges {
                     if borderDash.isEmpty {
                         ZStack {
-                            border.frame(height: edges.top).frame(maxHeight: .infinity, alignment: .top)
-                            border.frame(width: edges.trailing).frame(maxWidth: .infinity, alignment: .trailing)
-                            border.frame(height: edges.bottom).frame(maxHeight: .infinity, alignment: .bottom)
-                            border.frame(width: edges.leading).frame(maxWidth: .infinity, alignment: .leading)
+                            if edges.top > 0 { border.frame(height: edges.top).frame(maxHeight: .infinity, alignment: .top) }
+                            if edges.trailing > 0 { border.frame(width: edges.trailing).frame(maxWidth: .infinity, alignment: .trailing) }
+                            if edges.bottom > 0 { border.frame(height: edges.bottom).frame(maxHeight: .infinity, alignment: .bottom) }
+                            if edges.leading > 0 { border.frame(width: edges.leading).frame(maxWidth: .infinity, alignment: .leading) }
                         }.allowsHitTesting(false)
                     } else {
                         GeometryReader { proxy in
@@ -113,28 +118,26 @@ struct RecordedSurface: ViewModifier {
                             }
                         }.allowsHitTesting(false)
                     }
-                } else { shape.strokeBorder(border, style: StrokeStyle(lineWidth: borderWidth, dash: borderDash)).allowsHitTesting(false) }
-            }
-            .overlay { if insetLeadingWidth > 0 { insetLeadingColor.frame(width: insetLeadingWidth).frame(maxWidth: .infinity, alignment: .leading).clipShape(shape).allowsHitTesting(false) } }
-            .overlay { if insetRingWidth > 0 { shape.inset(by: borderWidth).strokeBorder(insetRingColor, lineWidth: insetRingWidth).allowsHitTesting(false) } }
-            .background {
-                if outerRingWidth > 0 {
-                    RoundedRectangle(cornerRadius: radius + outerRingWidth).strokeBorder(outerRingColor, lineWidth: outerRingWidth).padding(-outerRingWidth).allowsHitTesting(false)
-                }
-                ZStack {
-                    ForEach(Array(rings.enumerated().reversed()), id: \.offset) { _, ring in
-                        RoundedRectangle(cornerRadius: radius + ring.width, style: .circular)
-                            .strokeBorder(ring.color, lineWidth: ring.width).padding(-ring.width)
-                    }
-                }.allowsHitTesting(false)
-            }
-            .overlay {
+                } else if borderWidth > 0 { shape.strokeBorder(border, style: StrokeStyle(lineWidth: borderWidth, dash: borderDash)).allowsHitTesting(false) }
+                if insetLeadingWidth > 0 { insetLeadingColor.frame(width: insetLeadingWidth).frame(maxWidth: .infinity, alignment: .leading).clipShape(shape).allowsHitTesting(false) }
+                if insetRingWidth > 0 { shape.inset(by: borderWidth).strokeBorder(insetRingColor, lineWidth: insetRingWidth).allowsHitTesting(false) }
                 // The outline path is actual paint and always stays enabled.
                 if outline != nil || NativeDiagnostics.enabled {
                     SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: surfaceOwner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline, hoverObservation: hoverObservation).padding(-(outline?.outset ?? 0)).allowsHitTesting(false)
                 }
+                }
             }
-            .onHover { hoverObservation.received($0) }
+            .background {
+                if outerRingWidth > 0 {
+                    RoundedRectangle(cornerRadius: radius + outerRingWidth).strokeBorder(outerRingColor, lineWidth: outerRingWidth).padding(-outerRingWidth).allowsHitTesting(false)
+                }
+                if !rings.isEmpty { ZStack {
+                    ForEach(Array(rings.enumerated().reversed()), id: \.offset) { _, ring in
+                        RoundedRectangle(cornerRadius: radius + ring.width, style: .circular)
+                            .strokeBorder(ring.color, lineWidth: ring.width).padding(-ring.width)
+                    }
+                }.allowsHitTesting(false) }
+            }
     }
 }
 
