@@ -1,5 +1,18 @@
 ## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
 
+Latest `f684317`: strict macOS `41169844247` still fails startup, maximum
+**649.679 ms / 185.766 MiB / 8 threads**, early stop. The inspector and sidebar
+are now flat lazy collections (5/6 and 10/10 current/peak appeared rows), but
+native construction still reports 555 labels and 117 text views. Appeared rows
+alone therefore do not establish actual view-creation bounds. The next trace
+attributes native construction to its actual region. No tolerance change.
+The full-window Mac capture passed in `41169844225`; all four images retained
+at `S:\Codex\Outputs\Relic-native-visual\titlebar-f684317\macos`. Viewed light
+1440x900 after the inspector refactor; the established visual hierarchy remains.
+Shared-owner follow-up: Windows chrome at `aa1be2f` failed in `41169279678`;
+its retained `Relic-titlebar-Windows/titlebar-report.json` has the per-case errors.
+Mac in that workflow passed. Latest native tests/package are still running.
+
 04:28Z: `6a444a9` builds/tests/package green (`41168489895`, 277 Mac tests).
 Strict Mac run `41168489877` still fails: **774.486 ms / 196.5 MiB / 9 threads**.
 The flat sidebar reports 10 mounted rows, peak 22; the 1000-message conversation
