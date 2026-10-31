@@ -7,25 +7,6 @@ import RelicAX
         var children: [Any] = [], navigation: [Any] = []
         @objc func accessibilityChildren() -> [Any] { children }
         @objc func accessibilityChildrenInNavigationOrder() -> [Any] { navigation }
-        @objc func setAccessibilityChildrenInNavigationOrder(_ value: [Any]) { navigation = value }
-    }
-    func testProductionOrderingMovesOnlyTheIdentifiedExistingSibling() throws {
-        let owner = Owner(), other = NSView(), author = NSView(), body = NSView(), avatar = NSView()
-        author.setAccessibilityIdentifier("author"); avatar.setAccessibilityIdentifier("avatar")
-        // Equal visible names must not be used to pair or reorder elements.
-        for view in [other, author, body, avatar] { view.setAccessibilityLabel("same") }
-        owner.children = [other, author, body, avatar]
-        let original = owner.children.map { ObjectIdentifier($0 as AnyObject) }
-        XCTAssertTrue(RelicAXPlaceChildBefore(owner, "avatar", "author"))
-        XCTAssertEqual(RelicAXChildren(owner).map { ObjectIdentifier($0 as AnyObject) },
-            [other, avatar, author, body].map(ObjectIdentifier.init))
-        XCTAssertEqual(owner.children.map { ObjectIdentifier($0 as AnyObject) }, original)
-        XCTAssertTrue(RelicAXPlaceChildBefore(owner, "avatar", "author"))
-        XCTAssertFalse(RelicAXPlaceChildBefore(owner, "missing", "author"))
-        XCTAssertFalse(RelicAXPlaceChildBefore(owner, "avatar", "avatar"))
-        other.setAccessibilityIdentifier("avatar")
-        XCTAssertFalse(RelicAXPlaceChildBefore(owner, "avatar", "author"))
-        XCTAssertEqual(owner.children.map { ObjectIdentifier($0 as AnyObject) }, original)
     }
     func testNativeNavigationOrderRequiresTheExactOrdinaryChildInventory() throws {
         let first = NSObject(), second = NSObject(), unrelated = NSObject(), owner = Owner()

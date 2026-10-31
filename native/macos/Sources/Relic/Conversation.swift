@@ -11,10 +11,8 @@ struct Avatar: View {
     var stateBorder: Color = RelicStyle.background
     var borderWidth: CGFloat = 0
     var imageVisibility: ((Bool) -> Void)? = nil
-    var navigationID: String? = nil
     @State private var image: NSImage?
-    @State private var uniqueIdentity = "relic-avatar/" + UUID().uuidString
-    private var identity: String { navigationID ?? uniqueIdentity }
+    @State private var identity = "relic-avatar/" + UUID().uuidString
     @Environment(\.colorScheme) private var scheme
     private var state: String { m.members.first(where: { $0["name"].text == member })?["state"].text ?? "" }
     private var radius: CGFloat { size == 20 ? 6 : size == 28 ? 8 : size == 60 ? 14 : 9 }
@@ -27,8 +25,7 @@ struct Avatar: View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
             else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), lines: 0, alignment: .center, owner: identity,
-                navigationID: navigationID.map { "relic-avatar-text/" + $0 }).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), lines: 0, alignment: .center, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: max(0, radius - borderWidth))).padding(borderWidth)
             .modifier(RecordedSurface(background: secretaryStyle ? RelicStyle.violetSoft : member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark),
                 border: borderWidth > 0 ? RelicStyle.background : .clear, borderWidth: borderWidth, radius: radius, kind: "avatar", owner: identity))
@@ -281,7 +278,7 @@ struct ConversationStream: View {
                                         .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
                                         .accessibilitySortPriority(priority + 1)
                                 }
-                                MessageView(item: row.item, continued: row.continued, readingOrderPriority: priority)
+                                MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
                                     .accessibilitySortPriority(priority)
                             }
@@ -323,10 +320,7 @@ struct MessageView: View {
     let item: Node
     var inThread = false
     var continued = false
-    var readingOrderPriority: Double = 0
     @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
-    @State private var avatarNavigationID = "relic-avatar/" + UUID().uuidString
-    @State private var metadataNavigationID = "relic-message-author/" + UUID().uuidString
     @State private var hovering = false
     @State private var originalExpanded = false
     @State private var threadAvatarImages: Set<String> = []
@@ -357,11 +351,11 @@ struct MessageView: View {
         } else {
             MessageColumns(mine: mine) {
                 if continued { Color.clear.frame(width: inThread ? 30 : 36, height: 0) }
-                else if mine { Avatar(member: "human", size: inThread ? 30 : 36, navigationID: avatarNavigationID).accessibilitySortPriority(readingOrderPriority + 0.5) }
-                else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("").accessibilitySortPriority(readingOrderPriority + 0.5) }
+                else if mine { Avatar(member: "human", size: inThread ? 30 : 36).accessibilitySortPriority(1) }
+                else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("").accessibilitySortPriority(1) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { FlowLayout(spacing: 6, centerRows: true, rowAlignment: mine ? .trailing : .leading) {
-                        ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0, navigationID: metadataNavigationID)
+                        ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0)
                         if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { ReferenceLabel(item["from"].text, size: 11, color: RelicStyle.muted, lineHeight: 14.3, lines: 0, monospaced: true) }
                         if item["type"].text == "receipt" { ReferenceLabel(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0) }
                         else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).help(recipientLabel) }
@@ -404,9 +398,7 @@ struct MessageView: View {
                 }.frame(maxWidth: 720, alignment: mine ? .trailing : .leading)
             }.contentShape(Rectangle()).overlay(alignment: mine ? .topLeading : .topTrailing) {
                 if hovering { hoverActions.offset(x: mine ? 8 : -8, y: -12) }
-            }.background(MessageInteractionAnchor(messageID: item["id"].text,
-                avatarNavigationID: mine && !continued ? avatarNavigationID : nil,
-                metadataNavigationID: metadataNavigationID))
+            }.background(MessageInteractionAnchor(messageID: item["id"].text))
                 .onHover { hovering = $0 }.environment(\.selectedAuthor, item["from"].text).task(id: wantsPlain) { if wantsPlain { m.enqueuePlain(item["id"].text) } }
         }
     }
@@ -615,14 +607,14 @@ struct ThreadView: View {
                     OverviewBlock { ReferenceLabel(m.threadData["error"].text.isEmpty ? m.t("common.loading") : m.t("common.load_failed", ["error": m.threadData["error"].text]), size: 12.5, color: RelicStyle.muted, lines: 0) }
                 } else {
                     let rows = m.conversationRows(m.threadData["replies"].rows, separators: false)
-                    MessageView(item: m.threadData["root"], inThread: true, readingOrderPriority: Double(rows.count * 2 + 4)).padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 11)
+                    MessageView(item: m.threadData["root"], inThread: true).padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 11)
                         .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
                         .accessibilitySortPriority(Double(rows.count * 2 + 4))
                     ReferenceLabel(m.t(m.threadData["replies"].rows.isEmpty ? "thread.no_replies" : "thread.replies", ["n": String(m.threadData["replies"].rows.count)]), size: 12, color: RelicStyle.muted).padding(.horizontal, 16).padding(.top, 10)
                         .accessibilitySortPriority(Double(rows.count * 2 + 3))
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                            MessageView(item: row.item, inThread: true, continued: row.continued, readingOrderPriority: Double((rows.count - index) * 2)).padding(.top, row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
+                            MessageView(item: row.item, inThread: true, continued: row.continued).padding(.top, row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
                                 .accessibilitySortPriority(Double((rows.count - index) * 2))
                         }
                     }.padding(.horizontal, 16).padding(.bottom, 16)
