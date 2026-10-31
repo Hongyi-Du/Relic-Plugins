@@ -10,6 +10,12 @@ final class UIWorkTrace: @unchecked Sendable {
     private var ordinal = 0
     private var active: [Int: (name: String, started: Double, main: Bool)] = [:]
     private var totals: [String: (count: Int, ms: Double, maximum: Double)] = [:]
+    private var gauges: [String: (current: Int, peak: Int)] = [:]
+    static func gauge(_ name: String, _ value: Int) {
+        guard enabled else { return }
+        let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
+        trace.gauges[name] = (value, max(value, trace.gauges[name]?.peak ?? 0))
+    }
     static func begin(_ name: String) -> Int? {
         guard enabled else { return nil }
         let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
@@ -30,6 +36,7 @@ final class UIWorkTrace: @unchecked Sendable {
         let now = ProcessInfo.processInfo.systemUptime
         let activeRows: [[String: Any]] = active.values.map { ["name": $0.name, "milliseconds": (now - $0.started) * 1000, "main_thread": $0.main] }
         let summaries: [String: [String: Any]] = totals.mapValues { ["calls": $0.count, "total_ms": $0.ms, "max_ms": $0.maximum] }
-        return ["active": activeRows, "totals": summaries]
+        return ["active": activeRows, "totals": summaries,
+                "gauges": gauges.mapValues { ["current": $0.current, "peak": $0.peak] }]
     }
 }
