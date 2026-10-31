@@ -1,3 +1,13 @@
+0ed6e7e Native apps41252939967 passes308 tests (new actual header/Markdown
+width/content invalidation tests pass). Strict41252939866 FAILS270.014 ms at
+first file-menu action0155,221.719 MiB,9threads. Message-column max is now
+57.663 ms; the remaining first-menu stall is outside those layout scopes.
+Source still forces drawingGroup for broad shadows (restored in432e6d2 to
+preserve edge pixels). First broad shadow is this menu. Replace that cold
+offscreen-renderer path with native Quartz shadow drawing; retain all existing
+shadow edge-profile and native-fill bitmap tests, with unchanged tolerances.
+This is a product candidate awaiting CI, not a proven completed hang fix.
+Full strict history/random/resource requirements remain unchanged.
 8087b5c Native apps41252118990 passes 306 tests, including actual retained
 scroll/composer navigation (13.308 s) and 5850-row Home/End (8.560 s). Python
 41252118958 passes all jobs. Strict41252118966 still FAILS267.238 ms at
