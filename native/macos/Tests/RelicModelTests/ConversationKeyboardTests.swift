@@ -83,7 +83,7 @@ import RelicCore
             for child in root.subviews { if let scroll = find(child) { return scroll } }
             return nil
         }
-        func settled() async throws {
+        func settled(_ phase: String) async throws {
             // This is a completion deadline for the actual native content,
             // not the separate unchanged 250 ms responsiveness watchdog.
             let deadline = ProcessInfo.processInfo.systemUptime + (messageCount > 1_000 ? 30 : 5)
@@ -98,9 +98,9 @@ import RelicCore
                 previousHeight = height
                 if quiet >= 3 { return }
             } while ProcessInfo.processInfo.systemUptime < deadline
-            XCTFail("The production lazy conversation did not settle")
+            XCTFail("The production lazy conversation did not settle during \(phase)")
         }
-        try await settled()
+        try await settled("initial presentation")
         let scroll = try XCTUnwrap(find(host))
         let keyboard = try XCTUnwrap(ConversationKeyboardMount.controller(for: scroll))
         func visibleText(_ expected: String, in view: NSView) -> Bool {
@@ -114,18 +114,18 @@ import RelicCore
         XCTAssertEqual(scroll.contentView.bounds.minY, initialBottom, accuracy: 2, "Initial presentation must show the newest row completely")
         XCTAssertTrue(visibleText("Final paragraph.", in: host), "The latest Markdown paragraph must be inside the actual viewport")
         model.messages.append(Node(["id": messageCount + 1, "type": "message", "from": "human", "to": ["all"], "text": "Arrived after the view mounted", "at": "2026-10-30T12:01:00Z"] as [String: Any]))
-        try await settled()
+        try await settled("following append")
         XCTAssertTrue(visibleText("Arrived after the view mounted", in: host), "Scoped conversation observation must update actual visible native text")
         XCTAssertEqual(ConversationKeyboardMount.bottomGap(in: window) ?? -1, 0, accuracy: 2)
         XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
-        try await settled()
+        try await settled("Home")
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "Home must reach the real first row, not merely return handled")
         XCTAssertTrue(visibleText("Message 1", in: host), "Home must show actual oldest message text")
         model.messages.append(Node(["id": messageCount + 2, "type": "message", "from": "human", "to": ["all"], "text": "Arrived while reading history", "at": "2026-10-30T12:02:00Z"] as [String: Any]))
-        try await settled()
+        try await settled("history append")
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2, "New messages must not override a person's explicit history navigation")
         XCTAssertEqual(keyboard.handle(.end, modifiers: []), .handled)
-        try await settled()
+        try await settled("End")
         let bottom = try XCTUnwrap(scroll.documentView).bounds.maxY - scroll.contentView.bounds.height
         XCTAssertEqual(scroll.contentView.bounds.minY, bottom, accuracy: 2, "End must reach the real last row including its trailing space")
         XCTAssertTrue(visibleText("Arrived while reading history", in: host), "End must restore the actual latest text, not an empty offset")
