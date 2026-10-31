@@ -41,7 +41,10 @@ import RelicCore
             let host = NSHostingView(rootView: MainView().environmentObject(current))
             host.sizingOptions = []; host.autoresizingMask = [.width, .height]
             window.contentView = host; WindowChrome.apply(to: window)
-            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            let placementName = "Relic.WindowCapture." + UUID().uuidString
+            let placement = ApplicationWindowPlacement(window: window, autosaveName: placementName)
+            let initialMinimum = window.minSize
+            defer { window.setFrameAutosaveName(""); NSWindow.removeFrame(usingName: placementName); window.orderOut(nil); window.contentView = nil; window.close() }
             for item in manifest["cases"].rows {
                 let prepared = try await current.post(fixture["scene_endpoint"].text, ["scene": item["scene"].text])
                 guard prepared["scene"].text == item["scene"].text else { throw RelicError.message("Fixture scene was not prepared") }
@@ -77,6 +80,11 @@ import RelicCore
                     "window_frame": ElementCapture.box(window.frame), "content_bounds": ElementCapture.box(host.bounds),
                     "client_screen_frame": ElementCapture.box(window.convertToScreen(host.convert(host.bounds, to: nil))),
                     "backing_scale": window.backingScaleFactor,
+                    "initial_window_frame": ElementCapture.box(placement.initialFrame),
+                    "visible_screen_frame": ElementCapture.box(placement.initialVisibleFrame),
+                    "minimum_window_size": ["width": initialMinimum.width, "height": initialMinimum.height],
+                    "inspector_overlay": InspectorGeometry.overlaysConversation(window: host.bounds.width),
+                    "sidebar_width_pt": InspectorGeometry.sidebarWidth(window: host.bounds.width),
                     "title_hidden": window.titleVisibility == .hidden, "titlebar_transparent": window.titlebarAppearsTransparent,
                     "full_size_content": window.styleMask.contains(.fullSizeContentView), "traffic_lights": buttons,
                     "theme": theme, "language": language]

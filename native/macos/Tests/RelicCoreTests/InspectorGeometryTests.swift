@@ -2,6 +2,12 @@ import XCTest
 @testable import RelicCore
 
 final class InspectorGeometryTests: XCTestCase {
+    func testSidebarUsesTheReference820PointBreakpoint() {
+        XCTAssertEqual(InspectorGeometry.sidebarWidth(window: 820), 236)
+        XCTAssertEqual(InspectorGeometry.sidebarWidth(window: 800), 236)
+        XCTAssertEqual(InspectorGeometry.sidebarWidth(window: 821), 276)
+        XCTAssertEqual(InspectorGeometry.sidebarWidth(window: 1440), 276)
+    }
     func testNarrowWindowsKeepConversationWidthAndOverlayTheInspector() {
         XCTAssertTrue(InspectorGeometry.overlaysConversation(window: 1024))
         XCTAssertTrue(InspectorGeometry.overlaysConversation(window: 1180))

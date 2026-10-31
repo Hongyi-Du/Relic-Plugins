@@ -27,14 +27,14 @@ struct MainView: View {
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready { ProgressView().padding(); Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             HStack(spacing: 0) {
-                if m.sidebarOpen { Sidebar().frame(width: 276).measuredRegion("sidebar", createsAccessibilityContainer: false) }
+                if m.sidebarOpen { Sidebar().frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)).measuredRegion("sidebar", createsAccessibilityContainer: false) }
                 ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
                 if m.panelOpen && !floatingPanel { inspector }
             }.frame(maxHeight: .infinity).overlay(alignment: .trailing) { if m.panelOpen && floatingPanel { inspector } }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.windowSize = geometry.size; m.mentionEditor?.closeMentions(); m.inputSuggestions = nil; m.recipientPicker = false; m.appMenu = nil }
         .onChange(of: m.sidebarOpen) { m.defaults.set(m.sidebarOpen, forKey: "sidebar") }
-        .onChange(of: m.panelOpen) { m.defaults.set(m.panelOpen, forKey: "panel") }
+        .onChange(of: m.panelOpen) { if !floatingPanel { m.defaults.set(m.panelOpen, forKey: "panel") } }
         .onChange(of: m.sheet) { m.activeSpeech?.stop(); if m.sheet != nil { m.recipientPicker = false; m.mentionEditor?.closeMentions() } }
         .onChange(of: m.focusSearch) { if m.focusSearch { m.mentionEditor?.closeMentions() } }
         .onChange(of: m.appMenu) { if m.appMenu != nil { m.mentionEditor?.closeMentions(); m.recipientPicker = false } }
@@ -105,7 +105,9 @@ struct AppToolbar: View {
                     .padding(.leading, 4).accessibilityElement(children: .contain).accessibilityLabel(m.t("appbar.menus"))
             }.background(GeometryReader { proxy in Color.clear.preference(key: ToolbarControlBounds.self, value: [proxy.frame(in: .named("appbar"))]) })
             let title = m.organization.isEmpty ? m.t("common.app_name") : m.snapshot["org"]["name"].text + " · " + (m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("common.secretary") : m.name(m.member))
-            ReferenceLabel(title, size: 12.5, color: RelicStyle.muted, lineHeight: 20).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
+            if m.windowSize.width > 900 {
+                ReferenceLabel(title, size: 12.5, color: RelicStyle.muted, lineHeight: 20).frame(maxWidth: m.windowSize.width * 0.4).help(title).allowsHitTesting(false)
+            } else { Color.clear.frame(width: 0, height: 0).accessibilityHidden(true) }
             HStack(spacing: 2) {
                 IconButton(title: m.snapshot["decisions"].rows.isEmpty ? m.t("appbar.no_decisions") : m.t("appbar.decisions", ["n": String(m.snapshot["decisions"].rows.count)]), icon: "bell", badge: m.snapshot["decisions"].rows.count, size: 16, height: 28, color: m.snapshot["decisions"].rows.isEmpty ? nil : RelicStyle.amber) { m.setPane("overview") }
                 IconButton(title: m.t(m.unreadCopies > 0 ? "appbar.cc" : "appbar.cc_none", ["n": String(m.unreadCopies)]), icon: "cc", badge: m.unreadCopies, size: 16, height: 28) { m.sheet = .copies }
