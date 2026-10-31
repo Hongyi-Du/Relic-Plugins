@@ -85,6 +85,7 @@ import RelicCore
             case "about": m.settingsSection = "about"; m.sheet = .settings
             case "neworg": m.sheet = .create
             case "member": m.openMemberForm()
+            case "tasks", "protocols": m.openDetails(action["name"].text)
             default: throw RelicError.message("Unknown dialog in performance manifest")
             }
             await settle(); m.sheet = nil; await settle()
