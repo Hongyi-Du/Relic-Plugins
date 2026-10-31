@@ -8,20 +8,21 @@
 `RELIC_TITLEBAR_CAPTURE=1` 入口只允许 GitHub Actions，使用真实 `screencapture -l`
 截取完整窗口，不使用 ImageRenderer 或内容缓存冒充整窗。
 
-`3f583b7` 的 macOS 四张整窗图全部成功，且已逐张查看：明暗主题、1440×900 和1024×700，
+`f8f8704` 的 macOS 四张整窗图全部成功，且已逐张查看：明暗主题、1440×900 和1024×700，
 红黄绿按钮均显示，顶栏没有额外标题条、重叠或裁切。PNG 尺寸与请求尺寸完全一致。
-图片和原始窗口记录位于 `S:\Codex\Outputs\Relic-native-visual\titlebar-3f583b7\macos\`。
-[整窗截图 CI（macOS job 成功）](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41153904958)。
-该次 Windows job 仍失败，由 Windows 会话修复，不能把整条截图工作流称为成功。
+图片和原始窗口记录位于 `S:\Codex\Outputs\Relic-native-visual\titlebar-f8f8704\macos\`。
+[整窗截图 CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41155192737) 全部成功，
+macOS 和 Windows 均为 4/4、零捕获错误；Windows 的四张最终整窗图也已逐张查看。
 
 同提交的 Release 构建、248项 macOS 测试（零失败）、Windows 构建/测试、共享检查、两平台
-打包全部成功：[Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41153910199)。
-Windows/macOS × Python 3.11/3.13 四组验证全部成功：
-[Validate Windows and macOS packages](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41153910116)。
+打包全部成功：[Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41155197361)。
+此前 `3f583b7` 的四组 Python 验证成功，但 `f8f8704` 的 Windows Python 3.11 出现后台
+runner 尚未退出、SQLite WAL 仍被占用的临时目录清理失败，尚不能称最终验证全绿。
+精确失败链接及静态定位已写在 `REQUESTS.md` 首项，由 Windows 会话修复共享测试生命周期。
 
 macOS 产物为 `Relic-native-macOS-arm64-unsigned`，ZIP 是
 `relic-native-macos-v0.7.1-beta.1.zip`，已下载到
-`S:\Codex\Outputs\Relic-native-visual\titlebar-3f583b7\packages\macos\`。
+`S:\Codex\Outputs\Relic-native-visual\titlebar-f8f8704\packages\macos\`。
 ZIP 完整性检查通过，内含 `Relic.app/Contents/MacOS/Relic` 和 `Info.plist`，Bundle ID 为
 `ai.hongyidu.relic`。本机没有解压运行或安装。实际 Mac 上仍由使用者确认窗口拖动、
 双击缩放、红黄绿按钮和日常聊天操作；CI 已验证渲染和原生控件几何/命中逻辑。

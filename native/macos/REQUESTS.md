@@ -15,6 +15,13 @@ uses `TemporaryDirectory(ignore_cleanup_errors=True)`, which did not prevent
 this failure on Python 3.11. No client API change is needed. macOS cannot edit
 the shared engine/tests under the agreed ownership split.
 
+Static inspection confirms the ordering: `scripts/relic_run.py` writes the
+terminal run state at the start of `finally`, then calls `Store()`,
+`clear_focus`, receipts and `wake.dispatch`. `runner.is_running()` immediately
+returns false for terminal status, so `Runner.turn()` can return while that
+process is still using SQLite. The test should await actual runner process
+completion before cleanup; preserve production receipt/wake ordering.
+
 ## 2026-10-31: Amendment 5 supersedes the strict parity gate
 
 The person accepts the current look. Stop parity iteration and new matrix work.
