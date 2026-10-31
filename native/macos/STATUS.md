@@ -13,23 +13,35 @@
 剩余热点集中在 SwiftUI 创建和测量控件。`1d288de` 将组织的三个区域分帧挂载，保留最终宽度。
 测量始终覆盖此过程，等待真实会话版本、可见 Markdown 和各区域完成后才继续。
 
+`421996d` 将概况面板的决策、成员、任务、协议和事件集拆为独立惰性行；`f684317` 避免在
+组织快照准备好前构建一次临时组织树。新增测试检查42成员、100决策和协议继承/替换的完整性及
+稳定顺序。按区域的实际控件创建统计随后显示：`e05f6d6` 的启动样本中，会话创建452个标签和
+104个文本视图，概况为33个标签；可见行计数不能单独证明控件创建量受限。
+
+`b8e2195` 移除每次内容高度变化后强行滚到估算底部的反馈路径，使用现有原生底部锚点；切换
+会话重建对应滚动区，发送消息仍可跳到底部。这一修复已构建、测试和打包，严格压力结果待确认。
+
 | 提交 / CI | 测量范围 | 最长 UI 停顿 | 峰值 RSS / 线程 | 结论 |
 | --- | --- | --- | --- | --- |
 | `6a92a00` / `41162500465` | 修改前严格基线，启动后早停 | 1986.742 ms | 133.281 MiB / 8 | 失败 |
 | `87f7b77` / `41167167972` | 严格候选，启动后早停 | 574.371 ms | 174.953 MiB / 8 | 失败 |
 | `87f7b77` / `41167474995` | 明确标注诊断，超时后继续30秒 | 658.700 ms | 200.531 MiB / 10 | 诊断，不可验收 |
+| `f684317` / `41169844247` | 严格候选，启动后早停 | 649.679 ms | 185.766 MiB / 8 | 失败 |
+| `e05f6d6` / `41170116118` | 严格候选，启动后早停 | 859.590 ms | 176.109 MiB / 8 | 失败 |
 
 以上运行时长不同，不能据此宣称长期内存改善或无增长；尚无完成全量交互加180秒随机点击的
 macOS 通过记录。250 ms、内存和线程门槛没有放宽。合成数据包含13组织、90成员、12310条消息、
 420任务、796事件，最大群聊5500条；初始API页1000条、历史页200条不变。
 
-`87f7b77` 的 [Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41167167998)
-通过274项 macOS 测试（零失败）、双平台构建和打包。`1d288de` 的
-[整窗截图](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41167801377) 已通过，图片在
-`S:\Codex\Outputs\Relic-native-visual\titlebar-1d288de\macos\`；
-[严格压力测试](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41167801393) 正在运行。
-采样和原始 JSON 位于 `responsiveness-87f7b77\macos\` 与
-`responsiveness-87f7b77-diagnostic\macos\`（同一个 `Relic-native-visual` 输出根目录）。
+`f684317` 的 [Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41169844353)
+通过279项 macOS 测试（零失败）、双平台构建和打包。`b8e2195` 的
+[Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41170186695) 与
+[整窗截图](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41170186585) 也已通过。
+已下载并查看 `f684317` 明色1440x900整窗图，图片目录
+`S:\Codex\Outputs\Relic-native-visual\titlebar-f684317\macos\`。
+各轮采样和原始 JSON 位于同一输出根目录的 `responsiveness-<commit>\macos\`。
+`e05f6d6` [诊断采样](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41170115918)
+与 `b8e2195` [严格压力测试](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41170186637) 待回收。
 
 以下为此前窗口适配和外观交付记录；不替代 Amendment 7 验收。
 

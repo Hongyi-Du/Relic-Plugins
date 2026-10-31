@@ -161,6 +161,12 @@ import RelicCore
             startupStage?("language")
             words.load(try await get("/api/i18n?lang=" + language))
             try await refresh()
+            startupStage?("fonts")
+            let labels = [t("common.new_org"), t("common.group_chat"), t("common.secretary"),
+                t("page.tree"), t("org.heading"), t("common.settings"), snapshot["org"]["name"].text]
+                + members.prefix(8).map(\.display)
+            _ = await NativeTextPreparation.shared.prepare(String(labels.joined(separator: " ").prefix(512)))
+            startupStage?("publish")
             ready = true
             eventTask = Task { [weak self] in
                 guard let client = self?.client else { return }
