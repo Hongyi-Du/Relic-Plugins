@@ -48,6 +48,8 @@ public sealed partial class MainWindow
                     var ticks = (completed.Task.IsCompletedSuccessfully ? completed.Task.Result : Stopwatch.GetTimestamp()) - sent;
                     var old = Interlocked.Read(ref performanceWorstTicks);
                     if (ticks > old) Interlocked.Exchange(ref performanceWorstTicks, ticks);
+                    if (completed.Task.IsCompletedSuccessfully && ticks * 1000d / Stopwatch.Frequency > 5)
+                        PerformanceTrace.Count("ui.dispatch", ticks * 1000d / Stopwatch.Frequency);
                     if (completed.Task.IsCompletedSuccessfully) pings++;
                     Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
                         max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,

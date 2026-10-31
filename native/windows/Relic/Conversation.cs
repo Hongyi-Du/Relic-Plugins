@@ -351,7 +351,9 @@ public sealed partial class MainWindow
                 separator.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(separator);
             }
             var continued = Transcript.SameMessageGroup(previous, item!);
-            stream.Children.Add(() => Message(item!, false, continued));
+            var bodyLength = Math.Max(item.Text("body").Length, item.Text("text").Length);
+            var estimate = item.Text("type") == "message" ? Math.Clamp(64 + bodyLength / 70d * 23, 64, 2100) : 40;
+            stream.Children.Add(() => Message(item!, false, continued), estimate);
             if (item.Text("type") != "acts") previous = item;
         }
         if (member.Length > 0) stream.Children.Add(() => { var live = new StackPanel(); DrawLive(live); return live; });

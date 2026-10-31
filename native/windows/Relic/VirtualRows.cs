@@ -7,10 +7,11 @@ namespace Relic;
 // recycling detaches the old subtree so fonts, images and subscriptions unload.
 internal sealed class VirtualRows : Grid
 {
-    internal sealed class RowCollection(Action changed) : List<Func<UIElement>>
+    internal sealed record Row(Func<UIElement> Build, double Estimate);
+    internal sealed class RowCollection(Action changed) : List<Row>
     {
         public void Add(UIElement element) => Add(() => element);
-        public new void Add(Func<UIElement> build) { base.Add(build); changed(); }
+        public void Add(Func<UIElement> build, double estimate = 40) { base.Add(new Row(build, estimate)); changed(); }
         public new void Clear() { base.Clear(); changed(); }
     }
     internal new RowCollection Children { get; }
@@ -34,12 +35,11 @@ internal sealed class VirtualRows : Grid
         repeater.ItemTemplate = factory;
         base.Children.Add(repeater);
     }
-    private sealed record Row(Func<UIElement> Build);
     internal void Commit()
     {
         if (committed == revision) return;
         committed = revision;
-        repeater.ItemsSource = Children.Select(build => new Row(build)).ToArray();
+        repeater.ItemsSource = Children.ToArray();
     }
     internal void BringLastIntoView()
     {
@@ -89,7 +89,7 @@ internal sealed class VirtualRows : Grid
         {
             var host = empty.Count > 0 ? empty.Pop() : new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
             var row = (Row)args.Data;
-            host.Tag = row; host.MinHeight = 40; Realized++;
+            host.Tag = row; host.MinHeight = row.Estimate; Realized++;
             pending.Enqueue((host, row)); Interlocked.Increment(ref PendingBuilds);
             if (!pumping) { pumping = true; Pump(); }
             return host;

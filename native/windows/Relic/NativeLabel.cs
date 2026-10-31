@@ -523,7 +523,11 @@ public sealed class NativeLabel : Panel
     private void QueueDraw()
     {
         if (queued || rendering || !drawDirty || !IsLoaded) return; queued = true;
-        if (!DispatcherQueue.TryEnqueue(() => { queued = false; if (IsLoaded && drawDirty) Render(); })) queued = false;
+        // Painting is coalesced per label and yields to input/commands. A
+        // viewport full of freshly realized labels must not place all GPU
+        // submissions ahead of the next user event at normal priority.
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () => { queued = false; if (IsLoaded && drawDirty) Render(); })) queued = false;
     }
     private void EnsureSurface(int width, int height)
     {

@@ -72,7 +72,7 @@ public sealed partial class MainWindow
     {
         // A nonzero estimate prevents a virtualizing list from realizing its
         // entire data source while deferred text waits for the single parser.
-        var content = new StackPanel { MinHeight = Math.Min(300, 24 + markdown.Length / 80 * 20) };
+        var content = new StackPanel { MinHeight = Math.Min(2000, 24 + markdown.Length / 80 * 20) };
         CancellationTokenSource? pending = null; var revision = 0;
         content.Unloaded += (_, _) => { revision++; pending?.Cancel(); pending?.Dispose(); pending = null; };
         content.Loaded += async (_, _) =>
@@ -96,7 +96,7 @@ public sealed partial class MainWindow
                     if (token.IsCancellationRequested || revision != current || !content.IsLoaded) return;
                     var top = rendered.Count == 0 ? element.Before : Math.Max(rendered[^1].After, element.Before);
                     element.Element.Margin = new Thickness(0, top, 0, 0);
-                    rendered.Add(element); content.Children.Add(element.Element); content.MinHeight = 0;
+                    rendered.Add(element); content.Children.Add(element.Element);
                     if (slice.ElapsedMilliseconds >= 4)
                     {
                         var yield = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
