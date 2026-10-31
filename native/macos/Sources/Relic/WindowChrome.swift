@@ -7,12 +7,15 @@ import SwiftUI
     static let rowHeight: CGFloat = 40
     static let controlsWidth: CGFloat = 78
     static func apply(to window: NSWindow) {
-        window.styleMask.insert(.fullSizeContentView)
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.toolbar = nil
-        window.isMovableByWindowBackground = false
+        // NSHostingView updates this mount for every model publication. Setting
+        // the style mask again rebuilds AppKit's frame/content layout even when
+        // the requested style is unchanged.
+        if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+        if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
+        if !window.titlebarAppearsTransparent { window.titlebarAppearsTransparent = true }
+        if window.titlebarSeparatorStyle != .none { window.titlebarSeparatorStyle = .none }
+        if window.toolbar != nil { window.toolbar = nil }
+        if window.isMovableByWindowBackground { window.isMovableByWindowBackground = false }
         positionButtons(in: window)
     }
     static func positionButtons(in window: NSWindow) {
@@ -21,7 +24,8 @@ import SwiftUI
             guard let button = window.standardWindowButton(type), let parent = button.superview else { continue }
             let screenY = window.frame.maxY - rowHeight / 2
             let center = parent.convert(window.convertPoint(fromScreen: NSPoint(x: window.frame.minX, y: screenY)), from: nil)
-            button.setFrameOrigin(NSPoint(x: 12 + CGFloat(index) * 20, y: center.y - button.frame.height / 2))
+            let origin = NSPoint(x: 12 + CGFloat(index) * 20, y: center.y - button.frame.height / 2)
+            if button.frame.origin != origin { button.setFrameOrigin(origin) }
         }
     }
 }

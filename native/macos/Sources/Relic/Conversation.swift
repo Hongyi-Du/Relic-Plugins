@@ -305,10 +305,12 @@ struct ConversationStream: View {
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             keyboard.finishDisclosureLayout()
-                            // Lazy height estimates change during scrolling.
-                            // Observe them, but never feed a layout change back
-                            // into scrollTo; only new content requests anchoring.
-                            _ = following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size)
+                            // Resolve lazy/Markdown height estimates through one
+                            // coalesced native clip adjustment, without asking
+                            // SwiftUI to materialize a scrollTo target on every
+                            // layout pass. A no-op offset creates no new layout.
+                            let settleBottom = following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size)
+                            if settleBottom && olderAnchor == nil { keyboard.settleBottom() }
                             if metrics.height > viewport.size.height, metrics.bottom - metrics.height >= -100,
                                !initialLoad, !following.followsBottom, olderAnchor == nil, m.moreChat, !m.loadingOlder,
                                let first = m.streamRows.first?.id {

@@ -9,6 +9,21 @@ import SwiftUI
         override var isFlipped: Bool { documentCoordinatesFlipped }
     }
 
+    func testLazyHeightCorrectionFollowsNewestContentAndExplicitNavigationCancelsIt() async {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 900))
+        scroll.documentView = document; scroll.tile()
+        let keyboard = ConversationKeyboard(); keyboard.scroll = scroll
+        keyboard.settleBottom(); keyboard.settleBottom()
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(scroll.contentView.bounds.maxY, document.frame.maxY, accuracy: 1)
+        document.setFrameSize(NSSize(width: 200, height: 1100))
+        keyboard.settleBottom()
+        _ = keyboard.handle(.home, modifiers: [])
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(scroll.contentView.bounds.origin.y, 0, accuracy: 1)
+    }
+
     func testDisclosureRestoresTheRealReadingOffsetAfterNativeBottomAnchoring() async {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
