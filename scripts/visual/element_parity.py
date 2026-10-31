@@ -1093,7 +1093,8 @@ def write_scene_html(output: Path, scene: str, viewport: dict, captures: dict, r
 
 
 def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = None,
-        reference_root: Path | None = None, macos_reference_root: Path | None = None) -> dict:
+        reference_root: Path | None = None, macos_reference_root: Path | None = None,
+        report_only: bool = False) -> dict:
     if spec is None:
         spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
     cases = expected_cases(spec, matrix)
@@ -1104,6 +1105,9 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
     output.mkdir(parents=True, exist_ok=True)
     report = {"schema_version": 1, "commit": os.environ.get("GITHUB_SHA"), "matrix": matrix, "expected_scenes_per_platform": len(cases),
               "tolerances": TOLERANCES, "exceptions": [], "approved_icon_mappings": [], "unexpected_captures": [], "scenes": [], "summary": {}, "passed": False}
+    report["enforcement"] = "report-only" if report_only else "gate"
+    report["acceptance_policy"] = ("Amendment 5: the person accepted the current appearance. Element differences remain regression findings, not release blockers."
+                                   if report_only else "Every required scene must have zero element findings.")
     report["reference_baselines"] = {platform: {"platform": platform, "source_root": str(roots[client]), "artifact_client": client}
                                      for platform, client in references.items()}
     report["font_identity_policy"] = "Actual render-run font evidence is required for visible text; size and weight are checked separately. Complete measured PostScript face sets are compared exactly when both providers expose every face, retaining original localized family spellings. Otherwise measured family sets must match exactly, with available faces compared per family. Additional fallback faces are never dropped. Glyph counters and custom-font loading flags remain evidence. Configured fallback lists and unverified UIA provider family properties cannot establish actual render-face identity."
@@ -1227,7 +1231,7 @@ def run(source: Path, output: Path, matrix: str = "full", spec: dict | None = No
     (output / "parity-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
     summary_report = {key: value for key, value in report.items() if key != "scenes"}
     (output / "summary.json").write_text(json.dumps(summary_report, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    (output / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Relic element parity</title><style>' + PAGE_STYLE + '</style><h1>Relic element parity — ' + ("PASS" if report["passed"] else "FAIL") + '</h1><p><a href="summary.json">Lightweight summary JSON</a> · <a href="parity-report.json">Full machine-readable report (large)</a></p><p>Each scene page links its complete scene JSON. The summary and per-scene files preserve the same values as the full report; they do not change the gate.</p><p>Every requested scene and both platforms are required. No exceptions or icon equivalents are approved. Extraction errors fail the gate. Green requires kind, exact text/name, region/order, geometry, style, layout, icon and state to match.</p><pre>' + html.escape(json.dumps(report["summary"], ensure_ascii=False, indent=2)) + '</pre><h2>Exceptions</h2><p>None. No native-control differences are exempted.</p><table><thead><tr><th>Scene</th><th>Windows</th><th>macOS</th></tr></thead><tbody>' + '\n'.join(index_rows) + '</tbody></table>', encoding="utf-8")
+    (output / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Relic element parity</title><style>' + PAGE_STYLE + '</style><h1>Relic element parity — ' + ("PASS" if report["passed"] else "FAIL") + '</h1><p>' + html.escape(report['acceptance_policy']) + '</p><p><a href="summary.json">Lightweight summary JSON</a> · <a href="parity-report.json">Full machine-readable report (large)</a></p><p>Each scene page links its complete scene JSON. The summary and per-scene files preserve the same values as the full report; they do not change measured results.</p><p>Every requested scene and both platforms are required. No exceptions or icon equivalents are approved. Extraction errors remain findings. Green marks require kind, exact text/name, region/order, geometry, style, layout, icon and state to match.</p><pre>' + html.escape(json.dumps(report["summary"], ensure_ascii=False, indent=2)) + '</pre><h2>Exceptions</h2><p>None. No native-control differences are exempted.</p><table><thead><tr><th>Scene</th><th>Windows</th><th>macOS</th></tr></thead><tbody>' + '\n'.join(index_rows) + '</tbody></table>', encoding="utf-8")
     return report
 
 
@@ -1238,10 +1242,12 @@ def main() -> int:
     parser.add_argument("--matrix", choices=("full", "smoke"), default="full")
     parser.add_argument("--reference-root", type=Path, help="Real Windows browser captures; defaults to SOURCE/reference")
     parser.add_argument("--macos-reference-root", type=Path, help="Real macOS browser captures; defaults to SOURCE/reference-macos; never falls back to Windows")
+    parser.add_argument("--report-only", action="store_true", help="Retain all findings and passed=false, but do not fail CI for appearance differences (Amendment 5)")
     args = parser.parse_args()
-    report = run(args.source, args.output, args.matrix, reference_root=args.reference_root, macos_reference_root=args.macos_reference_root)
+    report = run(args.source, args.output, args.matrix, reference_root=args.reference_root, macos_reference_root=args.macos_reference_root,
+                 report_only=args.report_only)
     print(json.dumps({"passed": report["passed"], "summary": report["summary"], "exceptions": report["exceptions"], "unexpected_captures": report["unexpected_captures"]}, ensure_ascii=False, indent=2))
-    return 0 if report["passed"] else 1
+    return 0 if args.report_only or report["passed"] else 1
 
 
 if __name__ == "__main__":
