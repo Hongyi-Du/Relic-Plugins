@@ -12,11 +12,14 @@ import RelicCore
             fputs("Responsiveness capture requires GitHub Actions and a manifest\n", stderr); NSApp.terminate(nil); return
         }
         var monitor: ResponsivenessWatchdog?, model: Model?
+        var activeWindow: NSWindow?, captureOutput: URL?
+        var failureState: [String: Any] = [:]
         var errors: [String] = [], receipts: [[String: Any]] = []
         var seed = 0, randomSeconds = 0.0, randomActions = 0
         do {
             let manifest = Node(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))))
             let output = URL(fileURLWithPath: manifest["output"].text, isDirectory: true)
+            captureOutput = output
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             seed = manifest["seed"].integer
             let watchdog = ResponsivenessWatchdog(output: output); monitor = watchdog
@@ -30,11 +33,11 @@ import RelicCore
             let window = NSWindow(contentRect: NSRect(x: 40, y: 60, width: 1440, height: 900),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            activeWindow = window
             let host = NSHostingView(rootView: MainView().environmentObject(current))
             host.sizingOptions = []; host.autoresizingMask = [.width, .height]
             window.contentView = host; WindowChrome.apply(to: window)
             window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
-            defer { window.orderOut(nil); window.contentView = nil; window.close() }
             await settle()
             // Framework initialization is complete; all organization loading,
             // layout, parsing and events are included from this point onward.
@@ -69,10 +72,21 @@ import RelicCore
                 randomActions += 1
                 randomSeconds = ProcessInfo.processInfo.systemUptime - start
             } while randomSeconds < Double(max(180, manifest["seconds"].integer))
-        } catch { errors.append(String(describing: error)) }
+        } catch {
+            errors.append(String(describing: error))
+            if let window = activeWindow, let output = captureOutput {
+                failureState = RenderReadiness.diagnostic(in: window)
+                failureState["top_gap_pt"] = ConversationKeyboardMount.edgeGap(in: window, atTop: true)
+                failureState["bottom_gap_pt"] = ConversationKeyboardMount.bottomGap(in: window)
+                failureState["conversation_rows"] = model?.streamRows.count
+                failureState["history_pages"] = model?.historyPagesLoaded
+                do { failureState["screenshot"] = try await capture(window, output: output, name: "failure-window.png") }
+                catch { errors.append(String(describing: error)) }
+            }
+        }
         monitor?.finish(["actions": receipts, "errors": errors, "random_seconds": randomSeconds,
-                         "random_actions": randomActions, "seed": seed, "ui_work": UIWorkTrace.shared.snapshot()])
-        model?.stop(); NSApp.terminate(nil)
+                         "random_actions": randomActions, "seed": seed, "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState])
+        model?.stop(); activeWindow?.orderOut(nil); activeWindow?.contentView = nil; activeWindow?.close(); NSApp.terminate(nil)
     }
 
     private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL) async throws -> [String: Any] {

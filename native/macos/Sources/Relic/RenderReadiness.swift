@@ -12,6 +12,14 @@ import AppKit
         let view = Probe(); Self.live.add(view); updateNSView(view, context: context); return view
     }
     func updateNSView(_ view: Probe, context: Context) { view.kind = kind; view.ready = ready }
+    static func diagnostic(in window: NSWindow) -> [String: Any] {
+        let probes: [[String: Any]] = live.allObjects.filter { $0.window === window }.map { view in
+            let rect = view.convert(view.bounds, to: window.contentView)
+            return ["kind": view.kind, "ready": view.ready, "visible": view.visibleInViewport,
+                    "frame": ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height]]
+        }
+        return ["probes": probes]
+    }
     static func observation(in window: NSWindow, expectInspector: Bool, expectDialog: Bool = false) -> Observation {
         let views = live.allObjects.filter { $0.window === window && $0.visibleInViewport }
         let markdown = views.filter { $0.kind == "markdown" }
