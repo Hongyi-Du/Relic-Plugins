@@ -173,6 +173,7 @@ public sealed partial class MainWindow
         void LeaveLatest()
         {
             keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
+            stream.StopFollowingLast();
         }
         var latestIntentQueued = false;
         void FollowLatestIntent(string source)
@@ -447,6 +448,7 @@ public sealed partial class MainWindow
     {
         if (loadingOlder || !chatMore || org.Length == 0 || api == null) return;
         loadingOlder = true; keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
+        stream.StopFollowingLast();
         try
         {
         var selectedOrg = org; var selectedMember = member;

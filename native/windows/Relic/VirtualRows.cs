@@ -28,6 +28,22 @@ internal sealed class VirtualRows : Grid
     private BringRequest? pendingBring;
     private long arrangeRevision;
     private bool bringQueued;
+    private readonly record struct EndGeometry(int Index, FrameworkElement? Element, double Offset, double Extent,
+        double ViewportWidth, double ViewportHeight, double RowTop, double RowWidth, double RowHeight);
+    private readonly record struct PreparedEnd(int Index, double ViewportWidth, double ViewportHeight, double RowWidth, double RowHeight);
+    private sealed class FollowRequest(int revision, ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+    {
+        internal readonly int Revision = revision;
+        internal readonly ScrollViewer Viewport = viewport;
+        internal readonly Func<bool> IsCurrent = isCurrent;
+        internal readonly Func<bool> IsContentReady = isContentReady;
+        internal PreparedEnd? LastCorrected;
+        internal double ViewportWidth = viewport.ViewportWidth, ViewportHeight = viewport.ViewportHeight;
+        internal UIElement? LastAnchor;
+        internal bool Settled, IsScrolling, RecoveryRequested;
+    }
+    private FollowRequest? followingLast;
+    private bool followQueued;
     internal VirtualRows()
     {
         Children = new(() =>
@@ -39,15 +55,116 @@ internal sealed class VirtualRows : Grid
         });
         repeater.ItemTemplate = factory;
         base.Children.Add(repeater);
-        Unloaded += (_, _) => pendingBring = null;
+        Unloaded += (_, _) => StopFollowingLast();
     }
     internal void Commit()
     {
         if (committed == revision) return;
         using var timing = PerformanceTrace.Measure("rows.commit");
         committed = revision;
-        pendingBring = null;
+        StopFollowingLast();
         repeater.ItemsSource = Children.ToArray();
+    }
+    internal void FollowLastIntoView(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+    {
+        Commit();
+        StopFollowingLast();
+        if (Children.Count == 0 || !isCurrent()) return;
+        followingLast = new(committed, viewport, isCurrent, isContentReady);
+        viewport.AnchorRequested += FollowAnchorRequested;
+        viewport.ViewChanged += FollowViewChanged;
+        viewport.SizeChanged += FollowViewportSizeChanged;
+        BringIndexIntoViewCore(Children.Count - 1, 1, -Padding.Bottom, isCurrent);
+    }
+    internal void StopFollowingLast()
+    {
+        pendingBring = null;
+        if (followingLast is not { } follow) return;
+        followingLast = null;
+        follow.Viewport.AnchorRequested -= FollowAnchorRequested;
+        follow.Viewport.ViewChanged -= FollowViewChanged;
+        follow.Viewport.SizeChanged -= FollowViewportSizeChanged;
+    }
+    private bool IsCurrent(FollowRequest follow) => ReferenceEquals(followingLast, follow)
+        && follow.Revision == revision && follow.IsCurrent() && Children.Count > 0;
+    private void FollowAnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
+    {
+        if (followingLast is not { } follow || !IsCurrent(follow)) { QueueFollowCheck(); return; }
+        // An off-viewport anchor disturbs StackLayout's realization range and
+        // can repeatedly recycle/rebuild the very row being followed. Only
+        // preserve the real last row while it actually intersects this viewport.
+        // Never create/measure an element from inside Arrange.
+        if (repeater.TryGetElement(Children.Count - 1) is FrameworkElement { IsLoaded: true, ActualHeight: > 0 } last)
+        {
+            var bounds = last.TransformToVisual(sender).TransformBounds(new(0, 0, last.ActualWidth, last.ActualHeight));
+            if (bounds.Top >= sender.ViewportHeight || bounds.Bottom <= 0) return;
+            args.Anchor = last;
+            if (!ReferenceEquals(follow.LastAnchor, last))
+            { follow.LastAnchor = last; PerformanceTrace.Count(TraceName + ".follow.anchor", Children.Count - 1); }
+        }
+        else QueueFollowCheck();
+    }
+    private void FollowViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    {
+        if (followingLast is { } follow) follow.IsScrolling = args.IsIntermediate;
+        if (!args.IsIntermediate) QueueFollowCheck();
+    }
+    private void FollowViewportSizeChanged(object sender, SizeChangedEventArgs args) => QueueFollowCheck();
+    private EndGeometry ReadEndGeometry(FollowRequest follow)
+    {
+        var viewport = follow.Viewport; var index = Children.Count - 1;
+        var last = repeater.TryGetElement(index) as FrameworkElement;
+        if (last is not { IsLoaded: true }) last = null;
+        var bounds = last?.TransformToVisual(viewport).TransformBounds(new(0, 0, last.ActualWidth, last.ActualHeight));
+        return new(index, last, viewport.VerticalOffset, viewport.ScrollableHeight, viewport.ViewportWidth,
+            viewport.ViewportHeight, bounds?.Top ?? 0, bounds?.Width ?? 0, bounds?.Height ?? 0);
+    }
+    private void QueueFollowCheck()
+    {
+        if (followingLast == null || followQueued) return;
+        followQueued = true;
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            followQueued = false;
+            if (followingLast is not { } follow) return;
+            if (!IsCurrent(follow)) { StopFollowingLast(); return; }
+            if (pendingBring != null || follow.IsScrolling || !follow.IsContentReady()) return;
+            var geometry = ReadEndGeometry(follow);
+            if (follow.ViewportWidth != geometry.ViewportWidth || follow.ViewportHeight != geometry.ViewportHeight)
+            {
+                follow.ViewportWidth = geometry.ViewportWidth; follow.ViewportHeight = geometry.ViewportHeight;
+                follow.LastCorrected = null; follow.RecoveryRequested = false;
+            }
+            var atEnd = Math.Abs(geometry.Extent - geometry.Offset) <= 1 && geometry.Element != null
+                && geometry.RowHeight > 0 && geometry.RowTop < geometry.ViewportHeight
+                && geometry.RowTop + geometry.RowHeight > 0;
+            if (atEnd)
+            {
+                if (!follow.Settled) PerformanceTrace.Count(TraceName + ".follow.settled", geometry.Index);
+                follow.Settled = true;
+                return;
+            }
+            // Only completed content/viewport geometry permits a correction.
+            // Offset, estimated extent and recycled host identity are NOT new
+            // content: scrolling changes those values itself, so using them as
+            // repair triggers creates a self-sustaining realization loop.
+            if (geometry.Element == null || geometry.RowHeight <= 0)
+            {
+                if (follow.RecoveryRequested) return;
+                follow.RecoveryRequested = true;
+            }
+            else
+            {
+                var prepared = new PreparedEnd(geometry.Index, geometry.ViewportWidth, geometry.ViewportHeight,
+                    geometry.RowWidth, geometry.RowHeight);
+                if (follow.LastCorrected == prepared) return;
+                follow.LastCorrected = prepared;
+            }
+            follow.Settled = false;
+            PerformanceTrace.Count(TraceName + ".follow.repair", geometry.Index);
+            PerformanceTrace.Count(TraceName + ".follow.gap", geometry.Extent - geometry.Offset);
+            BringIndexIntoViewCore(geometry.Index, 1, -Padding.Bottom, follow.IsCurrent);
+        })) followQueued = false;
     }
     internal void BringLastIntoView(Func<bool>? isCurrent = null)
     {
@@ -58,9 +175,17 @@ internal sealed class VirtualRows : Grid
     }
     internal void BringIndexIntoView(int index, double alignment = .5, double offset = 0, Func<bool>? isCurrent = null)
     {
+        StopFollowingLast();
+        BringIndexIntoViewCore(index, alignment, offset, isCurrent);
+    }
+    private void BringIndexIntoViewCore(int index, double alignment, double offset, Func<bool>? isCurrent)
+    {
         if (index < 0 || index >= Children.Count || isCurrent?.Invoke() == false) return;
         Commit();
-        var element = (FrameworkElement)repeater.GetOrCreateElement(index);
+        // GetOrCreateElement also resets the layout's suggested anchor even
+        // when a row already exists. Reuse the real row for a size correction;
+        // only a genuinely missing row needs new realization.
+        var element = (FrameworkElement)(repeater.TryGetElement(index) ?? repeater.GetOrCreateElement(index));
         // GetOrCreateElement only suggests an anchor for the NEXT layout pass.
         // A dispatcher callback (even Low priority) can run before that pass,
         // when a distant row still has no position. Wait for actual Arrange,
@@ -83,7 +208,7 @@ internal sealed class VirtualRows : Grid
             if (!ReferenceEquals(repeater.TryGetElement(request.Index), request.Element)
                 || repeater.GetElementIndex(request.Element) != request.Index)
             {
-                BringIndexIntoView(request.Index, request.Alignment, request.Offset, request.IsCurrent);
+                BringIndexIntoViewCore(request.Index, request.Alignment, request.Offset, request.IsCurrent);
                 return;
             }
             if (!request.Element.IsLoaded || request.Element.ActualWidth <= 0 || request.Element.ActualHeight <= 0) return;
@@ -123,6 +248,7 @@ internal sealed class VirtualRows : Grid
         var result = base.ArrangeOverride(finalSize);
         arrangeRevision++;
         QueueArrangedBring();
+        QueueFollowCheck();
         return result;
     }
     private sealed class RowFactory : IElementFactory

@@ -1,5 +1,54 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+The follow correction now reuses a realized final row, offers an explicit
+native anchor only when that row actually intersects the viewport, and waits
+for completed scrolling and content preparation before correcting. Corrections
+are keyed by the logical row and prepared row/viewport dimensions, not by the
+offset, estimated extent or recycled host identity that scrolling itself changes.
+There is no timer or synchronous layout traversal. Headless Release compilation
+passes (0 warnings/errors); strict runtime acceptance remains pending.
+
+Changes for the clients: native-macos REQUESTS at 0b23163 records a functional
+blank-conversation failure despite sub-250 ms timing. The Mac owner now uses
+one explicit scrolling owner and serializes Markdown/row admission. No shared
+route or payload change is requested. Both actual visible-content assertions
+and the unchanged response/resource thresholds remain required.
+
+bdde4d5 / 41183992304 exposes a regression in the persistent-follow change:
+startup visible-content readiness never becomes quiet for two observations.
+Within roughly 15 seconds the trace has 373 bring requests, 255 arranged
+submissions, 254 repairs and 232 anchor changes. Gaps alternate between values
+such as 190.875 /4811.094 /8024 DIP, creating render churn. The 65.426 ms UI
+maximum and 382.668 MiB /36 threads do NOT make this a pass; no fixed/random
+scenario completed. The actual timings are retained under candidate-bdde4d5.
+The next correction must avoid re-suggesting an already-realized row as a new
+layout anchor and avoid reacting to intermediate, unfinished layout as fresh
+scroll intent. The original 15-second readiness, 250 ms response and complete
+history/monkey gates stay unchanged.
+
+e747b64 / 41182945486 completes every fixed action, including all four real
+history cases (5,500/1,250/1,250/1,250 messages, 6/2/2/2 pages). Each initial,
+top and bottom gap is 0 with actual boundary rows visible. It then FAILS on
+monkey-51 entering org_perf000004 again: keepLatest=true but the final row 1017
+is not realized and the remaining gap is 13205.719 DIP. UI max is 159.960 ms,
+peak 506.246 MiB /38 threads; 51 random actions precede the failure, so the
+180-second phase is incomplete. The last actual bring-arranged at 4190269 is
+followed by real layout/realization through 4191216 with no further bring.
+The current correction retains follow intent until user cancellation, explicitly
+offers the realized last row to ScrollViewer.AnchorRequested, and coalesces
+checks driven by that viewport/row's real layout changes. It never creates a
+row inside AnchorRequested, uses no global LayoutUpdated traversal or idle
+polling, and leaves input, coverage, endpoint and watchdog assertions intact.
+
+Changes for the clients: e747b64 Python validation 41182950220 exposes a
+static i18n-scan false positive for macOS UIWorkTrace.begin("composer.measure").
+The macOS owner fixes the diagnostic name to "editor-measure" in 09ec379.
+This is an internal timing label, not visible text. The original reverse key
+scanner, vocabulary checks and word lists remain unchanged; no key or namespace
+is allowlisted. REQUESTS.md also records staged cold composer mounts and
+anchoring initial latest position to the actual last row's changing height.
+These Mac changes still require fresh strict validation.
+
 ab4e484 / 41182092838 proves the initial-layout correction and actual history
 paging: the initial final row is visible at offset=max=257404.890625; all six
 pages load 5,500 distinct messages down to ID 1, and the actual first row is
