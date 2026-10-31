@@ -5,6 +5,49 @@ import RelicCore
 @testable import Relic
 
 @MainActor final class ConversationKeyboardTests: XCTestCase {
+    func testRealHomeScrollTriggersTheProductionHistoryPager() async throws {
+        _ = NSApplication.shared
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ModelTransport.self]
+        let suite = "Relic.ScrollPager." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite); ModelTransport.handler = nil }
+        let model = Model(client: try Client(port: 39321, token: "fixture", session: URLSession(configuration: configuration)), defaults: defaults)
+        model.organization = "test"
+        model.snapshot = Node(["org": ["id": "test", "name": "Test"], "members": []] as [String: Any])
+        model.messages = (201...250).map { Node(["id": $0, "type": "message", "from": "human", "text": "Message \($0)", "at": "2026-10-30T12:00:00Z"] as [String: Any]) }
+        ModelTransport.handler = { request in
+            if request.url?.path == "/api/avatar" { return (404, "{}") }
+            XCTAssertEqual(request.url?.path, "/api/org/test/chat")
+            XCTAssertTrue(request.url?.query?.contains("limit=200&before=201") == true)
+            return (200, #"{"items":[{"id":1,"type":"message","from":"human","text":"Earliest message","at":"2026-10-30T11:00:00Z"}],"more":false}"#)
+        }
+        let host = NSHostingView(rootView: ConversationStream().environmentObject(model))
+        host.sizingOptions = []; host.autoresizingMask = [.width, .height]
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { model.stop(); window.orderOut(nil); window.contentView = nil; window.close() }
+        func controller(_ root: NSView) -> ConversationKeyboard? {
+            if let scroll = root as? NSScrollView, let keyboard = ConversationKeyboardMount.controller(for: scroll) { return keyboard }
+            for child in root.subviews { if let keyboard = controller(child) { return keyboard } }
+            return nil
+        }
+        let initialDeadline = ProcessInfo.processInfo.systemUptime + 5
+        while model.isPreparingConversation || !RowMountQueue.shared.isIdle || controller(host) == nil {
+            guard ProcessInfo.processInfo.systemUptime < initialDeadline else { XCTFail("Conversation did not mount"); return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        model.moreChat = true
+        XCTAssertEqual(try XCTUnwrap(controller(host)).handle(.home, modifiers: []), .handled)
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while model.historyPagesLoaded == 0 && ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(model.historyPagesLoaded, 1, "Home must trigger the production scroll observer without calling loadOlder from the test")
+        XCTAssertEqual(model.messages.first?["id"].integer, 1)
+        XCTAssertFalse(model.moreChat)
+    }
     func testRealConversationHomeAndEndMoveTheLazyNativeViewport() async throws {
         _ = NSApplication.shared
         let suite = "Relic.KeyboardViewport." + UUID().uuidString

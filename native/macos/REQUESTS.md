@@ -1,5 +1,15 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+6c908a7 passes Native apps 41179607619 (296 macOS tests), four Python jobs
+41179607585 and chrome 41179607550 (four bottom gaps 0 pt). Strict pressure
+41179607578 no longer exceeds 250 ms: maximum 147.828 ms, 203.438 MiB, 10 threads.
+It still FAILS: the strengthened history test finds that Home did not trigger
+the production pager, so history and monkey coverage remain incomplete. The
+pager incorrectly required the previous followsBottom state to be false even
+when geometry proved the viewport was at the top. That guard is removed and
+explicit Home updates following intent. A real NSHostingView + HTTP fixture
+test exercises the production scroll observer without directly calling loadOlder.
+
 34679cc passes Native apps 41178185656 (295 macOS tests), all four Python
 validations 41178185542 and full-window chrome 41178185519 (bottom gap 0 pt in
 all four cases). Strict pressure 41178185506 still FAILS macOS on member dialog

@@ -113,7 +113,7 @@ import RelicCore
                 let deadline = ProcessInfo.processInfo.systemUptime + 15
                 while m.moreChat && m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text == before {
                     guard ProcessInfo.processInfo.systemUptime < deadline else {
-                        throw RelicError.message("Scrolling to the first row did not load the earlier page")
+                        throw RelicError.message("Scrolling to the first row did not load the earlier page: pages=\(m.historyPagesLoaded), first=\(before ?? "nil"), topGap=\(ConversationKeyboardMount.edgeGap(in: window, atTop: true) ?? -1), loading=\(m.loadingOlder)")
                     }
                     try await Task.sleep(for: .milliseconds(100))
                 }
