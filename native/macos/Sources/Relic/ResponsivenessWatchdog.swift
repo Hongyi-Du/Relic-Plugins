@@ -1,86 +1,55 @@
-import Foundation
-import RelicAX
-import Darwin
+﻿import Foundation
 
-/// Independent sampling survives a blocked UI thread. The 250 ms limit is fixed,
-/// not configurable by a capture manifest. All counters describe this process.
+/// One independent timer and at most one outstanding main-queue dispatch.
+/// The shared driver owns resource sampling and all fixed acceptance limits.
 final class ResponsivenessWatchdog: @unchecked Sendable {
     private let lock = NSLock()
-    private let queue = DispatchQueue(label: "Relic.ResponsivenessWatchdog", qos: .userInitiated, autoreleaseFrequency: .workItem)
-    private let output: URL, completion: URL
-    private let seed: UInt64
-    private var source: DispatchSourceTimer?, heartbeat: Timer?
-    private let start = ProcessInfo.processInfo.systemUptime
-    private var lastBeat = ProcessInfo.processInfo.systemUptime, lastSample = 0.0, worst = 0.0
-    private var samples: [[String: Any]] = [], actions: [String: Int] = [:], errors: [String] = []
-    private var stage = "startup", stopped = false, episode = false
+    private let queue = DispatchQueue(label: "Relic.ResponsivenessWatchdog", qos: .userInitiated)
+    private let output: URL
+    private var source: DispatchSourceTimer?
+    private var pending: Double = 0, pendingEpoch: Double = 0, worst: Double = 0
+    private var pings = 0, sequence = 0
+    private var stage = "startup"
 
-    init(output: URL, completion: URL, seed: UInt64) { self.output = output; self.completion = completion; self.seed = seed }
-
-    @MainActor func begin() {
-        let timer = Timer(timeInterval: 0.02, repeats: true) { [weak self] _ in self?.beat() }
-        heartbeat = timer; RunLoop.main.add(timer, forMode: .common)
-        let source = DispatchSource.makeTimerSource(queue: queue)
-        source.schedule(deadline: .now() + .milliseconds(20), repeating: .milliseconds(20), leeway: .milliseconds(2))
-        source.setEventHandler { [weak self] in self?.sample() }
-        self.source = source; source.resume()
+    init(output: URL) { self.output = output }
+    func begin() {
+        write(["pid": ProcessInfo.processInfo.processIdentifier, "unix_ms": Self.epoch], "performance-ready.json")
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(50), leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in self?.probe() }
+        source = timer; timer.resume()
     }
-
-    func action(_ name: String) {
-        lock.lock(); stage = name; actions[name, default: 0] += 1; lock.unlock()
-    }
-
-    private func beat() {
-        lock.lock(); defer { lock.unlock() }
-        let now = ProcessInfo.processInfo.systemUptime
-        worst = max(worst, (now - lastBeat) * 1000)
-        lastBeat = now
-    }
-
-    private func sample() {
-        let now = ProcessInfo.processInfo.systemUptime
-        lock.lock()
-        if stopped { lock.unlock(); return }
-        let stall = (now - lastBeat) * 1000
-        worst = max(worst, stall)
-        if stall > 250 && !episode { errors.append("UI stall >250 ms during " + stage); episode = true }
-        if stall <= 250 { episode = false }
-        if now - lastSample >= 1 {
-            let stats = RelicProcessStats()
-            samples.append(["seconds": now - start, "ui_stall_ms": stall, "resident_bytes": stats["resident_bytes"]?.uint64Value ?? 0,
-                            "threads": stats["threads"]?.intValue ?? 0, "cpu_seconds": stats["cpu_seconds"]?.doubleValue ?? 0, "stage": stage])
-            lastSample = now
-            if stats["valid"]?.boolValue != true { errors.append("Cannot read actual process resource counters") }
-        }
-        lock.unlock()
-        // Retain evidence and stop an irrecoverable baseline. This does not
-        // waive shorter stalls: any interval above 250 ms still fails the run.
-        if stall > 10_000 { write(extraErrors: ["UI did not progress for 10 seconds"], seed: seed); exit(2) }
-    }
-
-    @MainActor func finish(errors: [String], seed: UInt64) {
-        heartbeat?.invalidate(); heartbeat = nil
-        write(extraErrors: errors, seed: seed)
+    func action(_ name: String) { lock.lock(); stage = name; lock.unlock() }
+    var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
+    func finish(_ receipt: [String: Any]) {
         source?.cancel(); source = nil
+        var result = receipt; result["max_ui_stall_ms"] = maximum
+        write(result, "performance-complete.json")
     }
-
-    private func write(extraErrors: [String], seed: UInt64) {
+    private static var epoch: Double { Date().timeIntervalSince1970 * 1000 }
+    private func probe() {
         lock.lock()
-        stopped = true
-        let faults = errors + extraErrors
-        let actionCount = actions.values.reduce(0, +)
-        let rss = samples.compactMap { ($0["resident_bytes"] as? NSNumber)?.uint64Value }
-        let threads = samples.compactMap { ($0["threads"] as? NSNumber)?.intValue }
-        let report: [String: Any] = ["platform": "macos", "seed": seed, "duration_seconds": ProcessInfo.processInfo.systemUptime - start,
-            "worst_ui_stall_ms": worst, "ui_stall_limit_ms": 250,
-            "peak_resident_bytes": rss.max() ?? 0, "final_resident_bytes": rss.last ?? 0,
-            "peak_threads": threads.max() ?? 0, "final_threads": threads.last ?? 0,
-            "samples": samples, "actions": actions, "errors": faults, "success": faults.isEmpty,
-            "watchdog": "20 ms common-mode main-run-loop heartbeat and independent background sampler"]
+        let now = ProcessInfo.processInfo.systemUptime
+        if pending > 0 { worst = max(worst, (now - pending) * 1000) }
+        let enqueue = pending == 0
+        if enqueue { pending = now; pendingEpoch = Self.epoch }
+        sequence += 1
+        let receipt: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
+            "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage]
         lock.unlock()
-        do {
-            try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
-            try JSONSerialization.data(withJSONObject: ["errors": faults, "count": actionCount, "report": output.path], options: [.prettyPrinted, .sortedKeys]).write(to: completion, options: .atomic)
-        } catch { fputs("Could not retain responsiveness report: \(error)\n", stderr) }
+        if enqueue {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                self.worst = max(self.worst, (ProcessInfo.processInfo.systemUptime - self.pending) * 1000)
+                self.pending = 0; self.pendingEpoch = 0; self.pings += 1
+                self.lock.unlock()
+            }
+        }
+        write(receipt, "heartbeat.json")
+    }
+    private func write(_ value: [String: Any], _ name: String) {
+        do { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]).write(to: output.appendingPathComponent(name), options: .atomic) }
+        catch { fputs("Cannot write responsiveness evidence: \(error)\n", stderr) }
     }
 }
