@@ -1,5 +1,32 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+6754fb6 / 41192201808 still FAILS. FirstRow restores successfully at
+1793442612498 (actual top 8), but the following End path issues another repair
+in the same turn as an asynchronous BringIntoView submission, while the old
+offset is still visible. Later, a custom end anchor participates before native
+scrolling has settled; rows alternate 9/10 within one layout cycle and XAML
+throws LayoutCycleException at 1793442614438. The process exits 0xC000027B
+without a completion receipt. Maximum measured probe delay before that crash
+is 94.551 ms; low delay does not make this a passing run. Follow now marks the
+native request in flight until real ViewChanged completion (or actual arrival),
+and only supplies a custom end anchor after ready content is actually settled.
+
+The application was also still pinned to Windows App SDK 1.6.250602001.
+Microsoft documents a StackLayout layout-cycle fix in 1.7 (#9852), explicitly
+not originally backported to 1.6, and later ItemsRepeater recycling fixes.
+The product now uses stable 1.8.260921001 (1.8.12) and its required minimum
+BuildTools 10.0.26100.4654. Sources:
+[1.7 release notes](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/release-notes/windows-app-sdk-1-7),
+[framework issue](https://github.com/microsoft/microsoft-ui-xaml/issues/9852),
+[1.8 release notes](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/release-notes/windows-app-sdk-1-8).
+These are relevant framework fixes, not proof that the recorded crash has the
+identical internal cause. The upgraded project restores and builds headlessly
+with zero warnings/errors; all runtime, packaging and whole-window checks must
+run again. Historical 1.6 evidence documents are explicitly labeled as such.
+Changes for the clients: the Mac owner replaces competing manual placement
+paths with the macOS 14 native scrollPosition binding, keeps actual content
+and watchdog assertions, and requests no shared route or payload changes.
+
 97aa049 / 41191413019 confirms a real missing-top-row defect: after all fixed
 history/End cases pass, random interaction 51 keeps offset 0.25 DIP for the
 full 15-second window while actual row 0 remains absent. Maximum UI delay is

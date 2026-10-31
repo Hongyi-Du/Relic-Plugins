@@ -1,5 +1,7 @@
 **Windows 实际字体证据：可实施的生产绘制路径**
 
+版本注：下文是 Windows App SDK 1.6.250602001 下的历史调查；Amendment 7 已将产品依赖改为 1.8.260921001。保留当时的 API 和源码观察，不将其冒充新版运行时的实测。
+
 调研日期：2026-10-29。本文是实现方案，不是已经完成的渲染器或验收证据。本轮只读取了项目、本机 SDK 文档和微软公开文档／源码，没有安装工具、运行应用或修改生产文本控件。
 
 结论是：现有 WinUI `TextBlock` / `RichTextBlock` 的公开 API 没有找到可以取出其实际 `IDWriteTextLayout`、`IDWriteFontFace` 或 glyph-run 回调的方法。要让字体证据最终摆脱 `null`，可实施的路线是让应用自己的原生文本控件通过 DirectWrite 的实际绘制回调画字，并在同一个回调中记录真正送到 Direct2D 的 glyph run。不能保留原控件画字，再另建一份 layout 来声称测得了原控件。

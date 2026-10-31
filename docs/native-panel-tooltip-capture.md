@@ -1,5 +1,9 @@
 # Windows panel resize tooltip capture: unresolved
 
+Historical evidence below was collected with Windows App SDK 1.6.250602001.
+Amendment 7 moves the product to 1.8.260921001; the original observations are
+retained here and are not claims about a recapture on the newer runtime.
+
 The `6183507` CI evidence proves that `panel-resize-hover` and `panel-resized`
 cross a real tooltip transition between the PNG and the UI Automation capture.
 The pointer still hovers over the production resize Thumb; the tooltip becomes

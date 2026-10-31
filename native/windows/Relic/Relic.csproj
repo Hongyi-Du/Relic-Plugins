@@ -12,8 +12,8 @@
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250602001" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.3916" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <PackageReference Include="System.Speech" Version="8.0.0" />
     <ProjectReference Include="../Relic.Core/Relic.Core.csproj" />
   </ItemGroup>

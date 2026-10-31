@@ -257,6 +257,12 @@ internal sealed class VirtualRows : Grid
     private void FollowAnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
     {
         if (followingLast is not { } follow || !IsCurrent(follow)) { QueueFollowCheck(); return; }
+        // StartBringIntoView and StackLayout's suggested anchor own the move
+        // until it has actually settled. An application-selected end anchor
+        // during that move competes with the changing virtual extent; deferred
+        // rows can then repeatedly enter/leave a single native layout pass.
+        if (!follow.Settled || follow.IsScrolling || pendingBring != null || !follow.IsContentReady()
+            || Math.Abs(sender.ScrollableHeight - sender.VerticalOffset) > 1) return;
         // An off-viewport anchor disturbs StackLayout's realization range and
         // can repeatedly recycle/rebuild the very row being followed. Only
         // preserve the real last row while it actually intersects this viewport.
@@ -295,7 +301,7 @@ internal sealed class VirtualRows : Grid
             followQueued = false;
             if (followingLast is not { } follow) return;
             if (!IsCurrent(follow)) { StopFollowingLast(); return; }
-            if (pendingBring != null || follow.IsScrolling || !follow.IsContentReady()) return;
+            if (pendingBring != null || !follow.IsContentReady()) return;
             var geometry = ReadEndGeometry(follow);
             if (follow.ViewportWidth != geometry.ViewportWidth || follow.ViewportHeight != geometry.ViewportHeight)
             {
@@ -307,10 +313,12 @@ internal sealed class VirtualRows : Grid
                 && geometry.RowTop + geometry.RowHeight > 0;
             if (atEnd)
             {
+                follow.IsScrolling = false;
                 if (!follow.Settled) PerformanceTrace.Count(TraceName + ".follow.settled", geometry.Index);
                 follow.Settled = true;
                 return;
             }
+            if (follow.IsScrolling) return;
             // Only completed content/viewport geometry permits a correction.
             // Offset, estimated extent and recycled host identity are NOT new
             // content: scrolling changes those values itself, so using them as
@@ -392,6 +400,11 @@ internal sealed class VirtualRows : Grid
             if (request.IsReady?.Invoke() == false) return;
             pendingBring = null;
             PerformanceTrace.Count(TraceName + ".bring.arranged", request.Index);
+            // The request is asynchronous: ViewChanged reports the actual
+            // completed move. Do not let the already-queued follow check read
+            // the previous offset and issue another bring in this same turn.
+            if (followingLast is { } follow && request.Index == Children.Count - 1 && IsCurrent(follow))
+                follow.IsScrolling = true;
             request.Element.StartBringIntoView(new BringIntoViewOptions
             { AnimationDesired = false, VerticalAlignmentRatio = request.Alignment, VerticalOffset = request.Offset });
             QueueReadingCheck();
