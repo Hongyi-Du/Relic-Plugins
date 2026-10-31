@@ -1,0 +1,220 @@
+{
+    "provenance":  {
+                       "commit":  "d59bede",
+                       "case_id":  "zh-CN-light-1440x900-settings-appearance",
+                       "source":  "visual-windows artifact .xaml.json",
+                       "note":  "Selected actual raw fields only. This historic capture has no selector_content_evidence; none was synthesized."
+                   },
+    "raw_nodes":  [
+                      {
+                          "id":  "xaml-1378",
+                          "type":  "SelectorBarItem",
+                          "parent":  "xaml-1372",
+                          "text":  "浅色",
+                          "accessible_name":  "浅色",
+                          "bounds":  {
+                                         "x":  1064,
+                                         "y":  210.8000030517578,
+                                         "width":  42,
+                                         "height":  23.199996948242188
+                                     },
+                          "visible_bounds":  {
+                                                 "x":  1064,
+                                                 "y":  210.8000030517578,
+                                                 "width":  42,
+                                                 "height":  23.199996948242188
+                                             },
+                          "hidden_reason":  null,
+                          "render_type_evidence":  {
+                                                       "is_panel":  false,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  true,
+                                                       "control_template_present":  true,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "declared_content_owner":  null,
+                          "declared_content_source":  null
+                      },
+                      {
+                          "id":  "xaml-1379",
+                          "type":  "Grid",
+                          "parent":  "xaml-1378",
+                          "text":  "",
+                          "accessible_name":  "",
+                          "bounds":  {
+                                         "x":  1064,
+                                         "y":  210.8000030517578,
+                                         "width":  42,
+                                         "height":  23.199996948242188
+                                     },
+                          "visible_bounds":  {
+                                                 "x":  1064,
+                                                 "y":  210.8000030517578,
+                                                 "width":  42,
+                                                 "height":  23.199996948242188
+                                             },
+                          "hidden_reason":  null,
+                          "render_type_evidence":  {
+                                                       "is_panel":  true,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  false,
+                                                       "control_template_present":  null,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "declared_content_owner":  null,
+                          "declared_content_source":  null
+                      },
+                      {
+                          "id":  "xaml-1380",
+                          "type":  "ContentPresenter",
+                          "parent":  "xaml-1379",
+                          "text":  "",
+                          "accessible_name":  "",
+                          "bounds":  {
+                                         "x":  1064,
+                                         "y":  210.8000030517578,
+                                         "width":  42,
+                                         "height":  23.199996948242188
+                                     },
+                          "visible_bounds":  {
+                                                 "x":  1064,
+                                                 "y":  210.8000030517578,
+                                                 "width":  42,
+                                                 "height":  23.199996948242188
+                                             },
+                          "hidden_reason":  null,
+                          "render_type_evidence":  {
+                                                       "is_panel":  false,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  false,
+                                                       "control_template_present":  null,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "declared_content_owner":  null,
+                          "declared_content_source":  null
+                      },
+                      {
+                          "id":  "xaml-1381",
+                          "type":  "NativeShadowPanel",
+                          "parent":  "xaml-1380",
+                          "text":  "",
+                          "accessible_name":  "",
+                          "bounds":  {
+                                         "x":  1064,
+                                         "y":  210.8000030517578,
+                                         "width":  42,
+                                         "height":  23.199996948242188
+                                     },
+                          "visible_bounds":  {
+                                                 "x":  1064,
+                                                 "y":  210.8000030517578,
+                                                 "width":  42,
+                                                 "height":  23.199996948242188
+                                             },
+                          "hidden_reason":  null,
+                          "render_type_evidence":  {
+                                                       "is_panel":  true,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  false,
+                                                       "control_template_present":  null,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "declared_content_owner":  "xaml-1378",
+                          "declared_content_source":  "FrameworkElement.Tag UIElement in the actual visual tree"
+                      },
+                      {
+                          "id":  "xaml-1382",
+                          "type":  "Grid",
+                          "parent":  "xaml-1381",
+                          "text":  "",
+                          "accessible_name":  "",
+                          "bounds":  {
+                                         "x":  1064,
+                                         "y":  210.8000030517578,
+                                         "width":  42,
+                                         "height":  23.199996948242188
+                                     },
+                          "visible_bounds":  {
+                                                 "x":  1064,
+                                                 "y":  210.8000030517578,
+                                                 "width":  42,
+                                                 "height":  23.199996948242188
+                                             },
+                          "hidden_reason":  null,
+                          "render_type_evidence":  {
+                                                       "is_panel":  true,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  false,
+                                                       "control_template_present":  null,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "declared_content_owner":  null,
+                          "declared_content_source":  null
+                      },
+                      {
+                          "id":  "xaml-1383",
+                          "type":  "Border",
+                          "parent":  "xaml-1381",
+                          "text":  "",
+                          "accessible_name":  "",
+                          "bounds":  {
+                                         "x":  1064,
+                                         "y":  210.8000030517578,
+                                         "width":  42,
+                                         "height":  23.199996948242188
+                                     },
+                          "visible_bounds":  {
+                                                 "x":  1064,
+                                                 "y":  210.8000030517578,
+                                                 "width":  42,
+                                                 "height":  23.199996948242188
+                                             },
+                          "hidden_reason":  null,
+                          "render_type_evidence":  {
+                                                       "is_panel":  false,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  false,
+                                                       "control_template_present":  null,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "declared_content_owner":  null,
+                          "declared_content_source":  null
+                      },
+                      {
+                          "id":  "xaml-1384",
+                          "type":  "TextBlock",
+                          "parent":  "xaml-1383",
+                          "text":  "浅色",
+                          "accessible_name":  "",
+                          "bounds":  {
+                                         "x":  1073,
+                                         "y":  212.8000030517578,
+                                         "width":  24,
+                                         "height":  19.199996948242188
+                                     },
+                          "visible_bounds":  {
+                                                 "x":  1073,
+                                                 "y":  212.8000030517578,
+                                                 "width":  24,
+                                                 "height":  19.199996948242188
+                                             },
+                          "hidden_reason":  null,
+                          "render_type_evidence":  {
+                                                       "is_panel":  false,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  false,
+                                                       "control_template_present":  null,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "declared_content_owner":  null,
+                          "declared_content_source":  null
+                      }
+                  ]
+}

@@ -1,0 +1,290 @@
+name: Native visual review
+run-name: ${{ inputs.diagnostic_scene && inputs.diagnostic_scene != 'all' && 'Focused scene diagnostic only' || inputs.capture_run_id && 'Recompare immutable capture run' || inputs.matrix == 'paint' && 'Browser paint diagnostics only' || 'Native visual review' }} - ${{ github.ref_name }} - ${{ inputs.diagnostic_scene && inputs.diagnostic_scene != 'all' && inputs.diagnostic_scene || inputs.capture_run_id || inputs.matrix || 'smoke' }}
+on:
+  push:
+    branches: [native-apps, native-macos]
+    paths:
+      - '.github/workflows/native-visual.yml'
+      - 'scripts/visual/**'
+      - 'native/windows/**'
+      - 'native/macos/**'
+  workflow_dispatch:
+    inputs:
+      matrix:
+        description: 'Appearance regression report: full matrix, smoke scenes, or paint diagnostics'
+        type: choice
+        options: [smoke, full, paint]
+        default: smoke
+      capture_run_id:
+        description: Optional existing capture run to recompare; leaves every original measurement unchanged
+        type: string
+        default: ''
+      diagnostic_scene:
+        description: Manual single-scene debug only; leaves the normal smoke/full matrix unchanged
+        type: choice
+        options: [all, settings-profile, settings-appearance, settings-about]
+        default: all
+      paint_archive_run_id:
+        description: In paint mode only, decode an existing browser SKP artifact without starting any app or browser
+        type: string
+        default: ''
+      paint_producer_smb_mib:
+        description: In paint mode only, producer SMB hypothesis; 0 unchanged or one 16 MiB comparison
+        type: choice
+        options: ['0', '16']
+        default: '0'
+permissions:
+  contents: read
+concurrency:
+  group: visual-${{ github.ref_name }}-${{ inputs.capture_run_id || inputs.paint_archive_run_id || inputs.matrix || 'smoke' }}-${{ inputs.diagnostic_scene || 'all' }}
+  cancel-in-progress: false
+jobs:
+  archive-compare:
+    if: ${{ inputs.capture_run_id != '' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/native-recompare.yml
+    with:
+      capture_run_id: ${{ inputs.capture_run_id }}
+  paint-diagnostics:
+    if: ${{ !inputs.capture_run_id && github.event_name == 'workflow_dispatch' && inputs.matrix == 'paint' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/native-paint-diagnostics.yml
+    with:
+      language: en-US
+      theme: light
+      archive_run_id: ${{ inputs.paint_archive_run_id || '' }}
+      producer_smb_mib: ${{ inputs.paint_producer_smb_mib || '0' }}
+  element-checker:
+    if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
+    uses: ./.github/workflows/native-element-checks.yml
+  windows:
+    if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
+    runs-on: windows-2025
+    # Step-level continuation keeps the individual PR job check non-blocking;
+    # job-level continuation alone still publishes a red failed job check.
+    continue-on-error: true
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # Keep runner capacity for builds and contract checks without removing
+      # any of the twelve required Windows capture shards.
+      max-parallel: 4
+      matrix:
+        include: ${{ fromJSON(inputs.matrix == 'full' && '[{"lang":"zh-CN","theme":"light","viewport":"1440x900"},{"lang":"zh-CN","theme":"light","viewport":"1280x800"},{"lang":"zh-CN","theme":"light","viewport":"1024x700"},{"lang":"zh-CN","theme":"dark","viewport":"1440x900"},{"lang":"zh-CN","theme":"dark","viewport":"1280x800"},{"lang":"zh-CN","theme":"dark","viewport":"1024x700"},{"lang":"en-US","theme":"light","viewport":"1440x900"},{"lang":"en-US","theme":"light","viewport":"1280x800"},{"lang":"en-US","theme":"light","viewport":"1024x700"},{"lang":"en-US","theme":"dark","viewport":"1440x900"},{"lang":"en-US","theme":"dark","viewport":"1280x800"},{"lang":"en-US","theme":"dark","viewport":"1024x700"}]' || '[{"lang":"zh-CN","theme":"light","viewport":"1440x900"}]') }}
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+      - uses: actions/setup-dotnet@v4
+        continue-on-error: true
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        continue-on-error: true
+        with:
+          python-version: '3.11'
+      - run: pip install pillow playwright
+        id: dependencies
+        continue-on-error: true
+      - run: python -m playwright install chromium
+        id: browser
+        continue-on-error: true
+      - run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
+        id: native-build
+        continue-on-error: true
+      - run: dotnet publish native/windows/Relic.Capture/Relic.Capture.csproj -c Release -o native-build/capture
+        id: capture-build
+        continue-on-error: true
+      - name: Set CI desktop size without a settings window
+        id: display
+        continue-on-error: true
+        run: |
+          Set-TimeZone -Id UTC
+          ./scripts/visual/windows-display.ps1
+      - run: python -X utf8 scripts/visual/capture.py --client windows --reference --exe native-build/windows/Relic.exe --uia-exe native-build/capture/Relic.Capture.exe --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --viewport ${{ matrix.viewport }} --diagnostic-scene ${{ inputs.diagnostic_scene || 'all' }} --output visual/windows
+        id: capture
+        continue-on-error: true
+        timeout-minutes: 45
+      - name: Retain original appearance step outcomes
+        if: always()
+        continue-on-error: true
+        env:
+          STEP_OUTCOMES: ${{ toJSON(steps) }}
+        run: |
+          New-Item -ItemType Directory -Path visual/windows -Force | Out-Null
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'visual/windows/workflow-step-outcomes.json'), $env:STEP_OUTCOMES)
+          $failed = ($env:STEP_OUTCOMES | ConvertFrom-Json).PSObject.Properties | Where-Object { $_.Value.outcome -eq 'failure' }
+          '### Appearance regression report (non-blocking)' >> $env:GITHUB_STEP_SUMMARY
+          if ($failed) { 'Original failed steps: ' + (($failed | ForEach-Object Name) -join ', ') >> $env:GITHUB_STEP_SUMMARY }
+          else { 'Capture steps completed. Element differences remain in the original report.' >> $env:GITHUB_STEP_SUMMARY }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: visual-windows-${{ matrix.lang }}-${{ matrix.theme }}-${{ matrix.viewport }}
+          path: visual/windows
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: reference-windows-${{ matrix.lang }}-${{ matrix.theme }}-${{ matrix.viewport }}
+          path: visual/reference
+  macos:
+    if: ${{ !inputs.capture_run_id && inputs.matrix != 'paint' }}
+    runs-on: macos-15
+    continue-on-error: true # Native builds/tests have a separate required workflow
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # Retain every shard while leaving runner capacity for native builds
+      # and focused diagnostics during concurrent client development.
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(inputs.matrix == 'full' && '[{"lang":"zh-CN","theme":"light"},{"lang":"zh-CN","theme":"dark"},{"lang":"en-US","theme":"light"},{"lang":"en-US","theme":"dark"}]' || '[{"lang":"zh-CN","theme":"light"}]') }}
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+      - uses: actions/setup-python@v5
+        continue-on-error: true
+        with:
+          python-version: '3.11'
+      - run: pip install pillow playwright
+        id: dependencies
+        continue-on-error: true
+      - run: python -m playwright install chromium
+        id: browser
+        continue-on-error: true
+      - run: swift build --package-path native/macos -c release --arch arm64
+        id: native-build
+        continue-on-error: true
+      - run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output native-build/visual-macos
+        id: package
+        continue-on-error: true
+      - shell: bash
+        id: capture
+        continue-on-error: true
+        timeout-minutes: 45
+        run: |
+          for binary in native-build/visual-macos/*/Relic.app/Contents/MacOS/Relic; do
+            python3 scripts/visual/capture.py --client macos --reference --exe "$binary" --matrix ${{ inputs.matrix || 'smoke' }} --lang ${{ matrix.lang }} --theme ${{ matrix.theme }} --diagnostic-scene ${{ inputs.diagnostic_scene || 'all' }} --output visual/macos
+          done
+      - name: Retain actual macOS capture crash reports
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-macos-crash-reports-${{ matrix.lang }}-${{ matrix.theme }}
+          if-no-files-found: warn
+          path: |
+            ~/Library/Logs/DiagnosticReports/*.ips
+            ~/Library/Logs/DiagnosticReports/*.crash
+      - name: Retain original appearance step outcomes
+        if: always()
+        continue-on-error: true
+        env:
+          STEP_OUTCOMES: ${{ toJSON(steps) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          folder = Path('visual/macos')
+          folder.mkdir(parents=True, exist_ok=True)
+          raw = os.environ['STEP_OUTCOMES']
+          (folder / 'workflow-step-outcomes.json').write_text(raw, encoding='utf-8')
+          failed = [name for name, step in json.loads(raw).items() if step.get('outcome') == 'failure']
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as report:
+              report.write('### Appearance regression report (non-blocking)\n\n')
+              report.write('Original failed steps: ' + ', '.join(failed) if failed else 'Capture steps completed. Element differences remain in the original report.')
+              report.write('\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: visual-macos-${{ matrix.lang }}-${{ matrix.theme }}
+          path: visual/macos
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: reference-macos-${{ matrix.lang }}-${{ matrix.theme }}
+          path: visual/reference-macos
+  compare:
+    needs: [windows, macos, element-checker]
+    if: always() && inputs.matrix != 'paint' && !inputs.capture_run_id && (!inputs.diagnostic_scene || inputs.diagnostic_scene == 'all')
+    runs-on: ubuntu-latest
+    continue-on-error: true # Retain failed/missing extraction as regression findings
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+      - uses: actions/setup-python@v5
+        continue-on-error: true
+        with:
+          python-version: '3.11'
+      - run: pip install pillow
+        id: dependencies
+        continue-on-error: true
+      - name: Download every capture artifact with bounded local storage
+        id: download
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/visual/download_comparison_inputs.py --output visual --report-output visual/parity --report-output visual/comparisons
+      - name: Record actual comparison storage before reports
+        if: always()
+        continue-on-error: true
+        run: |
+          df -h .
+          du -sh visual/*
+      - run: python scripts/visual/compose.py --source visual --output visual/comparisons
+        id: compose
+        if: always()
+        continue-on-error: true
+      - name: Publish element differences as a non-blocking regression report
+        id: elements
+        if: always()
+        continue-on-error: true
+        run: python scripts/visual/element_parity.py --source visual --reference-root visual/reference --macos-reference-root visual/reference-macos --output visual/parity --matrix ${{ inputs.matrix || 'smoke' }} --report-only
+      - name: Record actual comparison storage after reports
+        if: always()
+        continue-on-error: true
+        run: |
+          df -h .
+          du -sh visual/*
+      - name: Retain original comparison step outcomes
+        if: always()
+        continue-on-error: true
+        env:
+          STEP_OUTCOMES: ${{ toJSON(steps) }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          folder = Path('visual/parity')
+          folder.mkdir(parents=True, exist_ok=True)
+          raw = os.environ['STEP_OUTCOMES']
+          (folder / 'workflow-step-outcomes.json').write_text(raw, encoding='utf-8')
+          failed = [name for name, step in json.loads(raw).items() if step.get('outcome') == 'failure']
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as report:
+              report.write('### Appearance regression report (non-blocking)\n\n')
+              report.write('Original failed steps: ' + ', '.join(failed) if failed else 'Report steps completed. See the unchanged mismatch counts in parity-report.json.')
+              report.write('\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: Relic-native-element-parity
+          path: visual/parity
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: Relic-native-visual-comparisons
+          path: visual/comparisons

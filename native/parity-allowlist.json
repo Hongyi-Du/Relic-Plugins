@@ -1,0 +1,72 @@
+{
+    "routes":  {
+                   "/api/install-window":  "Browser/PWA installation is replaced by the native installer and Finder app bundle. The native App must never open this route."
+               },
+    "keys":  {
+                 "install.browser_opened":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.browser_ready":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.install_relic":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.installed":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.installed_mac":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.later":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.lead":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.mac_hint":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.open_in_browser":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.open_in_edge":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.page_lead":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.page_title":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.ready":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.step_close":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.step_install":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.step_install_mac":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.step_open":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.step_open_mac":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.title":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.waiting":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "install.window_opened":  "Browser/PWA install instructions are replaced by the unsigned native installer and Finder app bundle; About shows native installation status.",
+                 "appbar.install":  "Browser/PWA installation button is replaced by platform package installation; neither native app opens the browser install route.",
+                 "appbar.install_tip":  "Browser/PWA installation button is replaced by platform package installation; neither native app opens the browser install route.",
+                 "appbar.install_tip_mac":  "Browser/PWA installation button is replaced by platform package installation; neither native app opens the browser install route.",
+                 "appmenu.install_app":  "Browser/PWA installation button is replaced by platform package installation; neither native app opens the browser install route.",
+                 "settings.install":  "Browser/PWA installation button is replaced by platform package installation; neither native app opens the browser install route.",
+                 "settings.install_app_hint":  "Browser/PWA installation button is replaced by platform package installation; neither native app opens the browser install route.",
+                 "settings.voice_browser":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "settings.voice_edge":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "settings.voice_hint":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "settings.voice_supported":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "settings.voice_supported_mac":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "settings.voice_unsupported":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "settings.voice_wechat":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "composer.voice_unsupported":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "composer.voice_unsupported_mac":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively.",
+                 "composer.voice_denied":  "Browser speech and address-bar permission instructions are replaced by native.speech, native.voice_hint and system microphone/speech settings. Dictation remains implemented natively."
+             },
+    "platform_keys":  {
+                          "windows":  {
+                                          "work.open_in_finder":  "macOS-specific wording has a Windows equivalent in the same control: File Explorer, supported Windows host sessions, and native Windows speech.",
+                                          "member.run_host_mac":  "macOS-specific wording has a Windows equivalent in the same control: File Explorer, supported Windows host sessions, and native Windows speech.",
+                                          "member.note_existing_mac":  "macOS-specific wording has a Windows equivalent in the same control: File Explorer, supported Windows host sessions, and native Windows speech.",
+                                          "settings.voice_mac":  "macOS-specific wording has a Windows equivalent in the same control: File Explorer, supported Windows host sessions, and native Windows speech."
+                                      },
+                          "macos":  {
+                                        "work.open_in_explorer":  "Windows-specific wording is replaced by the shared macOS variant or the platform capability notice in the corresponding native control.",
+                                        "member.note_host":  "Windows-specific wording is replaced by the shared macOS variant or the platform capability notice in the corresponding native control.",
+                                        "member.note_existing":  "Windows-specific wording is replaced by the shared macOS variant or the platform capability notice in the corresponding native control.",
+                                        "member.run_host":  "Windows-specific wording is replaced by the shared macOS variant or the platform capability notice in the corresponding native control.",
+                                        "settings.claude_desktop_hint":  "Windows-specific wording is replaced by the shared macOS variant or the platform capability notice in the corresponding native control.",
+                                        "appmenu.undo":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.redo":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.cut":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.paste":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.select_all":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.paste_failed":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.paste_need_field":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appbar.menus":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.edit":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.view":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "appmenu.help":  "AppKit standard menu and responder-chain actions provide localized native editing and menu groups; browser clipboard permission failures do not apply.",
+                                        "settings.install_app":  "The native Finder app About view uses settings.install_app_done for installation state; browser installer status controls are absent.",
+                                        "settings.installed":  "The native Finder app About view uses settings.install_app_done for installation state; browser installer status controls are absent."
+                                    }
+                      }
+}

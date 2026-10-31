@@ -1,0 +1,111 @@
+name: Native responsiveness
+run-name: Native responsiveness - ${{ github.ref_name }} - ${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && ' - diagnostic only' || '' }}
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Label the same strict measurement as baseline or candidate
+        type: choice
+        options: [baseline, candidate]
+        default: candidate
+      diagnostic:
+        description: Observe 30 seconds after the first failure; always fails and cannot count as acceptance
+        type: boolean
+        default: false
+  push:
+    branches: [native-apps, native-macos]
+    paths:
+      - 'native/**'
+      - 'scripts/performance/**'
+      - '.github/workflows/native-responsiveness.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test synthetic scale, real paging, and fixed resource gates
+        run: python -m unittest discover -s scripts/performance -p 'test_*.py' -v
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    concurrency:
+      group: native-responsiveness-windows-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install Microsoft managed stack tool for diagnostic runs only
+        if: ${{ inputs.diagnostic == true }}
+        run: dotnet tool install dotnet-stack --tool-path native-build/diagnostics --version '8.*'
+      - name: Build native UI stack helper for diagnostic runs only
+        if: ${{ inputs.diagnostic == true }}
+        run: |
+          cmake -S native/windows/Relic.Diagnostics -B native-build/diagnostics-native -A x64
+          cmake --build native-build/diagnostics-native --config Release
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install psutil
+      - name: Build the native client
+        run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/performance-windows
+      - name: Prepare the isolated CI desktop
+        run: ./scripts/visual/windows-display.ps1
+      - name: Measure exhaustive and seeded interaction against synthetic large data
+        env:
+          RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
+          RELIC_DOTNET_STACK: ${{ github.workspace }}/native-build/diagnostics/dotnet-stack.exe
+          RELIC_NATIVE_STACK: ${{ github.workspace }}/native-build/diagnostics-native/Release/Relic.NativeStack.exe
+        run: |
+          $diagnosticArgs = @()
+          if ($env:RELIC_PERF_DIAGNOSTIC -eq 'true') { $diagnosticArgs += '--diagnostic' }
+          python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --mode ${{ inputs.mode || 'candidate' }} @diagnosticArgs
+      - name: Resolve retained native frames with matching Microsoft symbols after measurement
+        if: ${{ always() && inputs.diagnostic == true }}
+        continue-on-error: true
+        timeout-minutes: 6
+        run: python -X utf8 scripts/performance/resolve_symbols.py --exe native-build/diagnostics-native/Release/Relic.NativeStack.exe --output performance/windows
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Relic-responsiveness-Windows-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
+          path: |
+            performance/windows
+            !performance/windows/symbol-cache/**
+          # Symbol caches can be large; retain the exact identities, resolved
+          # frames and original stacks, not downloaded Microsoft PDB binaries.
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 25
+    concurrency:
+      group: native-responsiveness-macos-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install psutil
+      - run: swift build --package-path native/macos -c release --arch arm64
+      - run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output native-build/performance-macos
+      - name: Measure exhaustive and seeded interaction against synthetic large data
+        shell: bash
+        env:
+          RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
+        run: |
+          diagnostic_args=()
+          if [[ "$RELIC_PERF_DIAGNOSTIC" == "true" ]]; then diagnostic_args+=(--diagnostic); fi
+          for binary in native-build/performance-macos/*/Relic.app/Contents/MacOS/Relic; do
+            python3 scripts/performance/run.py --client macos --exe "$binary" --output performance/macos --mode '${{ inputs.mode || 'candidate' }}' "${diagnostic_args[@]}"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Relic-responsiveness-macOS-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
+          path: performance/macos

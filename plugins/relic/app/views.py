@@ -5,8 +5,11 @@ protocols, events and tool activity, plus each session's own transcript for its 
 writes to the store.
 """
 import calendar
+import copy
 import json
+import math
 import os
+import re
 import time
 from pathlib import Path
 
@@ -22,6 +25,42 @@ CHAT_HARNESSES = ("chatgpt", "claude-chat")
 
 
 # ---------------------------------------------------------------- small helpers
+def platform_info(capabilities, lang=None):
+    """Localize fixed UI diagnostics without changing transport proofs or caches."""
+    keys = {
+        "Windows desktop bridge": "view.platform.windows_bridge",
+        "No desktop bridge on this platform": "view.platform.no_bridge",
+        "Host bridge handshake verified; delivery still requires host authorization": "view.platform.bridge_authorization",
+        "Host bridge handshake verified": "view.platform.bridge_verified",
+        "Host bridge lacks the required Relic desktop tools": "view.platform.bridge_tools_missing",
+        "Desktop endpoint is not verified; run doctor.py --probe-desktop": "view.platform.bridge_unverified",
+        "No private host-supplied desktop socket; open a chat with the Relic plugin loaded": "view.platform.bridge_missing",
+        "Native peer messaging; exact Desktop target and Stop receipt required": "view.platform.peer_receipt",
+        "Native route prerequisites verified; delivery requires its exact peer and Stop receipt": "view.platform.peer_verified",
+        "Enable Claude Desktop delivery explicitly in Relic settings": "view.platform.claude_enable",
+        "Choose Claude Code 2.1.224+ and run the desktop capability probe": "view.platform.claude_probe",
+        "In an existing GUI-configured seat, complete a manual Desktop turn with the Relic hooks loaded": "view.platform.claude_turn",
+    }
+
+    def translate(reason):
+        if reason in keys:
+            return i18n.t(keys[reason], lang)
+        parts = []
+        for part in (reason or "").split("; "):
+            base, separator, version = part.partition(" (observed ")
+            if separator and base in keys and version.endswith(")"):
+                parts.append(i18n.t(keys[base], lang) + " " + i18n.t("view.platform.observed", lang, version=version[:-1]))
+            else:
+                parts.append(i18n.t(keys[part], lang) if part in keys else part)
+        return "; ".join(parts)
+
+    result = dict(capabilities)
+    for name in ("desktop_transport", "claude_desktop"):
+        if isinstance(result.get(name), dict):
+            result[name] = dict(result[name], reason=translate(result[name].get("reason")))
+    return result
+
+
 def epoch(at):
     try:
         return calendar.timegm(time.strptime(at, "%Y-%m-%dT%H:%M:%SZ"))
@@ -410,12 +449,164 @@ def approval_item(store, org, r, lang=None):
             "error": r.get("error")}
 
 
+def protocol_rules(rules):
+    """Expose the engine's effective check fallback, including legacy records.
+
+    Clients must display the same outcome as Store._check_outcome rather than
+    each interpreting an absent on_error field. Example labels and tooltips
+    follow the reference's formatting. This never rewrites the store.
+    """
+    # A caller may reuse an example object in separate rules. Add display
+    # fields only to the check rule, without leaking across that alias.
+    result = [copy.deepcopy(rule) for rule in rules or []]
+    for rule in result:
+        if rule.get("effect") == "check":
+            rule["on_error"] = "deny" if rule.get("on_error") == "deny" else "allow"
+            for example in rule.get("examples") or []:
+                call = example.get("call") or {}
+                example["call_display"] = _example_call_display(call)
+                example["call_json"] = _display_json(call)
+    return result
+
+
+def _display_json_number(value):
+    """JSON's binary64 value, using ECMAScript's decimal/exponent thresholds.
+
+    Python's shortest-round-trip coefficient supplies the significant digits;
+    Number::toString formats them without .0, -0, or padded exponents. Integers
+    cross the same binary64 boundary as JSON.parse in the reference client.
+    """
+    try:
+        number = float(value)
+    except OverflowError:
+        return "null"
+    if not math.isfinite(number):
+        return "null"
+    if number == 0:
+        return "0"
+    coefficient, _, exponent = repr(abs(number)).partition("e")
+    whole, _, fraction = coefficient.partition(".")
+    digits = whole + fraction
+    point = len(whole) + int(exponent or 0) - (len(digits) - len(digits.lstrip("0")))
+    digits = digits.lstrip("0").rstrip("0")
+    if 0 < point <= 21:
+        body = (digits + "0" * (point - len(digits)) if point >= len(digits)
+                else digits[:point] + "." + digits[point:])
+    elif -6 < point <= 0:
+        body = "0." + "0" * -point + digits
+    else:
+        body = digits[0] + ("." + digits[1:] if len(digits) > 1 else "")
+        body += "e" + ("+" if point > 0 else "-") + str(abs(point - 1))
+    return ("-" if number < 0 else "") + body
+
+
+def _display_json(value, indent=2):
+    """JSON.stringify for shared protocol and file preview display values.
+
+    Keep ordinary property insertion order; JavaScript enumerates array-index
+    keys first in numeric order. None selects JSON.stringify's compact format.
+    """
+    def quoted(text):
+        # JSON.stringify emits Unicode directly, but escapes lone surrogates.
+        return "".join("\\u%04x" % ord(char) if 0xD800 <= ord(char) <= 0xDFFF else char
+                       for char in json.dumps(text, ensure_ascii=False))
+
+    def encode(value, depth=0):
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return _display_json_number(value)
+        if isinstance(value, str):
+            return quoted(value)
+        if isinstance(value, dict):
+            indices = sorted((key for key in value if len(key) <= 10 and key.isascii() and key.isdecimal()
+                              and str(int(key)) == key and int(key) < 2 ** 32 - 1), key=int)
+            keys = indices + [key for key in value if key not in indices]
+            items = [quoted(key) + (":" if indent is None else ": ") + encode(value[key], depth + 1) for key in keys]
+            opening, closing = "{", "}"
+        elif isinstance(value, list):
+            items = [encode(item, depth + 1) for item in value]
+            opening, closing = "[", "]"
+        else:
+            raise TypeError("Display requires JSON values")
+        if not items:
+            return opening + closing
+        if indent is None:
+            return opening + ",".join(items) + closing
+        padding = " " * (indent * (depth + 1))
+        return opening + "\n" + padding + (",\n" + padding).join(items) + "\n" + " " * (indent * depth) + closing
+
+    return encode(value)
+
+
+def json_file_display(text):
+    """The reference file preview's JSON.parse / JSON.stringify(..., null, 2).
+
+    Parsing numbers directly as binary64 also handles integer tokens beyond
+    Python's integer-string limit, as the browser does. JSON.parse rejects
+    Python's optional NaN/Infinity syntax; overflow from valid JSON numbers
+    instead becomes Infinity and is stringified as null. Invalid or cut-off
+    JSON retains the exact text returned by the existing file reader.
+    """
+    def invalid_constant(value):
+        raise ValueError("Not a JSON number: " + value)
+
+    try:
+        value = json.loads(text, parse_int=float, parse_float=float, parse_constant=invalid_constant)
+        return _display_json(value)
+    except (ValueError, RecursionError):
+        return text
+
+
+def protocol_rules_display(rules):
+    """JSON.stringify(plainRules(wire.rules), null, 2), without editing rules."""
+    plain = [{key: value for key, value in rule.items() if key not in ("code", "examples", "code_sha256")}
+             if rule.get("effect") == "check" else rule for rule in rules or []]
+    return _display_json(plain)
+
+
+def _example_call_display(call):
+    """The reference exampleText/clip label, including UTF-16 slice semantics."""
+    def truthy(value):
+        # In JavaScript empty arrays/objects remain true, unlike Python.
+        return not (value is None or value is False or isinstance(value, (int, float, str))
+                    and (not value or isinstance(value, float) and math.isnan(value)))
+
+    def text(value):
+        # Array.join converts selected command/path values to JS strings.
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return "[object Object]"
+        if isinstance(value, list):
+            return ",".join("" if item is None else text(item) for item in value)
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        number = _display_json_number(value)
+        if number == "null":
+            return "NaN" if isinstance(value, float) and math.isnan(value) else "-Infinity" if value < 0 else "Infinity"
+        return number
+
+    inputs = call.get("input") or {}
+    argument = next((inputs.get(key) for key in ("command", "file_path", "path") if truthy(inputs.get(key))), None)
+    if argument is None:
+        argument = _display_json(inputs, indent=None) if inputs else ""
+    joined = " ".join(text(value) for value in (call.get("tool"), argument) if truthy(value))
+    # ECMAScript \s includes BOM, but excludes Python's NEL and C0 separators.
+    joined = re.sub(r"[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+", " ", joined).strip(" ")
+    units = joined.encode("utf-16-le", "surrogatepass")
+    return units[:318].decode("utf-16-le", "surrogatepass") + "…" if len(units) > 320 else joined
+
+
 def copies(store, lang=None):
     """What was copied to the person (GET /api/cc): protocols with a check program, each with its note for the person,
     who proposed it (author_display, by display name) and how it stands now; unread counts every unread copy."""
-    items = store.copies()
+    items = copy.deepcopy(store.copies())
     orgs = {o["id"]: o for o in store.list_orgs()}
     for c in items:
+        c["rules"] = protocol_rules(c.get("rules"))
         seats = (orgs.get(c.get("org")) or {}).get("members") or {}
         shown = lambda m, seats=seats: naming.display(seats[m], m, lang) if m in seats else m  # noqa: E731
         issued = c.get("issued_by") or {}
@@ -439,7 +630,7 @@ def snapshot(store, org_id, hub=None, lang=None):
     tasks = sorted((org.get("tasks") or {}).values(), key=lambda t: int(t["id"][1:]) if t["id"][1:].isdigit() else 0)
     protocols = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
                   "version": p.get("version"), "author": p.get("author"), "votes": len(p.get("votes") or {}),
-                  "uses": len(p.get("uses") or []), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
+                  "uses": len(p.get("uses") or []), "guidance": p.get("guidance", ""), "rules": protocol_rules(p.get("rules")),
                   "trigger": p.get("trigger", ""), "retire_target": p.get("retire_target"),
                   "issued_by": p.get("issued_by"), "downward": bool(p.get("downward")), "inherit": inherits(p),
                   "supersedes": p.get("supersedes"), "replaces_above": "/" in str(p.get("supersedes") or p.get("retire_target") or ""),
@@ -466,10 +657,12 @@ def snapshot(store, org_id, hub=None, lang=None):
                          "working": sum(1 for t in child_tasks if t.get("status") in ("open", "working"))})
     lineage = store.inheritance(org)
     inherited = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
-                  "version": p.get("version"), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
+                  "version": p.get("version"), "guidance": p.get("guidance", ""), "rules": protocol_rules(p.get("rules")),
                   "trigger": p.get("trigger", ""), "uses": len(p.get("uses") or []), "from": a["name"],
                   "from_id": a["id"], "issued_by": p.get("issued_by"), "check": has_check(p),
                   "summary_for_person": p.get("summary_for_person", "")} for a, p in lineage["inherited"]]
+    for protocol in protocols + inherited:
+        protocol["rules_display"] = protocol_rules_display(protocol["rules"])
     # protocols of the organizations above that this organization or one between overrode or stopped
     replaced = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "from": a["name"], "from_id": a["id"],
                  "how": how, "by": by, "at": level["name"], "at_id": level["id"]}

@@ -40,10 +40,7 @@ Give each member an explicit task to begin work. For independent plugin sessions
 `--host codex` or `--host both`, then restart the host and review/trust its hooks. The default `--host auto` registers
 with the CLIs it finds. `--configure-only` prepares the package without changing host settings or creating a launcher.
 
-The installer creates **`~/Applications/Relic.app`**, a Finder launcher that points to this folder and the selected
-Python. Keep the folder in place. `--no-shortcut` skips the launcher; `bash install.command --remove-launcher` removes
-only a launcher created by Relic and preserves host registrations and organization data. Reinstalling from a new
-permanent folder updates the managed launcher. This locally generated launcher is not a signed distribution bundle.
+Install the compiled SwiftUI `Relic.app` from the [native build artifact](native-install.md) into `~/Applications`, and open it with Finder. The source package described above registers the shared plugin and engine; it no longer creates a shell launcher. `bash install.command --remove-launcher` remains a cleanup command for the old managed launcher only and refuses to remove an unrelated native bundle. Retain the plugin source folder while hosts reference it.
 
 For the following commands, `python3` must be the same native arm64 Python 3.11+ selected during installation.
 If your shell selects another version, use the selected interpreter's full path instead. `--open` above uses the
@@ -58,7 +55,7 @@ python3 -X utf8 scripts/open_app.py --no-window
 
 There is one server per `RELIC_HOME`. Status does not start it; stop and restart authenticate the saved server
 instance and wait for its ownership lock to be released. Restart reuses the port when available. An older or
-unverified server is not stopped using a saved PID alone. Closing the browser window leaves the server running.
+unverified server is not stopped using a saved PID alone. Closing the native App stops its owned engine and leaves an existing borrowed engine running.
 Stopping the server cleans up the sessions and processes it owns; organization data remains on disk.
 
 All participating hosts must use the same `~/.relic` or explicit `RELIC_HOME`. Before replacing a package, stop its
@@ -82,7 +79,7 @@ See the [reference](reference.en.md) for details.
 | --- | --- |
 | CLI tools and hooks | Organizations, messages, documents, tasks and governance share the local store; enforcement requires the host to load the hooks |
 | App-managed ACP members | In HaochenGu's pre-merge v0.4.1 test, a signed-in Claude Code writer and Codex reviewer completed tasks, exchanged messages and revised a shared document; explicit task prompts were needed after the startup wait instruction |
-| Browser App | Finds Edge/Chrome app bundles or opens the default browser; Safari/Chromium interaction, clipboard, IME and trackpad acceptance remain incomplete |
+| Native App | SwiftUI controls, native menus/notifications and Apple Speech; real-device keyboard, IME, trackpad, microphone and window acceptance remain the final gate |
 | Finder and Terminal | Native file/folder opening and interactive session launcher implemented; failures are reported; interactive acceptance remains incomplete |
 | Protocol paths | Uses recorded absolute/resolved paths, NUL-delimited Git paths, macOS Unicode normalization and the target volume's case behavior; symlink aliases are checked and Windows matching is preserved |
 | Codex Desktop and ChatGPT seats | Unix-socket transport implemented; available only after the host-provided private socket passes its required-tools handshake and the host authorizes the request |

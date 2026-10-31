@@ -18,6 +18,8 @@ v0.6.0 合并。Relic 是一个产品、一套功能源码：Relic App 和 Claud
 
 ## 安装
 
+此分支的原生 App 从 [Native apps CI](https://github.com/Hongyi-Du/Relic-Plugins/actions/workflows/native-apps.yml) 下载 Windows 安装器或 macOS .app ZIP，具体步骤见[原生安装说明](docs/native-install.md)。下方源码包安装共用插件与引擎，需另装原生应用。它们仍是供审阅的未签名候选版，尚未正式发布。
+
 准备 **Python 3.11+** 与已登录的 Claude Code 和/或 Codex。App 内的 ACP 成员需要 **Node.js 22+**
 和 npm。用 `python -X utf8 scripts/package.py --output dist` 构建候选包；要使用旧版，可从
 [v0.6.0 Windows Release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1) 下载。
@@ -38,7 +40,7 @@ python -X utf8 scripts/install.py
 
 **macOS Apple silicon：**同一候选版可构建 `relic-macos-v0.7.1-beta.1.tar.gz`（可选 ZIP）。使用原生 arm64
 Python 3.11+ 与 Node.js 22+，解压到固定目录后运行 `bash install.command --host none --open`。
-安装器创建 `~/Applications/Relic.app`，请保留解压目录。源码安装包未经签名或公证，不支持 Intel/Rosetta。
+请另从 CI artifact 取得 SwiftUI `Relic.app`，复制到 `~/Applications`；插件安装器不再创建 shell 启动器。插件解压目录仍需保留。源码安装包未经签名或公证，不支持 Intel/Rosetta。
 宿主注册、桌面能力检查、合并前真机观察与合并版验收的区别见[macOS 指南](docs/macos.zh-CN.md)。
 
 ## Relic App
@@ -58,7 +60,7 @@ Python 3.11+ 与 Node.js 22+，解压到固定目录后运行 `bash install.comm
 python -X utf8 scripts/open_app.py
 ```
 
-它在本机 127.0.0.1 起一个服务，用 Microsoft Edge（或 Chrome）打开窗口。在窗口栏点「安装」，可以装成有自己窗口和标题栏的独立应用。「人话」「解读」和成员自动命名会用你已登录的 Claude Code 发起简短调用（`claude -p`），见 [隐私与数据](docs/privacy.zh-CN.md)。
+Windows 使用 WinUI 3，macOS 使用 SwiftUI，具备原生窗口、控件、菜单、快捷键与通知。App 无控制台地启动本机 127.0.0.1 上的共用引擎；退出时清理自己启动的服务，保留原先已运行的服务。界面不使用浏览器或 WebView。「人话」「解读」和成员自动命名会用你已登录的 Claude Code 发起简短调用（`claude -p`），见 [隐私与数据](docs/privacy.zh-CN.md)。
 
 ## 以前的版本
 
@@ -82,3 +84,9 @@ v0.2.0-beta.1 有三个版本：Relic Claude 0.1.0-beta.1、Relic Codex / GPT 0.
 运行时仅使用 Python 标准库。`python scripts/check.py` 运行两套隔离测试：`relic`（插件与 App）和 `packaging`（安装器与下载包）；用 `--suite relic` 或 `--suite packaging` 只跑其中一套。`python scripts/package.py --output dist` 为每个系统生成一个下载包（`relic-windows-v<版本>.zip`、`relic-macos-v<版本>.tar.gz`），外加 `SHA256SUMS.txt` 和 `release-manifest.json`；候选包不会自动公开发布。加 `--macos-format both` 可同时生成 macOS ZIP。Windows/macOS CI 使用 Python 3.11 和 3.13；这些检查不调用真实模型，也不表示所有宿主桌面集成都已实测。
 
 原创源码采用 [MIT](LICENSE)，与当前公开 [Relic 研究仓库](https://github.com/Hongyi-Du/Relic) 保持一致。本仓库专门发布插件，与论文实验代码和 [Relic-Agent](https://github.com/Hongyi-Du/Relic-Agent) 运行框架分开。反馈问题请先去除私人数据，再提交到 [GitHub Issues](https://github.com/Hongyi-Du/Relic-Plugins/issues)。
+## 原生 App 候选版
+
+`native-apps` 审阅分支新增真正的 SwiftUI（macOS 14+、Apple silicon）和 WinUI 3
+（.NET 8、Windows x64）客户端，两端共用现有 Python 核心。**Native apps** CI 生成
+未签名的安装器和 `.app` 候选包，与当前正式下载包分开。参见
+[原生版安装说明](docs/native-install.md)和[界面/API 契约](docs/native-apps.md)。

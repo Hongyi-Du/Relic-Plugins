@@ -301,16 +301,9 @@ def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0, wake_message_id
 
 
 def open_window():
-    """Open the Relic App on the person's screen (scripts/relic_app.py starts its server when it is not running), as a
-    process of its own: it outlives the session that asked for it."""
-    python = Path(sys.executable)
-    if WINDOWS and python.with_name("pythonw.exe").exists():
-        python = python.with_name("pythonw.exe")
-    script = Path(__file__).resolve().parents[1] / "scripts" / "relic_app.py"
-    subprocess.Popen([str(python), "-X", "utf8", str(script)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, creationflags=(NO_WINDOW | 0x00000200) if WINDOWS else 0,
-                     start_new_session=not WINDOWS, close_fds=True)
-    return str(script)
+    """Launch the native App independently; report a missing installation to the caller."""
+    from scripts.relic_app import open_native_app
+    return open_native_app()
 
 
 def open_command(config, session_id, harness, cwd):

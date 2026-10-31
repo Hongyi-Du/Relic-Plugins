@@ -553,7 +553,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _json(self, obj, code=200):
-        self._send(code, json.dumps(obj, ensure_ascii=False))
+        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8", "backslashreplace"))
 
     def _error(self, code, text):
         self._json({"error": text}, code)
@@ -615,7 +615,7 @@ class Handler(BaseHTTPRequestHandler):
                                    "instance": self.app.instance,
                                    "state": "stopping" if self.app.stopping.is_set() else "running"})
             if api == ["platform"]:
-                return self._json(platform_support.capabilities())
+                return self._json(views.platform_info(platform_support.capabilities()))
             if api == ["events"]:
                 return self._events()
             if api == ["orgs"]:
@@ -767,7 +767,7 @@ class Handler(BaseHTTPRequestHandler):
             if getattr(app, "stopping", None) and app.stopping.is_set():
                 return self._error(503, "the Relic App is stopping")
             if api == ["platform"]:
-                return self._json(platform_support.configure_capabilities(a))
+                return self._json(views.platform_info(platform_support.configure_capabilities(a)))
             if api == ["orgs"]:
                 org = store.found(a["name"], a.get("purpose", ""), a.get("governance") or "leader")
                 return self._json({"org_id": org["id"]})
@@ -794,7 +794,7 @@ class Handler(BaseHTTPRequestHandler):
                 except PermissionError as error:
                     return self._error(403, str(error))
             if api == ["install-window"]:
-                return self._json(open_install_window(app.port))
+                return self._error(410, "Install the native Relic App package; browser installation is no longer supported.")
             if api == ["open"]:
                 target = {"data": data_home(), "logs": data_home() / "runs"}.get(a.get("what"), data_home())
                 platform_support.open_external(str(target))
@@ -858,22 +858,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(400, str(error))
         except Exception as error:
             return self._error(500, "%s: %s" % (type(error).__name__, error))
-
-
-def open_install_window(port):
-    """Open a normal browser window, where supported browsers can offer app installation."""
-    import subprocess
-    url = "http://127.0.0.1:%d/#install" % port
-    exe = platform_support.browser_executable()
-    if exe:
-        try:
-            subprocess.Popen([exe, "--new-window", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, close_fds=True, creationflags=platform_support.creation_flags())
-        except OSError:
-            exe = None  # an application removed since discovery: try the default browser
-    if not exe:
-        platform_support.open_external(url)
-    return {"opened": url, "browser": exe or "default"}
 
 
 class Server(ThreadingHTTPServer):

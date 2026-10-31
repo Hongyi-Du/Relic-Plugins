@@ -1,0 +1,145 @@
+import Foundation
+import RelicCore
+
+// These tables drive controls and state labels; wording is always fetched from /api/i18n.
+enum Choices {
+    static let accents = [("clay", "native.color_clay"), ("ink", "native.color_ink"), ("indigo", "native.color_indigo"), ("blue", "native.color_blue"), ("rose", "native.color_rose"), ("amber", "native.color_amber")]
+    static let themes = [("system", "common.theme_system"), ("light", "common.theme_light"), ("dark", "common.theme_dark")]
+    static let fonts = [("small", "common.size_small"), ("medium", "common.size_medium"), ("large", "common.size_large")]
+    static let densities = [("comfortable", "settings.density_comfortable"), ("compact", "settings.density_compact")]
+    static let modes = [("direct", "org.mode_direct"), ("transparent", "org.mode_transparent"), ("liaison", "org.mode_liaison")]
+    static let panes = [("overview", "panel.overview"), ("workspace", "panel.workspace"), ("files", "common.file")]
+}
+
+extension Model {
+    func stateLabel(_ state: String) -> String {
+        let keys = ["active": "state.active", "error": "state.error", "idle": "state.idle", "running": "state.running", "starting": "state.starting", "vacant": "state.vacant", "waiting": "state.waiting", "working": "state.working"]
+        return keys[state].map { t($0) } ?? state
+    }
+    func taskLabel(_ state: String) -> String {
+        let keys = ["open": "task.open", "working": "task.working", "blocked": "task.blocked", "done": "task.done", "dropped": "task.dropped"]
+        return keys[state].map { t($0) } ?? state
+    }
+    func protocolLabel(_ state: String) -> String {
+        let keys = ["active": "details.status_active", "enacted": "details.status_enacted", "proposed": "details.status_proposed", "rejected": "details.status_rejected", "retired": "details.status_retired", "superseded": "details.status_superseded"]
+        return keys[state].map { t($0) } ?? state
+    }
+    func episodeLabel(_ episode: Node) -> String {
+        if episode["status"].text == "open" { return t("task.working") }
+        let keys = ["success": "org.episode_success", "failure": "common.failed", "partial": "org.episode_partial", "cancelled": "org.episode_cancelled"]
+        return keys[episode["outcome"].text].map { t($0) } ?? episode["outcome"].text
+    }
+    func copyLabel(_ copy: Node) -> String {
+        if !["", "active"].contains(copy["org_status"].text) { return t("cc.status_ended") }
+        if copy["status"].text == "retired" && copy["retired_by"].text == "human" { return t("cc.status_retired_person") }
+        let key = ["active": "cc.status_active", "retired": "cc.status_retired", "superseded": "cc.status_superseded"][copy["status"].text]
+        return key.map { t($0, ["id": copy["superseded_by"].text]) } ?? copy["status"].text
+    }
+    func identity(_ card: Node) -> String {
+        let harness = card["harness_label"].text
+        if card["state"].text == "vacant" { return t(harness.isEmpty ? "card.identity_vacant" : "card.identity_vacant_harness", ["harness": harness]) }
+        if card["surface"].text == "subagent" { return t(card["parent"].text.isEmpty ? "card.identity_subagent" : "card.identity_subagent_parent", ["harness": harness, "parent": name(card["parent"].text)]) }
+        if card["surface"].text == "acp" { return t("card.identity_acp", ["harness": harness]) }
+        if card["surface"].text == "chat" { return t("card.identity_chat", ["harness": harness]) }
+        return t("card.identity_session", ["where": [harness, card["surface_label"].text].filter { !$0.isEmpty }.joined(separator: " ")])
+    }
+    func banner(_ card: Node) -> String {
+        if card["embedded"].flag { return t("banner.embedded", ["harness": card["harness_label"].text]) }
+        if card["surface"].text == "subagent" { return t(card["parent"].text.isEmpty ? "banner.subagent" : "banner.subagent_in", ["parent": name(card["parent"].text)]) }
+        let surface = card["config"]["surface"].text.isEmpty ? card["surface"].text : card["config"]["surface"].text
+        if !Capabilities.automatic(platform, harness: card["harness"].text, surface: surface) { return t(card["harness"].text == "chatgpt" ? "member.chatgpt_unavailable" : "member.desktop_manual") }
+        if card["state"].text == "vacant" { return t("banner.vacant") }
+        return t(card["has_transcript"].flag ? "banner.transcript" : "banner.inbox")
+    }
+    var displayNow: Date {
+        if VisualCapture.enabled, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",
+           let iso = ProcessInfo.processInfo.environment["RELIC_VISUAL_NOW"], let date = Timeline.date(Node(iso)) { return date }
+        return Date()
+    }
+    func ago(_ node: Node, now: Date? = nil) -> String {
+        let now = now ?? displayNow
+        guard let date = Timeline.date(node) else { return "" }
+        let seconds = max(0, now.timeIntervalSince(date))
+        if seconds < 60 { return t("time.just_now") }
+        if seconds < 3600 { return t("time.minutes_ago", ["n": String(Int(seconds / 60))]) }
+        if seconds < 86400 { return t("time.hours_ago", ["n": String(Int(seconds / 3600))]) }
+        return day(node, now: now)
+    }
+    func day(_ node: Node, now: Date? = nil, calendar: Calendar = .current) -> String {
+        let now = now ?? displayNow
+        guard let date = Timeline.date(node) else { return "" }
+        if calendar.isDate(date, inSameDayAs: now) { return t("time.today") }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return t("time.yesterday") }
+        let format = DateFormatter(); format.locale = Locale(identifier: words.language); format.timeZone = calendar.timeZone
+        format.setLocalizedDateFormatFromTemplate(calendar.component(.year, from: date) == calendar.component(.year, from: now) ? "MMMMd" : "yMMMMd")
+        return format.string(from: date)
+    }
+    func clock(_ node: Node, calendar: Calendar = .current) -> String {
+        guard let date = Timeline.date(node) else { return "" }
+        let format = DateFormatter(); format.locale = Locale(identifier: "en_US_POSIX"); format.timeZone = calendar.timeZone; format.dateFormat = "HH:mm"
+        return format.string(from: date)
+    }
+    func shortWhen(_ node: Node, now: Date? = nil, calendar: Calendar = .current) -> String {
+        let now = now ?? displayNow
+        guard let date = Timeline.date(node) else { return "" }
+        if calendar.isDate(date, inSameDayAs: now) { return clock(node, calendar: calendar) }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return t("time.yesterday") }
+        let format = DateFormatter(); format.locale = Locale(identifier: words.language); format.timeZone = calendar.timeZone
+        format.setLocalizedDateFormatFromTemplate("Md"); return format.string(from: date)
+    }
+    func ruleScope(_ rule: Node) -> String {
+        let tools = rule["tools"].rows.map(\.text)
+        var parts = [tools == ["Reply"] ? t("cc.scope_reply") : tools.joined(separator: " / ")]
+        if !rule["path_glob"].text.isEmpty { parts.append(t("cc.scope_path", ["glob": rule["path_glob"].text])) }
+        if !rule["input_contains"].rows.isEmpty { parts.append(t("cc.scope_contains", ["words": list(rule["input_contains"].rows.map(\.text))])) }
+        let who = (rule["roles"].rows + rule["members"].rows).map(\.text), except = (rule["except_roles"].rows + rule["except_members"].rows).map(\.text)
+        if !who.isEmpty { parts.append(t("cc.scope_who", ["names": list(who)])) }; if !except.isEmpty { parts.append(t("cc.scope_except", ["names": list(except)])) }
+        return parts.joined(separator: " · ")
+    }
+    func protocolReference(_ reference: String) -> String {
+        let parts = reference.split(separator: "/", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return reference }
+        return t("org.protocol_ref", ["id": parts[1], "org": organizations.first { $0["id"].text == parts[0] }?["name"].text ?? parts[0]])
+    }
+    var displayMessages: [Node] {
+        guard !member.isEmpty else { return messages }
+        return Timeline.conversation(steps: conversation["steps"].rows, chat: messages, member: selectedMember, live: displayLiveItems, words: words)
+    }
+    var displayLiveItems: [Node] { Timeline.activeLive(liveItems, status: liveStatus, decisions: snapshot["decisions"].rows) }
+    func unread(_ member: String = "") -> Int {
+        let key = member.isEmpty ? "group" : "member:" + member, since = defaults.integer(forKey: "seen." + organization + "/" + key)
+        return snapshot["chats"][key]["ids"].rows.filter { $0.rows.count > 1 && $0.rows[0].integer > since && $0.rows[1].text != "human" }.count
+    }
+    func lastLine(_ member: String = "") -> String {
+        let last = snapshot["chats"][member.isEmpty ? "group" : "member:" + member]["last"]
+        if last["body"].text.isEmpty { return "" }
+        let body = last["body"].text
+            .replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?m)^>.*\n+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preview = body.count > 70 ? String(body.prefix(69)) + "…" : body
+        return t(last["type"].text == "receipt" ? "side.last_receipt" : "side.last_line", ["name": name(last["from"].text), "text": preview])
+    }
+    func decisionTitle(_ decision: Node) -> String {
+        let id = decision["id"].text, who = name(decision["member"].text)
+        switch decision["kind"].text {
+        case "permission": return t("decision.permission", ["name": who, "what": decision["title"].text])
+        case "approval":
+            let requester = decision["requester_org"].text.isEmpty || decision["requester_org"].text == organization ? name(decision["requester"].text) : t("common.member_of_org", ["member": decision["requester"].text, "org": decision["requester_org_name"].text])
+            return t("decision.approval", ["requester": requester, "what": decision["label"].text.isEmpty ? decision["text"].text : decision["label"].text, "id": id])
+        case "trajectory":
+            let whose = decision["member"].text == decision["requester"].text ? t("decision.own_seat") : t("decision.member_seat", ["name": who])
+            let which = decision["carrier"].integer > 0 ? t("decision.earlier_session", ["n": decision["carrier"].text]) : t("decision.current_session")
+            return t("decision.trajectory", ["requester": name(decision["requester"].text), "whose": whose, "which": which])
+        case "wake": return t("decision.wake_failed", ["name": who])
+        case "task": return t("decision.task_blocked", ["id": id, "title": decision["title"].text])
+        default: return decision["title"].text
+        }
+    }
+    func approvalNote(_ decision: Node) -> String {
+        if decision["approver"].text == "human" { return t("decision.approval_human") }
+        if decision["approver"].text == "secretary-general", let cabinet = organizations.first(where: { $0["cabinet"].flag }), !cabinet["leader"].text.isEmpty { return t("decision.approval_sg", ["name": cabinet["leader"].text]) }
+        return ""
+    }
+}

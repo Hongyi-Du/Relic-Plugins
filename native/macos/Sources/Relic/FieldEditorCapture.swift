@@ -1,0 +1,95 @@
+import AppKit
+
+@MainActor enum FieldEditorCapture {
+    /// AppKit lends a window field editor to a native text field. That editor
+    /// draws the same input's current value; it is not another visible input.
+    /// Record the actual currentEditor relationship before any projection.
+    static func receipts(in window: NSWindow) -> [[String: Any]] {
+        guard let root = window.contentView else { return [] }
+        let contentScreen = window.convertToScreen(root.convert(root.bounds, to: nil))
+        var rows: [[String: Any]] = []
+        func walk(_ view: NSView) {
+            if let field = view as? NSTextField,
+               let cell = field.cell as? NSTextFieldCell, cell.controlView === field,
+               let editor = field.currentEditor() as? NSTextView,
+               field.window === window, editor.window === window,
+               NativeVisibility.screenClip(field).map({ !$0.isNull && !$0.isEmpty }) == true,
+               NativeVisibility.screenClip(editor).map({ !$0.isNull && !$0.isEmpty }) == true {
+                rows.append([
+                    "contract": cell is MemberRenameField.PaddedCell ? "appkit-current-field-editor-v2" : "appkit-current-field-editor-v3",
+                    "provider": "mounted NSTextFieldCell.controlView, NSTextField.currentEditor and NSWindow.firstResponder",
+                    "owner_identity": String(describing: ObjectIdentifier(cell)),
+                    "owner_class": String(describing: type(of: cell)), "owner_identifier": cell.accessibilityIdentifier() ?? "",
+                    "owner_is_text_field_cell": cell.isKind(of: NSTextFieldCell.self),
+                    "control_identity": String(describing: ObjectIdentifier(field)),
+                    "control_class": String(describing: type(of: field)), "control_is_text_field": field.isKind(of: NSTextField.self),
+                    "owner_control_view_identity": String(describing: ObjectIdentifier(cell.controlView!)),
+                    "control_cell_identity": String(describing: ObjectIdentifier(field.cell!)),
+                    "editor_identity": String(describing: ObjectIdentifier(editor)), "editor_class": String(describing: type(of: editor)),
+                    "editor_is_text_view": editor.isKind(of: NSTextView.self),
+                    "current_editor_identity": String(describing: ObjectIdentifier(field.currentEditor()!)),
+                    "window_identity": String(describing: ObjectIdentifier(window)),
+                    "is_field_editor": editor.isFieldEditor, "same_window": editor.window === field.window,
+                    "first_responder_is_editor": window.firstResponder === editor,
+                    "owner_value": field.stringValue, "editor_value": editor.string,
+                    "selection": ["location": editor.selectedRange().location, "length": editor.selectedRange().length],
+                    "owner_ax_frame": ["source": "actual NSTextFieldCell.accessibilityFrame()",
+                        "owner_identity": String(describing: ObjectIdentifier(cell)),
+                        "coordinate_space": "AppKit screen coordinates (bottom-left)",
+                        "bounds": ElementCapture.box(cell.accessibilityFrame())],
+                    "content_screen_frame": ["source": "actual NSWindow.contentView convert(bounds,to:nil) then window.convertToScreen",
+                        "window_identity": String(describing: ObjectIdentifier(window)),
+                        "bounds": ElementCapture.box(contentScreen)],
+                    "owner_screen_bounds": ElementCapture.box(window.convertToScreen(field.convert(field.bounds, to: nil))),
+                    "editor_screen_bounds": ElementCapture.box(window.convertToScreen(editor.convert(editor.bounds, to: nil)))])
+            }
+            for child in view.subviews { walk(child) }
+        }
+        walk(root)
+        return rows
+    }
+
+    static func attach(to elements: inout [[String: Any]], receipts: [[String: Any]]) -> [String] {
+        var errors: [String] = []
+        for receipt in receipts {
+            guard let ownerIdentity = receipt["owner_identity"] as? String,
+                  let editorIdentity = receipt["editor_identity"] as? String else { errors.append("Field editor receipt has no native identities"); continue }
+            let owners = elements.indices.filter { elements[$0]["object_identity"] as? String == ownerIdentity && elements[$0]["kind"] as? String == "input" }
+            let editors = elements.indices.filter { elements[$0]["object_identity"] as? String == editorIdentity && elements[$0]["kind"] as? String == "input" }
+            let legacy = receipt["contract"] as? String == "appkit-current-field-editor-v2"
+                && receipt["owner_class"] as? String == String(describing: MemberRenameField.PaddedCell.self)
+            let nativeField = receipt["contract"] as? String == "appkit-current-field-editor-v3"
+                && receipt["owner_is_text_field_cell"] as? Bool == true
+                && receipt["control_is_text_field"] as? Bool == true
+                && receipt["editor_is_text_view"] as? Bool == true
+                && !(receipt["control_class"] as? String ?? "").isEmpty
+                && !(receipt["editor_class"] as? String ?? "").isEmpty
+                && owners.count == 1 && elements[owners[0]]["class"] as? String == receipt["owner_class"] as? String
+                && editors.count == 1 && elements[editors[0]]["class"] as? String == receipt["editor_class"] as? String
+            guard legacy || nativeField,
+                  receipt["control_cell_identity"] as? String == ownerIdentity,
+                  let controlIdentity = receipt["control_identity"] as? String, !controlIdentity.isEmpty,
+                  receipt["owner_control_view_identity"] as? String == controlIdentity,
+                  !(receipt["window_identity"] as? String ?? "").isEmpty,
+                  owners.count == 1, editors.count == 1, let owner = owners.first, let editor = editors.first, owner != editor,
+                  receipt["current_editor_identity"] as? String == editorIdentity,
+                  receipt["is_field_editor"] as? Bool == true, receipt["same_window"] as? Bool == true,
+                  receipt["first_responder_is_editor"] as? Bool == true,
+                  let source = receipt["owner_value"] as? String, receipt["editor_value"] as? String == source,
+                  elements[owner]["identifier"] as? String == receipt["owner_identifier"] as? String else {
+                errors.append("Field editor \(editorIdentity) has no unique current native input owner/value/focus binding"); continue
+            }
+            let original = elements[editor]
+            guard let ownerID = elements[owner]["id"] as? String, let editorID = original["id"] as? String else {
+                errors.append("Field editor owner or editor has no captured id"); continue
+            }
+            elements[owner]["native_field_editor"] = receipt
+            elements[owner]["owned_editor_evidence"] = original
+            // Keep any actual visible children; only the duplicate input
+            // representation is owned by the real text field.
+            for index in elements.indices where elements[index]["parent"] as? String == editorID { elements[index]["parent"] = ownerID }
+            elements.remove(at: editor)
+        }
+        return errors
+    }
+}
