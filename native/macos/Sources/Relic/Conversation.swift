@@ -207,6 +207,7 @@ struct RichText: View {
 struct IntrinsicMarkdownLayout: Layout {
     let preferredWidth: CGFloat
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let trace = UIWorkTrace.begin("layout.markdown"); defer { UIWorkTrace.end(trace) }
         let width = min(proposal.width ?? preferredWidth, preferredWidth)
         return subviews.first?.sizeThatFits(ProposedViewSize(width: max(1, width), height: nil)) ?? .zero
     }
@@ -511,13 +512,11 @@ struct ConversationStream: View {
 
 struct MessageView: View {
     @EnvironmentObject var m: Model
-    @Environment(\.conversationDisclosure) private var preserveScroll
     let item: Node
     var inThread = false
     var continued = false
     @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
     @State private var hovering = false
-    @State private var originalExpanded = false
     @State private var threadAvatarImages: Set<String> = []
     private var mine: Bool { item["from"].text == "human" }
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
@@ -556,23 +555,11 @@ struct MessageView: View {
                         else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).help(recipientLabel) }
                         ReferenceLabel(m.clock(item["at"]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
                     } }
-                    if item["type"].text == "receipt" {
-                        MessageReceipt(text: bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression))
-                    } else if wantsPlain, let plain = m.plain[item["id"].text] {
-                        messageBubble(plain["text"].text.isEmpty ? plain.text : plain["text"].text, plain: true)
-                        VStack(alignment: .leading, spacing: 0) {
-                            OriginalDisclosureButton(title: m.t("msg.original"), expanded: originalExpanded) { preserveScroll(); originalExpanded.toggle() }
-                            if originalExpanded { messageBubble(bodyText).padding(.top, 4) }
-                        }
-                    } else {
-                        messageBubble(bodyText)
-                        if wantsPlain {
-                            if m.plainFailed.contains(item["id"].text) { TextButton(m.t("plain.retry"), size: 11.5, weight: 400, color: RelicStyle.red) { m.run { try await m.requestPlain([item["id"].text]) } }.buttonStyle(.plain) }
-                            else { HStack(spacing: 6) {
-                                if m.plainPending.contains(item["id"].text) { ProgressView().controlSize(.mini).frame(width: 10, height: 10) }
-                                ReferenceLabel(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting"), size: 11.5, color: RelicStyle.muted)
-                            } }
-                        }
+                    // A cold row used to construct the author controls and all
+                    // native body/layout types in one display turn. Keep the
+                    // same final layout but admit its content separately.
+                    ProgressiveRow(estimatedHeight: 42) {
+                        MessageBodyContent(item: item, inThread: inThread, wantsPlain: wantsPlain)
                     }
                     if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {
                         ReferenceLabel(m.readReceipt(item), size: 11, color: RelicStyle.muted, lines: 0)
@@ -611,6 +598,39 @@ struct MessageView: View {
                 NSPasteboard.general.clearContents(); m.notice = m.t(NSPasteboard.general.setString(bodyText, forType: .string) ? "msg.copied" : "msg.copy_failed")
             }
         }.padding(3).modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 8, kind: "card", shadows: SurfaceShadow.small))
+    }
+}
+
+private struct MessageBodyContent: View {
+    @EnvironmentObject var m: Model
+    @Environment(\.conversationDisclosure) private var preserveScroll
+    let item: Node
+    let inThread: Bool
+    let wantsPlain: Bool
+    @State private var originalExpanded = false
+    private var mine: Bool { item["from"].text == "human" }
+    private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
+    var body: some View {
+        VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+            if item["type"].text == "receipt" {
+                MessageReceipt(text: bodyText.replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression))
+            } else if wantsPlain, let plain = m.plain[item["id"].text] {
+                messageBubble(plain["text"].text.isEmpty ? plain.text : plain["text"].text, plain: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    OriginalDisclosureButton(title: m.t("msg.original"), expanded: originalExpanded) { preserveScroll(); originalExpanded.toggle() }
+                    if originalExpanded { messageBubble(bodyText).padding(.top, 4) }
+                }
+            } else {
+                messageBubble(bodyText)
+                if wantsPlain {
+                    if m.plainFailed.contains(item["id"].text) { TextButton(m.t("plain.retry"), size: 11.5, weight: 400, color: RelicStyle.red) { m.run { try await m.requestPlain([item["id"].text]) } }.buttonStyle(.plain) }
+                    else { HStack(spacing: 6) {
+                        if m.plainPending.contains(item["id"].text) { ProgressView().controlSize(.mini).frame(width: 10, height: 10) }
+                        ReferenceLabel(m.t(m.plainPending.contains(item["id"].text) ? "plain.pending" : "plain.waiting"), size: 11.5, color: RelicStyle.muted)
+                    } }
+                }
+            }
+        }
     }
     private func messageBubble(_ text: String, plain: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 3) {

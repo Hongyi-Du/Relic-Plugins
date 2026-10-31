@@ -1,5 +1,17 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+432e6d2 / 41186072130 FAILS startup at 269.412 ms, 154.719 MiB, 9 threads.
+The cold composer is now 32.521 ms and first identity batch 85.228 ms; failure
+is inside a cold conversation row, with only two mounted rows. Message body
+construction now has its own queued display turn, separate from author/avatar
+controls; plain/original disclosure state lives with that body. The final text,
+spacing, order and actions stay the same. Added observational layout scopes
+for message columns and Markdown to distinguish native layout from admission
+scope time. All pending/actual-visible-content and watchdog checks stay intact.
+432e6d2 Python validation 41186072131 passes all platforms. Its Mac full-window
+and adaptive captures pass; the Windows jobs 41186072111 / 41186072110 fail
+full-window collection and require the shared owner to inspect their reports.
+
 dedf7bd / 41185011711 catches a shadow-rendering regression: the broad dialog
 blur becomes too light without non-linear raster composition. Restore the
 original drawingGroup path for blur radii above 1 pt, retaining native layer
