@@ -1,5 +1,28 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Amendment 8 resumes the same required hang fix after reboot. 4b55926 /
+41194618738 confirms a product history-restoration failure, not absent input
+or an API paging failure: the last request already advanced chat_pages to 6,
+chat_more=false, but loading_older remained true while awaiting FirstRow.
+The trace records routed request 0 at 1793444439573, all rows recycled at
+1793444439579, then rendered/completed at 9582/9593 without start.restored.
+Windows maximum delay is 127.355 ms, peak 489.051 MiB /37 threads; the random
+phase did not run, so this is not acceptance and proves no steady-state plateau.
+Mac maximum delay is 373.186 ms during action-0065:group, 205.297 MiB /9 threads.
+The product fix resets StackLayout once when starting an explicit FirstRow
+intent with no visible message anchor. Microsoft OnLayoutChanged uninitializes
+the old layout state and resets viewport extent/expected/pending/unshiftable
+coordinates; ItemsSource replacement alone does not do so. Normal keyed reading
+restoration keeps its original path. The same real-content/native-frame/top
+position checks still finish the request; there is no new retry or timeout.
+Changes for the clients: no route, payload, fixture or gate changes. Mac remains
+owned by its session; cbb82d6's action-0065 stall still requires its own fix.
+
+Both native builds/tests/packages, all Python jobs, adaptive windows, title bars
+and report-only visual review pass on this SHA. All four Windows window cases
+show a real settled end gap of zero. Images/packages are retained under the
+4b55926 candidate folders; they are not designated as a final release.
+
 9d65781 / 41193620578 still FAILS: 92.871 ms maximum UI delay,
 449.988 MiB /38 threads. All five real history page insertions complete,
 including four preserved visible-message anchors, but the first 5,500-message
