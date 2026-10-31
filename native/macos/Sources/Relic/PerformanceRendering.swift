@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import RelicCore
 
 /// CI observation only. This never controls product rendering or bypasses work.
@@ -35,12 +36,13 @@ import RelicCore
         guard ResponsivenessCapture.enabled else { return }
         mountedRows[kind, default: 0] -= 1; UIWorkTrace.gauge("mounted_\(kind)_rows", mountedRows[kind, default: 0])
     }
-    static func waitForContent(_ model: Model) async throws {
+    static func waitForContent(_ model: Model, window: NSWindow) async throws {
         let deadline = ProcessInfo.processInfo.systemUptime + 15
         var quietPasses = 0
         repeat {
             try await Task.sleep(for: .milliseconds(100))
-            if !model.isPreparingConversation, (model.organization.isEmpty || streamVersion == model.streamVersion),
+            let visible = RenderReadiness.observation(in: window, expectInspector: model.panelOpen && !model.organization.isEmpty)
+            if visible.ready, !model.isPreparingConversation, (model.organization.isEmpty || streamVersion == model.streamVersion),
                pendingSurfaces == 0, pendingMarkdown == 0 { quietPasses += 1 }
             else { quietPasses = 0 }
             if quietPasses >= 3 { return }

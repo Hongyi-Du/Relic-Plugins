@@ -84,6 +84,9 @@ struct RichText: View {
                 presentedBlocks = min(presentedBlocks + 2, value.blocks.count)
             }
         }
+        .background {
+            if RenderReadiness.enabled { RenderReadiness(kind: "markdown", ready: parsed != nil && presentedBlocks >= blocks.count) }
+        }
         // Keep this row's formatting state while its stable identity survives.
         // Clearing it on disappearance substitutes a different-height plain
         // block into the lazy stack and invalidates the scroll height again.

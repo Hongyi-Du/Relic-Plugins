@@ -1,5 +1,33 @@
 ## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
 
+`3d9648e` full-window CI **41171394417** is green on both systems. All four Mac
+captures report zero unprepared visible Markdown; wide views report one mounted
+inspector. Downloaded `titlebar-3d9648e\macos` and inspected both dark sizes:
+bold, inline code, fenced code, and the wide inspector are now correctly present.
+Mac Native apps **41171394497** built but failed one of 285 tests: the new clipping
+regression showed that AppKit `visibleRect` alone can include offscreen children.
+The probe now explicitly intersects every native NSClipView (no assertion removed).
+Strict **41171394443** still fails startup, **775.595 ms / 132.203 MiB / 9 threads**.
+Next diagnostic records both main-dispatch and common-mode run-loop probes;
+the original dispatcher result remains the gate, with the same 250 ms threshold.
+
+05:09Z visual follow-up to `dd1ee4d`: confirmed raw Markdown in the actual dark
+1024x700 full-window PNG at `b8e2195`; the green chrome check was insufficient.
+`b22074f` removes the remaining initial native-clip jump, uses SwiftUI-owned
+edge navigation, and waits for visible preparation. `fa6f72a` admits complex
+visible rows across actual display turns through a cancellable queue, retaining
+every data row. The follow-up adds actual clipped native readiness probes:
+unprepared visible Markdown or a missing requested inspector now fails captures,
+with counts written into `content_readiness` in the whole-window JSON. The same
+readiness check is used by the unchanged strict responsiveness gate. Tests cover
+cancelled row admission, off-main glyph preparation, and visible-content checks.
+These fixes still require successful CI and inspection; none is claimed accepted.
+
+`b8e2195` strict `41170186637` reduced conversation creations from 452 labels /
+104 text views to 52 / 8; max **357.968 ms / 144.313 MiB / 10 threads**, still
+startup failure. `60d5f1b` strict `41170738464` also failed, **457.849 ms /
+130.953 MiB / 9 threads**. Its Native apps `41170738485` passed (281 tests).
+
 Latest `f684317`: strict macOS `41169844247` still fails startup, maximum
 **649.679 ms / 185.766 MiB / 8 threads**, early stop. The inspector and sidebar
 are now flat lazy collections (5/6 and 10/10 current/peak appeared rows), but

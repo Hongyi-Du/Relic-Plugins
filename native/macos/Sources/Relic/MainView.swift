@@ -83,6 +83,7 @@ struct MainView: View {
     }
     private var inspector: some View {
         RightPane(floating: floatingPanel).frame(width: min(panelWidth, m.windowSize.width - 48)).measuredRegion("right-pane")
+            .background { if RenderReadiness.enabled { RenderReadiness(kind: "inspector") } }
             .accessibilityLabel(m.t("page.panel"))
             .background(PanelResizeProbe(part: "pane", trace: panelResizeTrace))
             .overlay(alignment: .leading) {

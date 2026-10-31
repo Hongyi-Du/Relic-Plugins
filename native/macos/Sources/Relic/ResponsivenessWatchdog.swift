@@ -8,6 +8,8 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private let output: URL
     private var source: DispatchSourceTimer?
     private var pending: Double = 0, pendingEpoch: Double = 0, worst: Double = 0
+    private var runLoopPending: Double = 0, runLoopWorst: Double = 0
+    private var runLoopPings = 0
     private var pings = 0, sequence = 0
     private var stage = "startup"
     private var pendingStage = "startup"
@@ -35,15 +37,33 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         lock.lock()
         let now = ProcessInfo.processInfo.systemUptime
         if pending > 0 { worst = max(worst, (now - pending) * 1000) }
+        if runLoopPending > 0 { runLoopWorst = max(runLoopWorst, (now - runLoopPending) * 1000) }
+        let probeRunLoop = runLoopPending == 0
+        if probeRunLoop { runLoopPending = now }
         let enqueue = pending == 0
         let sampleStall = worst > 250 && !sampledStall
         if sampleStall { sampledStall = true }
         if enqueue { pending = now; pendingEpoch = Self.epoch; pendingStage = stage }
         sequence += 1
         let receipt: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
-            "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage]
+            "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage,
+            "max_runloop_stall_ms": runLoopWorst, "runloop_pings": runLoopPings]
         let observations = stalls
         lock.unlock()
+        if probeRunLoop {
+            // Supplemental observation only: the existing DispatchQueue probe
+            // and its unchanged 250 ms gate remain authoritative. Compare actual
+            // event-loop service with queue delay before diagnosing starvation.
+            let main = CFRunLoopGetMain()
+            CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                self.runLoopWorst = max(self.runLoopWorst, (ProcessInfo.processInfo.systemUptime - self.runLoopPending) * 1000)
+                self.runLoopPending = 0; self.runLoopPings += 1
+                self.lock.unlock()
+            }
+            CFRunLoopWakeUp(main)
+        }
         if sampleStall {
             write(UIWorkTrace.shared.snapshot(), "first-stall-work.json")
             // CI-only diagnosis after the unchanged limit has already failed.
