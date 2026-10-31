@@ -33,11 +33,47 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
-def read_json(path):
+def windows_snapshot_fd(path, flags):
+    """Allow a concurrent atomic writer to replace the snapshot we are reading."""
+    from ctypes import wintypes
+    import msvcrt
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel.CreateFileW
+    create_file.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                           wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create_file.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    # GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    # OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL. A snapshot reader must not prevent
+    # the native heartbeat or synthetic live-update producer from renaming.
+    handle = create_file(os.fsdecode(path), 0x80000000, 0x1 | 0x2 | 0x4, None, 3, 0x80, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
+        return msvcrt.open_osfhandle(handle, flags)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+
+
+def read_json(path):
+    attempts = 10 if os.name == "nt" else 1
+    for attempt in range(attempts):
+        try:
+            # open() owns and closes the CRT descriptor returned by the opener;
+            # open_osfhandle transfers ownership of the underlying Windows handle.
+            with open(path, encoding="utf-8-sig", opener=windows_snapshot_fd if os.name == "nt" else None) as source:
+                return json.load(source)
+        except PermissionError:
+            # Atomic replacement can briefly leave the Windows path pending
+            # deletion, even with delete sharing. Bound that race to 18 ms;
+            # persistent permission failures still fail the measurement.
+            if attempt + 1 == attempts:
+                raise
+            time.sleep(.002)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
 
 
 def action_plan(fixture):

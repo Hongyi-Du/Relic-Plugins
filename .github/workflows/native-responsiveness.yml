@@ -34,7 +34,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 25
     concurrency:
-      group: native-responsiveness-windows-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}
+      group: native-responsiveness-windows-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +65,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 25
     concurrency:
-      group: native-responsiveness-macos-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}
+      group: native-responsiveness-macos-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4

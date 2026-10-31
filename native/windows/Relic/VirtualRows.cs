@@ -87,7 +87,7 @@ internal sealed class VirtualRows : Grid
     {
         private readonly Stack<Border> empty = new();
         private static readonly Queue<(RowFactory Owner, Border Host, Row Row)> pending = new();
-        private static bool pumping;
+        private static Microsoft.UI.Dispatching.DispatcherQueueTimer? pumpTimer;
         internal static int PendingBuilds;
         internal int Realized { get; private set; }
         public UIElement GetElement(ElementFactoryGetArgs args)
@@ -96,10 +96,16 @@ internal sealed class VirtualRows : Grid
             var row = (Row)args.Data;
             host.Tag = row; host.MinHeight = row.Estimate; Realized++;
             pending.Enqueue((this, host, row)); Interlocked.Increment(ref PendingBuilds);
-            if (!pumping) { pumping = true; Pump(); }
+            if (pumpTimer == null)
+            {
+                pumpTimer = host.DispatcherQueue.CreateTimer();
+                pumpTimer.Interval = TimeSpan.FromMilliseconds(16); pumpTimer.IsRepeating = true;
+                pumpTimer.Tick += (_, _) => Pump();
+            }
+            if (!pumpTimer.IsRunning) pumpTimer.Start();
             return host;
         }
-        private static async void Pump()
+        private static void Pump()
         {
             // A cold row can create many native controls. Build one per UI
             // turn, outside MeasureOverride, instead of concentrating the
@@ -109,15 +115,15 @@ internal sealed class VirtualRows : Grid
                 try
                 {
                     if (!ReferenceEquals(work.Host.Tag, work.Row)) continue;
-                    // One shared budget across sidebar, conversation, inspector
-                    // and dialogs leaves a frame for input and native layout.
-                    await Task.Delay(16);
-                    if (!ReferenceEquals(work.Host.Tag, work.Row)) continue;
+                    // The UI-owned timer guarantees native control creation
+                    // stays on the dispatcher even when realization originated
+                    // in a native callback without a managed sync context.
                     work.Owner.BuildNow(work.Host);
                 }
                 finally { Interlocked.Decrement(ref PendingBuilds); }
+                break;
             }
-            pumping = false;
+            if (pending.Count == 0) pumpTimer!.Stop();
         }
         internal void BuildNow(Border host)
         {

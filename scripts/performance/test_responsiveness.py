@@ -4,8 +4,9 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, mock_open, patch
 
 HERE = Path(__file__).resolve().parent
 
@@ -19,6 +20,64 @@ def module(name, filename):
 
 fixture = module("performance_fixture_tests", "fixture.py")
 driver = module("performance_driver_tests", "run.py")
+
+
+class SnapshotReads(unittest.TestCase):
+    def test_windows_reader_shares_read_write_and_delete(self):
+        kernel = Mock()
+        kernel.CreateFileW.return_value = 123
+        crt = SimpleNamespace(open_osfhandle=Mock(return_value=456))
+        with patch.object(driver.ctypes, "WinDLL", return_value=kernel, create=True), \
+             patch.dict("sys.modules", {"msvcrt": crt}):
+            self.assertEqual(driver.windows_snapshot_fd("heartbeat.json", os.O_RDONLY), 456)
+        kernel.CreateFileW.assert_called_once_with("heartbeat.json", 0x80000000, 0x7, None, 3, 0x80, None)
+        crt.open_osfhandle.assert_called_once_with(123, os.O_RDONLY)
+        kernel.CloseHandle.assert_not_called()
+
+    def test_conversion_failure_closes_only_untransferred_handle(self):
+        kernel = Mock()
+        kernel.CreateFileW.return_value = 123
+        crt = SimpleNamespace(open_osfhandle=Mock(side_effect=OSError("invalid descriptor")))
+        with patch.object(driver.ctypes, "WinDLL", return_value=kernel, create=True), \
+             patch.dict("sys.modules", {"msvcrt": crt}):
+            with self.assertRaises(OSError):
+                driver.windows_snapshot_fd("heartbeat.json", os.O_RDONLY)
+        kernel.CloseHandle.assert_called_once_with(123)
+
+    def test_json_reader_uses_shared_opener_on_windows(self):
+        mocked = mock_open(read_data='{"sequence":7}')
+        with patch.object(driver, "os", SimpleNamespace(name="nt")), patch("builtins.open", mocked):
+            self.assertEqual(driver.read_json("heartbeat.json"), {"sequence": 7})
+        mocked.assert_called_once_with("heartbeat.json", encoding="utf-8-sig", opener=driver.windows_snapshot_fd)
+        mocked.return_value.__exit__.assert_called_once()
+
+    def test_windows_transient_snapshot_permission_error_retries(self):
+        mocked = mock_open(read_data='{"sequence":8}')
+        mocked.side_effect = [PermissionError("snapshot replacement in progress"), mocked.return_value]
+        with patch.object(driver, "os", SimpleNamespace(name="nt")), patch("builtins.open", mocked), \
+             patch.object(driver.time, "sleep") as sleep:
+            self.assertEqual(driver.read_json("heartbeat.json"), {"sequence": 8})
+        self.assertEqual(mocked.call_count, 2)
+        sleep.assert_called_once_with(.002)
+
+    def test_windows_persistent_snapshot_permission_error_still_fails(self):
+        with patch.object(driver, "os", SimpleNamespace(name="nt")), \
+             patch("builtins.open", side_effect=PermissionError("persistent denial")) as opened, \
+             patch.object(driver.time, "sleep") as sleep:
+            with self.assertRaises(PermissionError):
+                driver.read_json("heartbeat.json")
+        self.assertEqual(opened.call_count, 10)
+        self.assertEqual(sleep.call_count, 9)
+        self.assertTrue(all(call.args == (.002,) for call in sleep.call_args_list))
+
+    def test_nonwindows_permission_errors_are_not_retried(self):
+        with patch.object(driver, "os", SimpleNamespace(name="posix")), \
+             patch("builtins.open", side_effect=PermissionError("persistent denial")) as opened, \
+             patch.object(driver.time, "sleep") as sleep:
+            with self.assertRaises(PermissionError):
+                driver.read_json("heartbeat.json")
+        opened.assert_called_once()
+        sleep.assert_not_called()
 
 
 class SyntheticStore(unittest.TestCase):
