@@ -1,5 +1,34 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+97aa049 / 41191413019 confirms a real missing-top-row defect: after all fixed
+history/End cases pass, random interaction 51 keeps offset 0.25 DIP for the
+full 15-second window while actual row 0 remains absent. Maximum UI delay is
+161.049 ms, peak 408.930 MiB /38 threads; no full random acceptance. With no
+drawn old message before this cold page insertion, there was no restoration
+request at all, and the old virtual realization range could remain stale.
+The product now retains a FirstRow intent for this actual top request, using
+the same cancellable, content-ready, Arrange-driven lifecycle as a real reading
+anchor. It explicitly realizes row 0, survives valid same-chat refreshes and
+completes only with actual visible content at Padding.Top and <=1 DIP offset.
+User navigation/input cancels it; pending restoration blocks recursive paging.
+The same rule covers an anchorless redraw while already reading at the top.
+There is no polling, retry increase, synchronous layout or numeric compensation.
+Both changed files compile headlessly with zero warnings/errors; runtime proof
+still requires the unchanged complete pressure scenario.
+
+The 58520ef random re-entry waits 10.772 seconds for its initial end position,
+with only one DrawChat near the end of that interval; it is not evidence of
+10 Hz repeated chat redraw. Independently, source inspection confirms a broad
+dependency: global organization summaries were included in Side, which also
+triggered DrawChat. Conversation rendering reads the selected snapshot, not
+the global organization list. Refresh now compares that snapshot once, retains
+all its member/header/avatar dependencies, and lets unrelated organization
+summary changes update only their sidebar/toolbar regions. This does not claim
+to explain or solve the observed endpoint wait. Changes for the clients:
+native-macos d4e7f6a replaces repeated 25-ID ForEach diffs with one stable-ID
+update per loaded page, retaining deferred visible-row construction and its
+actual-oldest-text regression; no shared contract change is requested.
+
 58520ef / 41190616226 completes all 175 fixed interactions, all four histories
 and their real End checks, then fails at random interaction 51: numeric top is
 zero but the actual first row is absent. Maximum UI delay is 95.324 ms, peak
