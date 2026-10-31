@@ -84,7 +84,7 @@ import RelicCore
             try await m.select(action["org"].text, kind == "private" ? action["member"].text : "")
             try await settleConversation(m)
             guard m.organization == action["org"].text else { throw RelicError.message("Organization navigation did not complete") }
-        case "pane": m.setPane(action["pane"].text); await settle()
+        case "pane": m.setPane(action["pane"].text); try await settleConversation(m)
         case "resize":
             window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: CGFloat(action["width"].integer), height: CGFloat(action["height"].integer))), display: true)
             await settle()
