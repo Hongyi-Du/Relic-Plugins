@@ -191,7 +191,6 @@ public sealed partial class MainWindow
             && leftInset + rightInset > 0 && leftInset + rightInset < clientWidth && titleHeight > 0;
         var outsideCaptionStrips = validInsets && clientX >= leftInset && clientX < clientWidth - rightInset;
         var doubleClickTime = WholeWindowDoubleClickTime();
-        var interval = (int)Math.Clamp(doubleClickTime / 4, 1u, 50u);
         var record = new JsonObject { ["action"] = "real title-area double click " + action,
             ["before_state"] = presenter.State.ToString(), ["scale"] = scale,
             ["client_dip"] = new JsonObject { ["x"] = point.X, ["y"] = point.Y },
@@ -205,18 +204,21 @@ public sealed partial class MainWindow
                     ["width"] = title.Width, ["height"] = title.Height },
                 ["valid_reserved_strips"] = validInsets, ["outside_reserved_strips"] = outsideCaptionStrips },
             ["system_double_click_time_ms"] = doubleClickTime,
-            ["inter_click_delay_ms"] = interval, ["outside_passthrough_and_caption"] = outsideCaptionStrips && !overlapsDwmCaption };
+            ["outside_passthrough_and_caption"] = outsideCaptionStrips && !overlapsDwmCaption };
         actions.Add(record);
         if (!outsideCaptionStrips || overlapsDwmCaption)
             throw new InvalidOperationException("Title gesture could not exclude the actual system caption-button reserved areas");
         await CaptureMoveScreenPointer(screenX, screenY);
-        for (var click = 0; click < 2; click++)
-        {
-            CapturePointerButton(true);
-            try { await Task.Delay(10); }
-            finally { CapturePointerButton(false); }
-            if (click == 0) await Task.Delay(interval);
-        }
+        record["actual_nonclient_hit_test"] = (long)WholeWindowSendMessage(handle, 0x0084, 0,
+            (nint)((screenY << 16) | (screenX & 0xffff)));
+        // Queue the complete gesture before yielding to the UI dispatcher.
+        // A caption down event enters Windows' modal move loop; scheduling its
+        // release through that same UI dispatcher can split a double click.
+        var inputs = new[] { 0x0002u, 0x0004u, 0x0002u, 0x0004u }
+            .Select(flags => new CaptureInput { Type = 0, Mouse = new CaptureMouseInput { Flags = flags } }).ToArray();
+        var inserted = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<CaptureInput>());
+        record["inserted_double_click_events"] = inserted;
+        if (inserted != inputs.Length) throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not insert the complete real double click");
         await Task.Delay(350); root.UpdateLayout();
         record["after_state"] = presenter.State.ToString(); record["passed"] = presenter.State == expected;
         if (presenter.State != expected) throw new InvalidOperationException("Real title double click did not " + action + " the window");
@@ -311,6 +313,7 @@ public sealed partial class MainWindow
     [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")] private static extern nint WholeWindowForeground();
     [DllImport("user32.dll", EntryPoint = "GetDpiForWindow")] private static extern uint WholeWindowDpi(nint window);
     [DllImport("user32.dll", EntryPoint = "GetDoubleClickTime")] private static extern uint WholeWindowDoubleClickTime();
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")] private static extern nint WholeWindowSendMessage(nint window, uint message, nuint wparam, nint lparam);
     [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")] private static extern int WholeWindowDwmRect(nint window, int attribute, out WholeWindowRect value, int size);
     [DllImport("dwmapi.dll", EntryPoint = "DwmFlush")] private static extern int WholeWindowDwmFlush();
 }
