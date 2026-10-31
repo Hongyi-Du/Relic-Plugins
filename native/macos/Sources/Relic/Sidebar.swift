@@ -94,7 +94,7 @@ struct OrgTree: View {
                 }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: expanded)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
-                if active && !folded {
+                if active && !folded && !m.snapshot["org"].isNull {
                     LazyVStack(spacing: 1) {
                         if query.isEmpty || orgHit || m.t("common.group_chat").localizedCaseInsensitiveContains(query) {
                             SidebarChatRow(who: nil, group: true)
