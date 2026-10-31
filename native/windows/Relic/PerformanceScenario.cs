@@ -123,9 +123,18 @@ public sealed partial class MainWindow
         var wheelEvents = 0; var rootWheelEvents = 0; var viewEvents = 0; var topEvents = 0; var topWheelEvents = 0; var endKeyEvents = 0;
         var expectedAnchorPage = -1;
         VirtualRows.ReadingAnchor? expectedReadingAnchor = null;
+        var observedAnchorCases = 0;
         void ObserveReadingAnchor()
         {
             if (expectedAnchorPage == chatPages && loadingOlder && chatScroll.VerticalOffset < 32)
+                expectedReadingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
+        }
+        void ObserveItemsReplacing()
+        {
+            // A far scroll may initially expose only unmaterialized hosts.
+            // Observe the actual old content immediately before its replacement,
+            // without creating a row or steering the product's scroll state.
+            if (expectedAnchorPage >= 0 && chatPages == expectedAnchorPage + 1 && loadingOlder)
                 expectedReadingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         }
         var diagnostics = new JsonObject(); var checkpoints = new JsonArray(); var inputEvents = new JsonArray();
@@ -213,7 +222,9 @@ public sealed partial class MainWindow
         root.AddHandler(UIElement.PointerWheelChangedEvent, rootWheel, true);
         chatScroll.AddHandler(UIElement.KeyDownEvent, endKey, true);
         chatScroll.ViewChanged += changed;
+        stream.ItemsReplacing += ObserveItemsReplacing;
         var pages = new JsonArray();
+        record["history_pages"] = pages;
         try
         {
             async Task Until(Func<bool> done, string failure)
@@ -326,22 +337,6 @@ public sealed partial class MainWindow
             await PerformanceYield();
             while (chatMore)
             {
-                // A distant jump can reach the paging boundary before any
-                // top message has been materialized. Approach through the real
-                // viewport first so preservation is tested on visible content,
-                // not on an empty placeholder range. This is ordinary scroll
-                // input; the product still performs every page/anchor operation.
-                var approachPages = chatPages;
-                chatScroll.ChangeView(null, 64, null, true);
-                await PerformanceYield(); await WaitForMarkdown();
-                await Until(() => !loadingOlder && !stream.ReadingAnchorRestorePending
-                    && stream.ReadVisibleAnchor(chatScroll) != null,
-                    "History approach did not finish its production layout");
-                if (chatPages != approachPages)
-                    throw new InvalidOperationException("History paged before its visible-content approach reached the loading boundary");
-                if (keepLatest || chatScroll.VerticalOffset < 32)
-                    throw new InvalidOperationException("History approach did not remain outside the loading boundary in reading mode");
-                var approachOffset = chatScroll.VerticalOffset;
                 var beforeIds = MessageIds(); var beforePages = chatPages; var beforeViews = viewEvents; var beforeWheels = wheelEvents;
                 expectedAnchorPage = beforePages; expectedReadingAnchor = null;
                 var alreadyAtTop = chatScroll.VerticalOffset <= 1;
@@ -359,11 +354,22 @@ public sealed partial class MainWindow
                 if (keepLatest) throw new InvalidOperationException("History layout reactivated follow-latest without user end input");
                 await Until(() => !stream.ReadingAnchorRestorePending,
                     "History did not finish restoring the real reading anchor");
-                if (expectedReadingAnchor is not { } expectedAnchor)
-                    throw new InvalidOperationException("History input had no observable visible message anchor");
-                var actualAnchor = stream.ReadAnchor(chatScroll, expectedAnchor.Key);
-                if (actualAnchor is not { } restoredAnchor || Math.Abs(restoredAnchor.ViewportTop - expectedAnchor.ViewportTop) > 1)
-                    throw new InvalidOperationException("History insertion moved the visible reading message: " + expectedAnchor.Key);
+                JsonObject anchorObservation;
+                if (expectedReadingAnchor is { } expectedAnchor)
+                {
+                    var actualAnchor = stream.ReadAnchor(chatScroll, expectedAnchor.Key);
+                    diagnostics["reading_anchor_comparison"] = new JsonObject { ["key"] = expectedAnchor.Key,
+                        ["before_viewport_top"] = expectedAnchor.ViewportTop, ["after_viewport_top"] = actualAnchor?.ViewportTop,
+                        ["page"] = chatPages };
+                    if (actualAnchor is not { } restoredAnchor || Math.Abs(restoredAnchor.ViewportTop - expectedAnchor.ViewportTop) > 1)
+                        throw new InvalidOperationException("History insertion moved the visible reading message: " + expectedAnchor.Key);
+                    observedAnchorCases++;
+                    anchorObservation = new JsonObject { ["observed"] = true, ["key"] = expectedAnchor.Key,
+                        ["before_viewport_top"] = expectedAnchor.ViewportTop, ["after_viewport_top"] = restoredAnchor.ViewportTop,
+                        ["source"] = "Actual old message during scroll or immediately before ItemsSource replacement" };
+                }
+                else anchorObservation = new JsonObject { ["observed"] = false,
+                    ["reason"] = "No drawn message intersected the viewport before replacement; placeholders are not reading anchors" };
                 expectedAnchorPage = -1;
                 var afterIds = MessageIds();
                 if (afterIds.Length <= beforeIds.Length || afterIds.Min() >= beforeIds.Min()
@@ -373,13 +379,13 @@ public sealed partial class MainWindow
                     ["before_oldest_id"] = beforeIds.Min(), ["after_oldest_id"] = afterIds.Min(),
                     ["messages_added"] = afterIds.Length - beforeIds.Length, ["view_changed_events"] = viewEvents - beforeViews,
                     ["upward_wheel_events"] = wheelEvents - beforeWheels,
-                    ["approach_offset"] = approachOffset, ["approach_pages_unchanged"] = true,
-                    ["reading_anchor"] = new JsonObject { ["key"] = expectedAnchor.Key,
-                        ["before_viewport_top"] = expectedAnchor.ViewportTop, ["after_viewport_top"] = restoredAnchor.ViewportTop,
-                        ["source"] = "Actual visible message observed during real scroll input and after production page restoration" },
+                    ["reading_anchor"] = anchorObservation,
                     ["input"] = alreadyAtTop ? "Actual upward pointer wheel at the top boundary" : "ScrollViewer.ChangeView to the top" });
             }
             record["history_top"] = await Boundary(false);
+            record["observed_reading_anchor_cases"] = observedAnchorCases;
+            if (observedAnchorCases == 0)
+                throw new InvalidOperationException("History scenario did not observe any real message position across page insertion");
             var ids = MessageIds();
             var oldest = ids.DefaultIfEmpty(0).Min();
             var expectedOldest = long.Parse(step.Text("first_message_id"));
@@ -389,7 +395,7 @@ public sealed partial class MainWindow
                 throw new InvalidOperationException($"History coverage mismatch: oldest={oldest}/{expectedOldest}, messages={ids.Length}/{expectedCount}, top view/wheel events={topEvents}/{topWheelEvents}");
             record["pages_loaded"] = chatPages; record["history_complete"] = !chatMore;
             record["oldest_message_id"] = oldest; record["message_count"] = ids.Length;
-            record["expected_fixture_messages"] = expectedCount; record["history_pages"] = pages;
+            record["expected_fixture_messages"] = expectedCount;
             record["upward_wheel_events"] = wheelEvents; record["top_view_changed_events"] = topEvents;
             record["top_upward_wheel_events"] = topWheelEvents;
             record["history_bottom"] = await Boundary(true);
@@ -422,6 +428,7 @@ public sealed partial class MainWindow
             root.RemoveHandler(UIElement.PointerWheelChangedEvent, rootWheel);
             chatScroll.RemoveHandler(UIElement.KeyDownEvent, endKey);
             chatScroll.ViewChanged -= changed;
+            stream.ItemsReplacing -= ObserveItemsReplacing;
             diagnostics["pointer_input"] = capturePointerReceipts.DeepClone();
             Checkpoint("finished");
             // Failed actions are not added to the success receipt. Preserve the

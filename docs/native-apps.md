@@ -1,5 +1,19 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+bb37cbf / 41188970901 records 99.191 ms, 378.723 MiB and 39 threads but
+fails the history observer: native virtual extent adjustment clamps the requested
+64 DIP approach to zero, triggering real paging before the asserted precondition.
+That numeric approach is removed. A read-only ItemsReplacing notification now
+lets the scenario observe old realized message content immediately before the
+ItemsSource changes. A previously captured real anchor is retained; if neither
+observation contains a drawn message, the receipt explicitly records absence
+instead of comparing an empty placeholder. Each observed anchor still requires
+the same key and <=1 DIP top difference, and every history scenario must contain
+at least one actual preservation case. All pages, real End input, resource and
+250 ms limits remain unchanged. No product load or scroll method is invoked by
+this observation. Native builds, Python validation, full-window and adaptive
+capture jobs pass on bb37cbf; strict Mac pressure still fails at 295.544 ms.
+
 b16bf37 strict 41188242003 fails cold startup at 257.379 ms (260.262 MiB,
 38 threads). Diagnostic 41188242470 instead stays at 108.188 ms and captures
 no early stack; it reaches history, observes one real reading restoration at

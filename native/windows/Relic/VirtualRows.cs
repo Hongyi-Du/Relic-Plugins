@@ -15,6 +15,9 @@ internal sealed class VirtualRows : Grid
         public new void Clear() { base.Clear(); changed(); }
     }
     internal new RowCollection Children { get; }
+    // Observation only: the previous realized hosts and their Row keys still
+    // exist here. Consumers must not mutate rows or force layout from this event.
+    internal event Action? ItemsReplacing;
     private readonly ItemsRepeater repeater = new() { Layout = new StackLayout(), VerticalCacheLength = .5 };
     internal double Spacing { get => ((StackLayout)repeater.Layout).Spacing; set => ((StackLayout)repeater.Layout).Spacing = value; }
     internal int Realized => factory.Realized;
@@ -80,6 +83,7 @@ internal sealed class VirtualRows : Grid
         using var timing = PerformanceTrace.Measure("rows.commit");
         committed = revision;
         StopFollowingLast();
+        ItemsReplacing?.Invoke();
         repeater.ItemsSource = Children.ToArray();
     }
     internal void FollowLastIntoView(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
