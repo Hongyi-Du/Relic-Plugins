@@ -29,13 +29,23 @@ public sealed partial class MainWindow
         var token = performanceCancellation.Token;
         performanceProbe = Task.Run(async () =>
         {
-            void Write(string name, object value)
+            async Task Write(string name, object value)
             {
                 var path = System.IO.Path.Combine(PerformanceOutput, name);
                 System.IO.File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(value));
-                System.IO.File.Move(path + ".tmp", path, true);
+                for (var attempt = 0; ; attempt++)
+                {
+                    try { System.IO.File.Move(path + ".tmp", path, true); break; }
+                    catch (System.IO.IOException) when (attempt < 10)
+                    {
+                        // The external reader may momentarily hold the old
+                        // Windows file without FILE_SHARE_DELETE. Retry this
+                        // atomic replacement, never discard the measured max.
+                        await Task.Delay(2, token);
+                    }
+                }
             }
-            Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+            await Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
             long sequence = 0, pings = 0;
             while (!token.IsCancellationRequested)
             {
@@ -52,7 +62,7 @@ public sealed partial class MainWindow
                     if (completed.Task.IsCompletedSuccessfully && ticks * 1000d / Stopwatch.Frequency > 5)
                         PerformanceTrace.Count("ui.dispatch", ticks * 1000d / Stopwatch.Frequency);
                     if (completed.Task.IsCompletedSuccessfully) pings++;
-                    Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
+                    await Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
                         max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,
                         pending_since_unix_ms = completed.Task.IsCompletedSuccessfully ? 0 : pendingSince,
                         action = Volatile.Read(ref performanceAction) });
@@ -63,6 +73,9 @@ public sealed partial class MainWindow
                 await Task.Delay(40, token);
             }
         }, token);
+        _ = performanceProbe.ContinueWith(task => System.IO.File.WriteAllText(
+            System.IO.Path.Combine(PerformanceOutput, "probe-error.txt"), task.Exception!.ToString()),
+            CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
     }
 
     private async Task PerformanceYield()

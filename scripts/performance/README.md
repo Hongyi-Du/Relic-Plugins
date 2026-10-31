@@ -71,6 +71,22 @@ or an unresponsive watchdog. A first failure retains at least two additional
 seconds of observations before the owned process is stopped, giving a failed
 baseline actual stall/resource numbers rather than just a missing-file error.
 
+On Windows, the shared JSON snapshot reader opens with `CreateFileW` and
+`FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`. It then transfers the
+handle to Python's managed file object and closes it after reading. This lets
+native heartbeat/completion writers and the synthetic `live-updates.json`
+producer atomically replace snapshots while the watchdog holds the old snapshot
+open; ordinary read opens can block replacement because rename requires delete
+sharing. This is reader/writer coordination, not a heartbeat grace-period change.
+The share flags and handle ownership have mock-only CI regressions. See the
+[Microsoft CreateFile sharing contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew).
+Windows atomic replacement can still briefly leave the path pending deletion:
+run 41165740664 recorded `PermissionError` reading `heartbeat.json`. Only that
+Windows read error is retried, at most ten attempts with 2 ms between attempts
+(18 ms of scheduled waiting). Persistent denial still raises and fails the run;
+missing/incomplete snapshots keep their existing behavior. Mock regressions
+cover transient success, persistent failure, and the unchanged non-Windows path.
+
 Resource gates are fixed before the baseline: peak RSS <= 1 GiB, peak threads
 <= 160. After exhaustive actions have warmed the content, three consecutive
 30-second median windows must not grow by more than 32 MiB each (memory) or
