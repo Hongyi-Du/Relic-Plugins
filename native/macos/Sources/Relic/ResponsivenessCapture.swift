@@ -46,7 +46,7 @@ import RelicCore
             try await settleConversation(current)
             for action in manifest["plan"].rows {
                 watchdog.action(action["id"].text + ":" + action["kind"].text)
-                receipts.append(try await perform(action, model: current, window: window))
+                receipts.append(try await perform(action, model: current, window: window, output: output))
             }
             let deck = manifest["monkey"].rows
             guard !deck.isEmpty else { throw RelicError.message("Empty monkey action deck") }
@@ -55,7 +55,7 @@ import RelicCore
             repeat {
                 let action = deck[randomActions % deck.count]
                 watchdog.action("monkey:" + action["kind"].text)
-                var receipt = try await perform(action, model: current, window: window)
+                var receipt = try await perform(action, model: current, window: window, output: output)
                 random = random &* 6364136223846793005 &+ 1442695040888963407
                 let targets = ["sidebar", "menu:file", "menu:edit", "menu:view", "menu:help", "pane:overview", "pane:workspace", "pane:files"]
                 let target = action["kind"].text == "menu" ? "menu:" + action["name"].text
@@ -75,7 +75,7 @@ import RelicCore
         model?.stop(); NSApp.terminate(nil)
     }
 
-    private static func perform(_ action: Node, model m: Model, window: NSWindow) async throws -> [String: Any] {
+    private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL) async throws -> [String: Any] {
         let started = ProcessInfo.processInfo.systemUptime, kind = action["kind"].text
         var result = action.object
         m.appMenu = nil; m.sheet = nil
@@ -123,6 +123,7 @@ import RelicCore
                 if m.moreChat && after == before { throw RelicError.message("Older page did not advance") }
             }
             try scroll(window, toTop: true); try await settleConversation(m)
+            result["top_screenshot"] = try await capture(window, output: output, name: action["id"].text + "-top.png")
             guard let topGap = ConversationKeyboardMount.edgeGap(in: window, atTop: true), topGap <= 2 else {
                 throw RelicError.message("History data loaded but its first row is not at the visible top: \(ConversationKeyboardMount.edgeGap(in: window, atTop: true) ?? -1) pt")
             }
@@ -131,6 +132,7 @@ import RelicCore
             result["oldest_message_id"] = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].integer ?? 0
             result["history_complete"] = !m.moreChat
             try scroll(window, toTop: false); try await settleConversation(m)
+            result["bottom_screenshot"] = try await capture(window, output: output, name: action["id"].text + "-bottom.png")
             guard let bottomGap = ConversationKeyboardMount.bottomGap(in: window), bottomGap <= 2 else {
                 throw RelicError.message("End did not restore the visible latest history row: \(ConversationKeyboardMount.bottomGap(in: window) ?? -1) pt")
             }
@@ -143,6 +145,20 @@ import RelicCore
         return result
     }
     private static func settle() async { try? await Task.sleep(for: .milliseconds(300)) }
+    private static func capture(_ window: NSWindow, output: URL, name: String) async throws -> String {
+        let number = window.windowNumber, file = output.appendingPathComponent(name)
+        try await Task.detached {
+            let process = Process(), errors = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            process.arguments = ["-x", "-o", "-l", String(number), file.path]
+            process.standardOutput = FileHandle.nullDevice; process.standardError = errors
+            try process.run(); process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw RelicError.message("History window capture failed: " + String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+            }
+        }.value
+        return file.lastPathComponent
+    }
     private static func settleConversation(_ model: Model) async throws {
         // A completed HTTP request does not mean SwiftUI displayed its rows.
         // Wait for projection, the real stream's observation, and visible
