@@ -1,5 +1,18 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Changes for the clients (2026-10-31, shared request resolved): the Windows
+full-window failure reported in macOS REQUESTS.md for aa1be2f was an end-anchor
+problem. Native ScrollViewer anchoring now follows the actual last row including
+its bottom padding, without a geometry-driven ChangeView feedback loop. Both
+platforms pass adaptive-window CI 41170556047 and chrome CI 41170556054 at
+e346d03; all four Windows light/dark 1440x900 and 1024x700 images were inspected.
+The capture still fails if the final conversation offset is over 2 px from the
+end. Screenshots are under `S:\Codex\Outputs\Relic-native-visual\window-e346d03`.
+This is a visual/scroll result, not a substitute for the strict pressure gate.
+Merged macOS through 60d5f1b (background preparation of cold font glyphs);
+the prior e346d03 Mac pressure sample still fails at 432.716 ms, so macOS remains
+unaccepted. No tolerance or coverage changes were made.
+
 Normal Windows acceptance first passed at dfca953 in CI 41168135315: all 175
 exhaustive actions plus 155 real random-click actions over 181.135 seconds,
 maximum UI dispatch delay 141.351 ms, peak RSS 442.547 MiB and 37 threads.
