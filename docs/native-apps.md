@@ -1,6 +1,37 @@
 # Current delivery policy — Amendment 7 responsiveness
 
-**Current Windows acceptance is not complete.** The final integration repeat
+Latest Windows result: **02b5940 / CI 41172820210 passes** the full normal
+pressure run: 175 exhaustive actions, 129 observed random clicks over 180.725 s,
+maximum UI delay **83.942 ms**, peak RSS **453.398 MiB**, peak threads **38**.
+All watchdog, coverage, window-probe and growth error lists are empty. The three
+steady RSS medians decrease (343404544 / 334342144 / 324845568 bytes), with
+32 / 31 / 34 threads. There were 21,084 global layout notifications but only
+711 title-bar geometry measurements, directly confirming that unrelated chat
+layout no longer repeatedly traverses those native owners. Full-window chrome
+CI 41172820214 passes both platforms, and Native apps 41172824208 builds/tests/
+packages both. macOS still fails its strict pressure run. This successful
+Windows run does not erase the failed samples below or prove their exact stacks.
+
+Shared Python validation at 02b5940 caught three diagnostic labels using the
+reserved `settings.*` vocabulary prefix. They are renamed `Settings.*` (matching
+NativeLabel/NativePath telemetry naming); no UI string, word-list entry, scanner
+rule or allowlist changed. The final candidate must validate that correction.
+The diagnostic tool is isolated from shipped clients and disabled in normal
+acceptance; its native stack snapshots do not change any gate or coverage.
+
+Windows investigation update: normal instrumented 95391fb fails startup at
+526.135 ms (CI 41172272959). Diagnostic-only 41172273041 records 496.444 ms
+and captures the UI thread inside UpdateNativeTitleBarLayout's WinRT collection
+iterator. Every global LayoutUpdated previously traversed native title-bar
+owners and recomputed transforms even for unrelated conversation layout.
+The client now marks these bounds dirty only for actual owner size, command,
+XamlRoot/DPI, or window presenter changes; completed layout consumes that flag.
+Two raw counters in heartbeat/completion record notifications versus actual
+measurements. A new strict run and real caption-control captures must validate
+this change. The sample establishes redundant work, not the original hang's
+exact stack; the unmeasured native modal interval remains under investigation.
+
+Earlier Windows integration repeat (retained failure evidence): the run
 at 8d5f1ef (CI 41171258624) failed while opening Settings: maximum UI dispatch
 1425.178 ms, WM_NULL timeout, 325.180 MiB peak RSS, 38 threads, early stop.
 Its Windows source is identical to the passing e346d03 source below; the pass

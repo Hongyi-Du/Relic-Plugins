@@ -66,6 +66,8 @@ public sealed partial class MainWindow
                     await Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
                         max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,
                         pending_since_unix_ms = completed.Task.IsCompletedSuccessfully ? 0 : pendingSince,
+                        titlebar_layout_notifications = Interlocked.Read(ref titlebarLayoutNotifications),
+                        titlebar_layout_measurements = Interlocked.Read(ref titlebarLayoutMeasurements),
                         action = Volatile.Read(ref performanceAction) });
                     foreach (var timing in PerformanceTrace.Drain())
                         System.IO.File.AppendAllText(System.IO.Path.Combine(PerformanceOutput, "timings.jsonl"), JsonSerializer.Serialize(timing) + "\n");
@@ -208,6 +210,7 @@ public sealed partial class MainWindow
             try { await performanceProbe!; } catch (OperationCanceledException) { }
             await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(PerformanceOutput, "performance-complete.json"),
                 JsonSerializer.Serialize(new { actions, errors, max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,
+                    titlebar_layout_notifications = titlebarLayoutNotifications, titlebar_layout_measurements = titlebarLayoutMeasurements,
                     random_seconds = randomSeconds, random_actions = randomActions, seed = int.Parse(performanceManifest!.Text("seed")) }));
         }
     }

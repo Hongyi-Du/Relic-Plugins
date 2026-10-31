@@ -194,6 +194,7 @@ public sealed partial class MainWindow
     private ComposerInput? editingComposer;
     private void BuildMenus()
     {
+        titlebarLayoutDirty = true;
         RefreshResizeLabels();
         CloseNativeMenu(); nativeMenus.Clear(); menu.Children.Clear();
         AutomationProperties.SetName(menu, T("appbar.menus"));

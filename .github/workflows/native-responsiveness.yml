@@ -44,6 +44,11 @@ jobs:
       - name: Install Microsoft managed stack tool for diagnostic runs only
         if: ${{ inputs.diagnostic == true }}
         run: dotnet tool install dotnet-stack --tool-path native-build/diagnostics --version '8.*'
+      - name: Build native UI stack helper for diagnostic runs only
+        if: ${{ inputs.diagnostic == true }}
+        run: |
+          cmake -S native/windows/Relic.Diagnostics -B native-build/diagnostics-native -A x64
+          cmake --build native-build/diagnostics-native --config Release
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -56,6 +61,7 @@ jobs:
         env:
           RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
           RELIC_DOTNET_STACK: ${{ github.workspace }}/native-build/diagnostics/dotnet-stack.exe
+          RELIC_NATIVE_STACK: ${{ github.workspace }}/native-build/diagnostics-native/Release/Relic.NativeStack.exe
         run: |
           $diagnosticArgs = @()
           if ($env:RELIC_PERF_DIAGNOSTIC -eq 'true') { $diagnosticArgs += '--diagnostic' }

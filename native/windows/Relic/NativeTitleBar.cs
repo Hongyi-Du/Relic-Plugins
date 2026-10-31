@@ -12,6 +12,8 @@ public sealed partial class MainWindow
     private InputNonClientPointerSource? titlebarInput;
     private XamlRoot? titlebarXamlRoot;
     private RectInt32[] titlebarInteractiveRects = [];
+    private bool titlebarLayoutDirty = true;
+    private long titlebarLayoutNotifications, titlebarLayoutMeasurements;
 
     private void ConfigureNativeTitleBar()
     {
@@ -24,6 +26,7 @@ public sealed partial class MainWindow
         {
             titlebarXamlRoot = titlebarRegion.XamlRoot;
             titlebarXamlRoot.Changed += NativeTitleBarRootChanged;
+            titlebarLayoutDirty = true;
             PaintNativeCaptionButtons();
             UpdateNativeTitleBarLayout();
         };
@@ -32,15 +35,25 @@ public sealed partial class MainWindow
             if (titlebarXamlRoot != null) titlebarXamlRoot.Changed -= NativeTitleBarRootChanged;
             titlebarXamlRoot = null;
         };
-        // Menus and command contents are rebuilt after selection/language
-        // changes even when the window itself has not resized. Observe their
-        // completed layout, and send only changed rectangles to the system.
-        titlebarRegion.LayoutUpdated += (_, _) => UpdateNativeTitleBarLayout();
+        // LayoutUpdated is global: scrolling or measuring a chat can raise it
+        // thousands of times without moving a title-bar control. Recalculate
+        // only after an actual owner size, DPI or command-content change.
+        foreach (var owner in new FrameworkElement[] { titlebarRegion, navigationButtons, menu, toolbar })
+            owner.SizeChanged += (_, _) => titlebarLayoutDirty = true;
+        AppWindow.Changed += (_, args) =>
+        {
+            if (args.DidSizeChange || args.DidPresenterChange) titlebarLayoutDirty = true;
+        };
+        titlebarRegion.LayoutUpdated += (_, _) =>
+        {
+            titlebarLayoutNotifications++;
+            if (titlebarLayoutDirty) UpdateNativeTitleBarLayout();
+        };
         root.ActualThemeChanged += (_, _) => PaintNativeCaptionButtons();
         PaintNativeCaptionButtons();
     }
 
-    private void NativeTitleBarRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateNativeTitleBarLayout();
+    private void NativeTitleBarRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => titlebarLayoutDirty = true;
 
     private void PaintNativeCaptionButtons()
     {
@@ -62,6 +75,8 @@ public sealed partial class MainWindow
     private void UpdateNativeTitleBarLayout()
     {
         if (closing || !titlebarRegion.IsLoaded || titlebarXamlRoot == null || titlebarInput == null) return;
+        using var timing = PerformanceTrace.Measure("titlebar.layout");
+        titlebarLayoutMeasurements++;
         var scale = titlebarXamlRoot.RasterizationScale;
         var caption = AppWindow.TitleBar;
         // AppWindow metrics are physical pixels; Grid padding is in DIPs.
@@ -77,9 +92,11 @@ public sealed partial class MainWindow
         var titleBounds = titlebarRegion.TransformToVisual(root).TransformBounds(
             new Rect(0, 0, titlebarRegion.ActualWidth, titlebarRegion.ActualHeight));
         var rects = new List<RectInt32>();
+        var pendingButtons = false;
         void Include(Button button)
         {
-            if (!button.IsLoaded || button.Visibility != Visibility.Visible || button.ActualWidth <= 0 || button.ActualHeight <= 0) return;
+            if (button.Visibility != Visibility.Visible) return;
+            if (!button.IsLoaded || button.ActualWidth <= 0 || button.ActualHeight <= 0) { pendingButtons = true; return; }
             var bounds = button.TransformToVisual(root).TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
             var left = Math.Max(bounds.Left, titleBounds.Left + padding.Left);
             var right = Math.Min(bounds.Right, titleBounds.Right - padding.Right);
@@ -98,6 +115,7 @@ public sealed partial class MainWindow
         foreach (var item in toolbar.PrimaryCommands.OfType<AppBarElementContainer>())
             if (item.Content is Button button) Include(button);
         var next = rects.ToArray();
+        titlebarLayoutDirty = pendingButtons;
         if (titlebarInteractiveRects.SequenceEqual(next)) return;
         titlebarInput.SetRegionRects(NonClientRegionKind.Passthrough, next);
         titlebarInteractiveRects = next;
