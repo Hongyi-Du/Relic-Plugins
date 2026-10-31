@@ -494,6 +494,7 @@ import CoreText
                 elements[index]["native_visible_bounds"] = surface["nativeVisibleBounds"]!
                 if let kind = surface["kind"] as? String, elements[index]["kind"] as? String == "region" { elements[index]["kind"] = kind }
                 if let hovered = surface["hovered"] as? Bool { elements[index]["hovered"] = hovered }
+                elements[index]["native_hover_callbacks"] = surface["native_hover_callbacks"]
                 if let selected = surface["selected"] as? Bool { elements[index]["recorded_selected"] = selected }
                 if let expanded = surface["expanded"] as? Bool { elements[index]["recorded_expanded"] = expanded }
                 if let current = surface["current"] as? Bool { elements[index]["recorded_current"] = current }
@@ -503,6 +504,8 @@ import CoreText
                 paintedStyle.merge(style, uniquingKeysWith: { _, actual in actual })
                 let node: [String: Any] = ["id": "surface-paint/" + String(elements.count), "parent": NSNull(), "kind": kind,
                     "identifier": owner as Any? ?? NSNull(),
+                    "hovered": surface["hovered"] ?? NSNull(),
+                    "native_hover_callbacks": surface["native_hover_callbacks"] ?? NSNull(),
                     "native_structure": surface["native_structure"] ?? NSNull(),
                     "text": "", "name": "", "region": surface["region"] ?? region(rect, fallback: "window"), "rect": box(rect), "visibleRect": box(visible),
                     "visible": true, "style": paintedStyle, "source": "live-native-surface-probe", "surface_evidence": surface["evidence"]!, "native_visible_bounds": surface["nativeVisibleBounds"]!,

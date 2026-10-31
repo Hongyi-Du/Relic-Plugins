@@ -1,4 +1,22 @@
-## 2026-10-30: digest reference scene omits the real header update
+## 2026-10-31: measure the actual accent swatch selection
+
+The formal `312dab7` smoke report has 12 macOS selected-state mismatches
+across settings-appearance and settings-navigation-hover. In the actual
+reference `dom-537` is `button.swatch.on` (clay), while dom-538 through dom-542
+are `button.swatch`; all six currently have `state.selected: null`.
+`app.js` lines 2505-2506 bind that `on` class directly to `PREFS.accent === k`
+and clicking a swatch calls setPrefs/redraw. These are visible selection states.
+
+Please extend `scripts/visual/reference-elements.js`'s `selectable` query to
+the production `.swatches>button.swatch` controls, keeping its existing actual
+`classList.contains('on')` measurement. Cover the selected and unselected
+swatches, an actual preference change, and unrelated noninteractive chart
+legend swatches in the shared tests. No native state is to be erased and no
+tolerance is to change. Evidence is in
+`S:\Codex\Outputs\Relic-native-visual\parity-312dab7-smoke\reference\`
+and the matching per-scene JSON under `report\`.
+
+## 2026-10-30: digest reference scene omits the real header update (resolved in a20c0f3)
 
 The full `dea54e8` reference scene `en-US-dark-1024x700-digest` records
 `dom-164` (Digest) with class `chip-btn`, ordinary background `[37,37,35,255]`

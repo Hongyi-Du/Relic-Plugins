@@ -28,7 +28,9 @@ struct RecordedSurface: ViewModifier {
     var rings: [SurfaceRing] = []
     var outline: SurfaceOutline? = nil
     var nativeFill = false
+    var nativeFillComponentBits = 8
     @State private var cardIdentity = "relic-card/" + UUID().uuidString
+    @State private var hoverObservation = NativeSurfaceHover()
     @Environment(\.captureOpacity) private var opacity
     private var surfaceOwner: String? { owner ?? (kind == "card" ? cardIdentity : nil) }
     @ViewBuilder private func ownedContent(_ content: Content) -> some View {
@@ -65,7 +67,8 @@ struct RecordedSurface: ViewModifier {
                 // Keep AppKit's original fill path when SwiftUI composites
                 // shadows. Quantizing that fill into another 8-bit image first
                 // changed its antialiased border pixels in the mounted test.
-                NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner, ownedLayer: shadows.isEmpty)
+                NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner,
+                    ownedLayer: shadows.isEmpty || nativeFillComponentBits > 8, componentBits: nativeFillComponentBits)
                 }
             } else if shadows.isEmpty { shape.fill(background) }
             else {
@@ -120,7 +123,8 @@ struct RecordedSurface: ViewModifier {
                     }
                 }.allowsHitTesting(false)
             }
-            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: surfaceOwner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline).padding(-(outline?.outset ?? 0)).allowsHitTesting(false))
+            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: surfaceOwner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline, hoverObservation: hoverObservation).padding(-(outline?.outset ?? 0)).allowsHitTesting(false))
+            .onHover { hoverObservation.received($0) }
     }
 }
 
@@ -189,6 +193,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
     let insetRingWidth: CGFloat, insetRingColor: Color, outerRingWidth: CGFloat, outerRingColor: Color
     let rings: [SurfaceRing]
     let outline: SurfaceOutline?
+    var hoverObservation: NativeSurfaceHover? = nil
     private static let live = NSHashTable<SurfaceView>.weakObjects()
     func makeNSView(context: Context) -> SurfaceView { let view = SurfaceView(); Self.live.add(view); updateNSView(view, context: context); return view }
     func updateNSView(_ view: SurfaceView, context: Context) {
@@ -206,6 +211,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         view.outerRingWidth = outerRingWidth; view.outerRingColor = NSColor(outerRingColor)
         view.rings = rings
         view.configureOutline(outline, corners: view.cornerRadii)
+        view.hoverObservation = hoverObservation
     }
     static func snapshots(in content: NSRect) -> [[String: Any]] {
         live.allObjects.compactMap { view in
@@ -232,7 +238,8 @@ struct SurfacePaintProbe: NSViewRepresentable {
             // multiplying it again reports .35 squared for a .35 surface.
             let opacity = NativeVisibility.opacity(view)
             return ["rectValue": NSValue(rect: rect), "bounds": ElementCapture.box(rect), "nativeVisibleBounds": clip.isNull ? NSNull() : ElementCapture.box(clip), "region": view.region,
-                    "owner": view.owner as Any? ?? NSNull(), "kind": view.kind as Any? ?? NSNull(), "hovered": view.hovered as Any? ?? NSNull(),
+                    "owner": view.owner as Any? ?? NSNull(), "kind": view.kind as Any? ?? NSNull(), "hovered": (view.hovered ?? view.hoverObservation?.value) as Any? ?? NSNull(),
+                    "native_hover_callbacks": view.hoverObservation?.observation() as Any? ?? NSNull(),
                     "native_structure": NativeElementStructure.evidence(view, parent: view.productionParent),
                     "selected": view.selected as Any? ?? NSNull(), "expanded": view.expanded as Any? ?? NSNull(), "current": view.current as Any? ?? NSNull(),
                     "unread": view.unread as Any? ?? NSNull(),
@@ -250,6 +257,7 @@ struct SurfacePaintProbe: NSViewRepresentable {
         var width: CGFloat = 0, radius: CGFloat = 0, opacity: Double = 1
         var widths: [CGFloat] = [0,0,0,0]
         var kind: String?, owner: String?, hovered: Bool?
+        var hoverObservation: NativeSurfaceHover?
         var productionParent: String?
         var separateEdges = false
         var shadows: [SurfaceShadow] = []

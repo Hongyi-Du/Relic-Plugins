@@ -1,8 +1,55 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import Relic
 
 @MainActor final class ListMarkerTests: XCTestCase {
+    func testOwnedDiscImagePreservesMountedPixelsAtFractionalOriginsInBothThemes() throws {
+        _ = NSApplication.shared
+        func marker(in root: NSView) -> NativeListMarkerView? {
+            if let marker = root as? NativeListMarkerView { return marker }
+            return root.subviews.lazy.compactMap { marker(in: $0) }.first
+        }
+        let metrics = NativeListMarkerMetrics(font: RelicStyle.nativeFont(13.5, weight: 400))
+        for dark in [false, true] { for fraction in [0.0, 0.25, 0.5, 0.75] {
+            var images: [Data] = []
+            for owned in [false, true] {
+                let root = ZStack(alignment: .topLeading) {
+                    Color.clear
+                    NativeListMarker(size: 13.5, ownedLayer: owned)
+                        .frame(width: metrics.width, height: metrics.height).offset(x: 12 + fraction, y: 10 + fraction)
+                }.frame(width: 40, height: 42).environment(\.colorScheme, dark ? .dark : .light)
+                let host = NSHostingView(rootView: root); host.frame = NSRect(x: 0, y: 0, width: 40, height: 42)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+                defer { window.orderOut(nil); window.contentView = nil; window.close() }
+                host.layoutSubtreeIfNeeded()
+                let actual = try XCTUnwrap(marker(in: host)); actual.recordDraws = true
+                actual.needsDisplay = true; actual.layer?.setNeedsDisplay()
+                host.displayIfNeeded(); CATransaction.flush()
+                let bitmap = try XCTUnwrap(CaptureRaster.forView(host)); host.cacheDisplay(in: host.bounds, to: bitmap)
+                images.append(try XCTUnwrap(bitmap.representation(using: .png, properties: [:])))
+                if owned {
+                    let evidence = actual.backingPaintObservation()
+                    XCTAssertEqual(evidence["current"] as? Bool, true)
+                    XCTAssertTrue((actual.layer?.sublayers ?? []).isEmpty)
+                    XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: evidence))
+                    actual.configure(font: RelicStyle.nativeFont(13.5, weight: 400), color: .red, region: "window")
+                    XCTAssertEqual(actual.backingPaintObservation()["current"] as? Bool, false)
+                }
+            }
+            if images[0] != images[1] {
+                let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                    .deletingLastPathComponent().appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                for index in images.indices {
+                    try images[index].write(to: directory.appendingPathComponent("disc-owned-\(dark)-\(fraction)-\(index).png"))
+                }
+            }
+            XCTAssertEqual(images[0], images[1], "The actual circle image must preserve the existing native pixels at \(fraction), dark=\(dark)")
+        } }
+    }
     func testNativeDiscUsesFontMetricsAndPaintsItsCircleInsteadOfABulletGlyph() throws {
         _ = NSApplication.shared
         let font = RelicStyle.nativeFont(13.5, weight: 400)

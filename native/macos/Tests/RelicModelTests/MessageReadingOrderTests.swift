@@ -43,6 +43,33 @@ import RelicCore
             if let view = object as? NSView { for child in view.subviews { walk(child) } }
         }
         walk(host)
+        if names != ["H", "Metadata 0", "Body 0", "H", "Metadata 1", "Body 1"] {
+            var diagnostics: [[String: Any]] = []
+            for anchor in MessageInteractionAnchor.live.allObjects where anchor.window === window {
+                let scroll = anchor.enclosingScrollView
+                var record: [String: Any] = ["message": anchor.messageID,
+                    "avatar_identifier": anchor.avatarNavigationID as Any? ?? NSNull(),
+                    "metadata_identifier": anchor.metadataNavigationID as Any? ?? NSNull(),
+                    "attempts": anchor.navigationAttempts, "setter_accepted": anchor.navigationSucceeded as Any? ?? NSNull(),
+                    "mounted_scroll": scroll.map { String(describing: type(of: $0)) } as Any? ?? NSNull()]
+                if let scroll {
+                    let snapshot = RelicAXChildSnapshot(scroll)
+                    record["order_evidence"] = snapshot["evidence"]
+                    record["children"] = (snapshot["children"] as? [Any] ?? []).map { child -> [String: Any] in
+                        let value = RelicAXRead(child as AnyObject)
+                        return ["class": String(describing: type(of: child as AnyObject)),
+                            "identifier": value["identifier"] ?? NSNull(), "label": value["label"] ?? NSNull()]
+                    }
+                }
+                diagnostics.append(record)
+            }
+            let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: diagnostics, options: [.sortedKeys])
+                .write(to: directory.appendingPathComponent("complete-message-navigation.json"))
+            print("Complete message navigation: " + String(decoding: try JSONSerialization.data(withJSONObject: diagnostics, options: [.sortedKeys]), as: UTF8.self))
+        }
         XCTAssertEqual(names, ["H", "Metadata 0", "Body 0", "H", "Metadata 1", "Body 1"],
             "Exercise the complete production row, RichText, interaction modifiers and ScrollView, not a label-only proxy")
     }
