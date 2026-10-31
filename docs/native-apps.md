@@ -1,5 +1,34 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+bf68de8 fixes all four Windows full-window/end-position cases in 41185683562
+and 41185683567; both systems' window captures and all four Python jobs in
+41185687008 pass. Images are retained in window-bf68de8 under the visual
+output directory. Strict Windows 41185683563 still FAILS: one overview-pane
+probe stays pending from 1793436404604 through 6405301 (696.653 ms), peak
+336.363 MiB /37 threads. Later group heartbeats carry that cumulative maximum;
+they are not a second stall. Nearby GC pauses and measured managed methods do
+not account for the interval. Mac startup still fails at 268.983 ms.
+
+Diagnostic 41186042788 is ineligible and stops after a separate startup failure
+(337.899 ms). Two later native samples show DWrite -> d2d1 -> Microsoft.UI.Xaml,
+but local export symbols cannot identify the actual functions, and these samples
+do not prove the earlier overview stall's cause. No product change is based on
+an export name with a large displacement. Mac native unit 41185687066 still
+fails appended-text/end placement and its shadow raster assertions.
+
+Changes for the clients: Windows diagnostic runs retain module image identity
+and resolve the same captured offsets using matching public Microsoft PDBs only
+after measurement/process shutdown. RSDS GUID+age comes from the actual DLL;
+raw snapshots remain unchanged. Downloads and offline resolution are CI-only,
+separate from the 250 ms watchdog and bounded live sampling. These reports are
+diagnostic evidence, never acceptance results. Mac REQUESTS at 432e6d2 records
+restored broad shadow raster profiles and appended-row anchor fixes; no shared
+route or test-tolerance change is requested.
+The requested Windows failure review for Mac run 41186072111 confirms the
+same 25.800 /32.800 DIP gaps: that branch does not yet contain 23234c7. The
+fix is already present on native-apps and passes both whole-window jobs on
+bf68de8. The next Mac merge receives it; no screenshot threshold was changed.
+
 63b688d / 41184905855 fails real history after 171 recorded actions, despite
 154.160 ms max UI delay, 401.973 MiB peak and 37 threads. The actual upward
 wheel cancels follow-latest, but virtual extent changes after the second page

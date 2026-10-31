@@ -2,6 +2,14 @@
 
 This harness runs only in GitHub Actions. It creates its own synthetic store;
 it never reads or copies `~/.relic`, and never launches a provider/member session.
+Diagnostic runs additionally resolve retained DWrite/Direct2D/WinUI native
+frames after the measured process has exited. `resolve_symbols.py` reads the
+actual DLL's CodeView GUID and age, downloads that exact PDB from Microsoft's
+public symbol server, and runs the helper in offline resolution mode. Original
+snapshots are retained unchanged; large downloaded PDBs are excluded from the
+artifact. Resolution failures are recorded, never guessed from nearby exports.
+Symbol work cannot change the measured responsiveness result or make a
+diagnostic run eligible for acceptance.
 Use `python scripts/performance/run.py --client windows|macos --exe ... --output ...`.
 The driver exports `RELIC_PERF_MANIFEST`, `RELIC_PERF_OUTPUT`, `RELIC_HOME`,
 `RELIC_ENGINE_ROOT`, `RELIC_PYTHON`, and isolated native-state/config directories.

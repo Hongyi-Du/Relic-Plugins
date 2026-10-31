@@ -66,11 +66,20 @@ jobs:
           $diagnosticArgs = @()
           if ($env:RELIC_PERF_DIAGNOSTIC -eq 'true') { $diagnosticArgs += '--diagnostic' }
           python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --mode ${{ inputs.mode || 'candidate' }} @diagnosticArgs
+      - name: Resolve retained native frames with matching Microsoft symbols after measurement
+        if: ${{ always() && inputs.diagnostic == true }}
+        continue-on-error: true
+        timeout-minutes: 6
+        run: python -X utf8 scripts/performance/resolve_symbols.py --exe native-build/diagnostics-native/Release/Relic.NativeStack.exe --output performance/windows
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Relic-responsiveness-Windows-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
-          path: performance/windows
+          path: |
+            performance/windows
+            !performance/windows/symbol-cache/**
+          # Symbol caches can be large; retain the exact identities, resolved
+          # frames and original stacks, not downloaded Microsoft PDB binaries.
   macos:
     runs-on: macos-15
     timeout-minutes: 25
