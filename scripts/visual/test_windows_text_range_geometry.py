@@ -105,6 +105,39 @@ class ObservedTextRangeGeometryTests(unittest.TestCase):
         self.assertEqual(result["effective_uia"]["raw_nodes"][0]["text_pattern"]["visible_ranges"][0],
                          source["uia"]["raw_nodes"][0]["text_pattern"]["visible_ranges"][0])
 
+    def test_known_offscreen_diagnostics_do_not_reintroduce_a_resolved_visible_exit(self):
+        source = fixture(before_capture_wrapper=True)
+        # Minimal actual b611b4f live-tool-output uia-3 fields. The observer
+        # explicitly retained this offscreen titlebar diagnostic outside the
+        # three visible zero-area errors that caused its exit 1.
+        message = "BoundingRectangle is empty; raw x=Infinity, y=Infinity, width=-Infinity, height=-Infinity"
+        node = {"id": "uia-3", "control_type": "ControlType.TitleBar", "name": "",
+                "state": {"offscreen": True}, "measurement_errors": [message]}
+        receipt = {"source": "UIA", "id": "uia-3", "diagnostic": "uia-3: " + message,
+                   "reason": "The provider measured IsOffscreen=true; this node has no visible element"}
+        source["uia"]["raw_nodes"].append(node)
+        source["uia"]["nonvisible_diagnostics"] = [receipt]
+        original = copy.deepcopy(source)
+        result = select(source)
+        self.assertTrue(result["all_original_failures_resolved"])
+        self.assertEqual(result["effective_uia"]["raw_nodes"][-1], node)
+        self.assertEqual(result["effective_uia"]["nonvisible_diagnostics"], [receipt])
+        self.assertEqual(result["audit"]["retained_nonvisible_diagnostics"][0]["measurement_errors"], [message])
+        self.assertEqual(source, original)
+        for change in ("visible", "unknown", "missing", "wrong-owner", "duplicate", "new-error", "top-error"):
+            with self.subTest(change=change):
+                changed = copy.deepcopy(source)
+                record = changed["uia"]["raw_nodes"][-1]
+                receipts = changed["uia"]["nonvisible_diagnostics"]
+                if change == "visible": record["state"]["offscreen"] = False
+                elif change == "unknown": record["state"].pop("offscreen")
+                elif change == "missing": receipts.clear()
+                elif change == "wrong-owner": receipts[0]["id"] = "foreign-owner"
+                elif change == "duplicate": receipts.append(copy.deepcopy(receipts[0]))
+                elif change == "new-error": record["measurement_errors"].append("unknown read failure")
+                elif change == "top-error": changed["uia"]["extraction_errors"].append("uia-3: tree traversal failed")
+                self.assertFalse(select(changed)["all_original_failures_resolved"])
+
     def test_new_null_bstr_plaintext_length_keeps_actual_noncollapsed_state(self):
         source = fixture()
         com = owner(source)["com"]

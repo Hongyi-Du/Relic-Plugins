@@ -1,5 +1,14 @@
 # Native Relic App contract
 
+Changes for the clients (observed Windows capture exit): b611b4f still failed
+live-tool-output despite individually resolving all three original visible UIA
+zero-area errors. The summary also required every raw node diagnostic to vanish,
+including offscreen titlebar measurements the observer explicitly retained in
+nonvisible_diagnostics. The resolver now respects that existing classification
+only with exact per-node receipts and actual IsOffscreen=true; new, unknown,
+visible and traversal errors still fail. All original records are retained.
+This corrects exit handling, not scene acceptance or the element gate.
+
 Changes for the clients (state-dot boundary measurement): when the existing
 actual Ellipse stroke/contour receipt proves one closed, undashed state-dot
 boundary, its stroke is represented once in border_* and radius properties.

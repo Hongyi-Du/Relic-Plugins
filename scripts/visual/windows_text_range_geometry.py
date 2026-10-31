@@ -300,9 +300,31 @@ def select_observed_text_geometry(xaml, uia, probe, frame):
                     effective["extraction_errors"] = [value for value in effective["extraction_errors"] if value != provider_id + ": " + diagnostic]
                     audit["resolved_diagnostics"].append({"uia_id": provider_id, "diagnostic": diagnostic, "occurrences": count,
                         "resolution": "Same actual bound range has positive observed floating-point geometry; original external measurement retained"})
+        # The observer computes exit 1 from extraction_errors after separating
+        # independently measured offscreen diagnostics. Keep that same scope:
+        # a retained offscreen title bar's empty rectangle is not an unresolved
+        # visible failure. Require its existing exact per-node UIA receipt;
+        # offscreen alone cannot conceal a new/unknown or tree traversal error.
+        nonvisible = Counter((item.get("id"), item.get("diagnostic"))
+            for item in uia.get("nonvisible_diagnostics", [])
+            if isinstance(item, dict) and item.get("source") == "UIA")
+        remaining = []
+        audit["retained_nonvisible_diagnostics"] = []
+        for node in effective.get("raw_nodes", []):
+            messages = Counter(node.get("measurement_errors", []))
+            if not messages:
+                continue
+            known = node.get("state", {}).get("offscreen") is True and all(
+                nonvisible[(node.get("id"), str(node.get("id")) + ": " + message)] == count
+                for message, count in messages.items())
+            if known:
+                audit["retained_nonvisible_diagnostics"].append({"uia_id": node.get("id"),
+                    "measurement_errors": copy.deepcopy(node["measurement_errors"]),
+                    "source": "Existing observer IsOffscreen and exact nonvisible_diagnostics receipts; not resolved or deleted"})
+            else:
+                remaining.append(node.get("id"))
         result["all_original_failures_resolved"] = (bool(audit["original_extraction_errors"])
-            and not effective.get("extraction_errors")
-            and not any(node.get("measurement_errors") for node in effective.get("raw_nodes", [])))
+            and not effective.get("extraction_errors") and not remaining)
     except (EvidenceError, TypeError, KeyError, ValueError) as error:
         audit["unavailable_ranges"].append({"reason": str(error)})
     effective["observed_text_geometry_selection"] = audit
