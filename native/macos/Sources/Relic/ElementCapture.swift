@@ -725,7 +725,9 @@ extension EnvironmentValues {
 }
 extension View {
     @ViewBuilder func measuredRegion(_ name: String, createsAccessibilityContainer: Bool = true) -> some View {
-        let measured = background(ElementRegionProbe(name: name).frame(maxWidth: .infinity, maxHeight: .infinity))
+        let measured = background {
+            if NativeDiagnostics.enabled { ElementRegionProbe(name: name).frame(maxWidth: .infinity, maxHeight: .infinity) }
+        }
             .environment(\.captureRegion, name)
         if createsAccessibilityContainer {
             measured.accessibilityElement(children: .contain).accessibilityIdentifier("relic-region/" + name)

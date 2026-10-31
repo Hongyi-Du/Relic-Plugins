@@ -1,5 +1,15 @@
 ## 2026-10-31: Amendment 7 large-data responsiveness (current priority)
 
+04:28Z: `6a444a9` builds/tests/package green (`41168489895`, 277 Mac tests).
+Strict Mac run `41168489877` still fails: **774.486 ms / 196.5 MiB / 9 threads**.
+The flat sidebar reports 10 mounted rows, peak 22; the 1000-message conversation
+reports peak 5. This proves the view workload is bounded in that initial sample,
+not that the full interaction passed. `ui-stalls.json` retains each >250 ms probe
+and its actual action; startup had 285.700/254.366/256.000 ms, then action-0000
+had 774.486 ms. Diagnostic `41168746001` is collecting its stack. The next change
+removes zero-width paint/layout layers and production-only diagnostic hover/region
+observers, while keeping actual paint, accessibility and interaction handlers.
+
 04:21Z update: `87f7b77` Native apps `41167167998` is green (274 Mac tests,
 Windows tests and packaging). Its strict Mac performance still fails at
 **574.371 ms / 174.953 MiB / 8 threads** (`41167167972`). Diagnostic-only
