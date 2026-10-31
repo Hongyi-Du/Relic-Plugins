@@ -213,11 +213,13 @@ public sealed partial class MainWindow
                     if (capturedMessageEvidence != null) capturedMessageEvidence["before_screenshot"] = CaptureMessageSceneState();
                     CaptureTextareaCheckpoint("before_screenshot");
                     RecordPanelResizePhase("before_native_label_capture");
+                    PrepareCompositionClipCapture(shot.Text("id"));
                     await BeginNativeLabelCaptureAsync(manifest.Text("output"), shot.Text("id"));
                     RecordPanelResizePhase("after_native_label_capture");
                     await AwaitPanelResizeCaptureReadiness();
                     CapturePanelResizeCheckpoint("before_screenshot");
                     CheckpointSettingsNavigationCapture("before_screenshot");
+                    EstablishCompositionClipBaseline();
                     BeginTextRangeFrameCapture(shot.Text("id"));
                     await CaptureClient(System.IO.Path.Combine(manifest.Text("output"), shot.Text("file")), int.Parse(shot.Text("width")), int.Parse(shot.Text("height")));
                     CapturePanelResizeCheckpoint("after_screenshot");
@@ -262,6 +264,9 @@ public sealed partial class MainWindow
                 }
                 finally
                 {
+                    try { await PublishCompositionClipPreparation(manifest.Text("output"), shot.Text("id")); }
+                    catch (Exception evidenceError) { failures.Add(shot.Text("id") + ": Composition preparation receipt failed: " + evidenceError); }
+                    finally { EndCompositionClipCapture(); }
                     try
                     {
                         if (settingsHoverEvidence != null)
@@ -366,11 +371,13 @@ public sealed partial class MainWindow
             var origin = new CapturePoint(); if (!ClientToScreen(handle, ref origin)) throw new InvalidOperationException("ClientToScreen failed");
             if (observeNativeLabel) CheckpointNativeLabelCapture("before_desktop_readback");
             if (observeNativeLabel) CheckpointTextRangeFrameCapture("before_desktop_readback");
+            if (observeNativeLabel) CheckpointCompositionClipCapture(beforeReadback: true);
             if (!BitBlt(memory, 0, 0, width, height, dc, origin.x, origin.y, 0x40CC0020)) throw new InvalidOperationException("Desktop window capture failed");
             var info = new BitmapInfo { size = 40, width = width, height = -height, planes = 1, bits = 32, imageSize = (uint)(width * height * 4) };
             var pixels = new byte[width * height * 4];
             if (GetDIBits(memory, bitmap, 0, (uint)height, pixels, ref info, 0) == 0) throw new InvalidOperationException("GetDIBits failed");
             if (observeNativeLabel) CheckpointTextRangeFrameCapture("after_desktop_readback");
+            if (observeNativeLabel) CheckpointCompositionClipCapture(beforeReadback: false);
             if (observeNativeLabel) CheckpointNativeLabelCapture("after_desktop_readback");
             if (pixels.Where((_, i) => i % 4 != 3).Distinct().Take(12).Count() < 12) throw new InvalidOperationException("Window capture is blank");
             using var output = new InMemoryRandomAccessStream(); var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output);

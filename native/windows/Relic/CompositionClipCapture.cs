@@ -15,9 +15,9 @@ public sealed partial class MainWindow
         // attach transform listeners and dirty the composition tree. Doing that
         // between the PNG and UIA reads changes the object being measured.
         // https://github.com/microsoft/microsoft-ui-xaml/blob/da699b040bddc2a6adf660512a7c6db8a96bfbe3/src/dxaml/xcp/core/core/elements/uielement.cpp#L7213
-        // Only the toolbar logo currently retains its actual production
-        // backing-Visual binding. Hand-in shadow visuals do not prove that
-        // binding for other controls; their measurement stays unknown.
+        // The logo keeps its production binding. Other actual owners may have
+        // a separately labelled diagnostic-preparation binding established
+        // before the render/commit/flush and authoritative capture baseline.
         var evidence = new JsonObject
         {
             ["source"] = "Actual XAML owner; backing Visual not read during authoritative capture",
@@ -34,7 +34,7 @@ public sealed partial class MainWindow
             ["presentation_identity_proven"] = false
         };
         if (!ReferenceEquals(owner, toolbarLogoBackingOwner) || toolbarLogoBackingVisual == null)
-            return evidence;
+            return CapturePreparedCompositionClip(owner, ownerNode, evidence);
         evidence["source"] = "production-retained backing Visual from ClipToolbarLogo";
         evidence["backing_visual_read"] = true;
         evidence["production_backing_visual_binding_available"] = true;

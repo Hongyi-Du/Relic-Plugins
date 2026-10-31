@@ -1,5 +1,28 @@
 # Native Relic App contract
 
+Changes for the clients (Windows Composition observation): each scene now has an
+explicit preparation phase that obtains and retains the actual loaded owners'
+backing Visual objects before the existing render/commit/DwmFlush. The baseline
+is established afterward; screenshot and getter checkpoints only read retained
+objects. Receipts disclose potentially created handoff state and do not claim
+unprepared production state, animation samples or final-pixel coverage. Missing,
+replaced, unloaded and changed objects remain unknown. XAML clips stay separate.
+
+Windows file-preview scroll correction: selecting a conversation applies its
+current column layout before rendering, and ScrollToLatest finishes that current
+layout immediately instead of scheduling a 40ms delayed scroll. Actual c8d6311
+data showed the delayed action advancing from 209.13 to 232.23 after the file pane
+narrowed the chat; the reference retained 209. This fixes the production timing
+without changing message padding or capture coordinates. The combined headless
+WinUI build passes with zero warnings/errors; fresh CI screenshots are required.
+
+Latest downloaded diagnostic: b611b4f / run 41147774570, 22 scenes with paired
+artifacts per platform; strict accepted scenes remain zero. Windows counts are
+missing 94, extra 192, text 562, geometry 1243, style 8161, state 322; macOS counts
+are missing 46, extra 601, text 0, geometry 550, style 6355, state 1327. This is not
+the 672-scene acceptance run. Original JSON/HTML/PNGs are retained at
+S:\Codex\Outputs\Relic-native-visual\parity-b611b4f\report-root.
+
 Changes for the clients (observed Windows capture exit): b611b4f still failed
 live-tool-output despite individually resolving all three original visible UIA
 zero-area errors. The summary also required every raw node diagnostic to vanish,

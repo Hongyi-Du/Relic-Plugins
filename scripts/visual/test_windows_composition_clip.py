@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import unittest
 
-from windows_composition_clip import (SOURCE, RETAINED_SOURCE, PREFIX, IDENTITY3, IDENTITY4,
+from windows_composition_clip import (SOURCE, RETAINED_SOURCE, PREPARED_SOURCE, PREPARED_BINDING, PREFIX, IDENTITY3, IDENTITY4,
                                       composition_clip, apply_composition_clip)
 
 
@@ -50,6 +50,43 @@ def retained_sample():
             "owner_is_loaded_after": True, "visual_same_retained_object": True,
             "clip_is_installed_production_object": True, "geometry_is_installed_production_object": True,
             "read_only": True, "revision_before": 7, "revision_after": 7})
+    return node
+
+
+def prepared_sample(absent=False):
+    """Synthetic new preparation contract; not an observed native capture."""
+    node = sample()
+    if absent:
+        change_snapshot(node, lambda snapshot: snapshot.update(clip_present=False, clip=None))
+    raw = node["composition_clip_evidence"]
+    raw.update(source=PREPARED_SOURCE, backing_visual_read=True, production_backing_visual_binding_available=False)
+    raw["binding"]["source"] = PREPARED_BINDING
+    state = {"owner_identity": "0x11", "root_identity": "0x22", "visual_identity": "0x33",
+             "clip_identity": None if absent else "0x44", "geometry_identity": None if absent else "0x55",
+             "retained_baseline_clip_identity": None if absent else "0x44",
+             "retained_baseline_geometry_identity": None if absent else "0x55",
+             "owner_is_loaded": True, "owner_unloaded_since_setup": False, "same_xaml_root": True,
+             "same_retained_owner": True, "owner_local_bounds": deepcopy(node["local_bounds"]),
+             "owner_to_window": deepcopy(node["transform"]), "xaml_clip_present": False,
+             "properties": deepcopy(raw["before"])}
+    receipt = {"capture_owner_same_object": True, "read_only_authoritative_window": True,
+               "production_original_state_observed": False,
+               "setup": {"case_id": "synthetic-scene", "started_qpc": 1, "completed_qpc": 4,
+                         "qpc_frequency": 10000000, "may_create": True, "created_unknown": True,
+                         "production_original_state_observed": False, "owner_count": 1},
+               "owner_call": {"index": 0, "api": "ElementCompositionPreview.GetElementVisual(actual owner)",
+                              "started_qpc": 2, "completed_qpc": 3, "may_create": True, "created_unknown": True,
+                              "returned": True, "owner_identity": "0x11", "root_identity": "0x22", "visual_identity": "0x33"},
+               "render_preparation": {"case_id": "synthetic-scene", "failure": None,
+                   "render_cycle": {"redraw_request_started_qpc": 5, "redraw_request_completed_qpc": 6,
+                                    "rendering": {"source": "CompositionTarget.Rendering", "qpc": 7},
+                                    "rendered": {"source": "CompositionTarget.Rendered", "qpc": 8}},
+                   "request_commit": {"source": "Window.Compositor.RequestCommitAsync", "started_qpc": 9,
+                                      "completed_qpc": 10, "completed": True},
+                   "dwm_flush": {"source": "DwmFlush", "started_qpc": 11, "completed_qpc": 12, "hresult": 0}}}
+    for index, label in enumerate(("baseline", "before_desktop_readback", "after_desktop_readback", "before_getters", "after_getters")):
+        receipt[label] = {"started_qpc": 13 + index * 2, "completed_qpc": 14 + index * 2, "state": deepcopy(state)}
+    raw["diagnostic_preparation"] = receipt
     return node
 
 
@@ -102,6 +139,70 @@ class CompositionClipTests(unittest.TestCase):
         self.assertIn('["status"] = "not-measured"', collector)
         self.assertIn('if (!ReferenceEquals(owner, toolbarLogoBackingOwner) || toolbarLogoBackingVisual == null)', collector)
         self.assertNotIn('["clip_present"] = false', collector)
+
+    def test_preparation_is_explicitly_before_render_and_authoritative_capture(self):
+        root = Path(__file__).resolve().parents[2]
+        flow = (root / "native/windows/Relic/VisualCapture.cs").read_text(encoding="utf-8-sig")
+        operations = ["PrepareCompositionClipCapture(shot.Text", "await BeginNativeLabelCaptureAsync(",
+                      "EstablishCompositionClipBaseline();", "BeginTextRangeFrameCapture(", "await CaptureClient("]
+        positions = [flow.index(operation) for operation in operations]
+        self.assertEqual(positions, sorted(positions))
+        preparation = (root / "native/windows/Relic/CompositionClipPreparation.cs").read_text(encoding="utf-8-sig")
+        self.assertEqual(len(re.findall(r"\bGetElementVisual\s*\(", preparation)), 2,
+                         "One actual call plus its receipt API name; no getter calls in authoritative checkpoints")
+        after_setup = preparation.split("private void EstablishCompositionClipBaseline", 1)[1]
+        self.assertIsNone(re.search(r"\bGetElementVisual\s*\(", after_setup))
+        self.assertIsNone(re.search(r"\bSetElementChildVisual\s*\(", preparation))
+
+    def test_prepared_absent_clip_is_measured_without_claiming_original_or_final_pixels(self):
+        node = prepared_sample(absent=True); original = deepcopy(node)
+        audit, gaps = composition_clip(node)
+        self.assertEqual(audit["status"], "measured-absent")
+        self.assertEqual(gaps, [])
+        self.assertEqual(audit["observation_basis"]["basis"], "diagnostic-prepared")
+        self.assertFalse(audit["observation_basis"]["production_original_state_observed"])
+        self.assertTrue(audit["observation_basis"]["may_create"])
+        self.assertTrue(audit["observation_basis"]["created_unknown"])
+        self.assertTrue(audit["observation_basis"]["limitations"])
+        self.assertFalse(audit["presentation_identity_proven"])
+        self.assertEqual(node, original)
+
+    def test_prepared_actual_geometry_still_has_independent_presentation_gap(self):
+        audit, gaps = composition_clip(prepared_sample())
+        self.assertEqual(audit["status"], "geometry-measured")
+        self.assertEqual(audit["image_corner_radius"], 5)
+        self.assertEqual([gap["property"] for gap in gaps], ["clip.presentation"])
+
+    def test_failed_stale_replaced_or_mutating_preparation_is_not_measured_absence(self):
+        for failure in ("missing-setup", "wrong-case", "failed-call", "setup-overlap", "missing-render",
+                        "failed-flush", "missing-baseline", "unloaded", "wrong-root", "replaced-owner",
+                        "changed-visual", "changed-clip", "original-claim", "created-claim", "geometry-change"):
+            with self.subTest(failure=failure):
+                node = prepared_sample(absent=True); raw = node["composition_clip_evidence"]
+                receipt = raw["diagnostic_preparation"]
+                if failure == "missing-setup": receipt.pop("setup")
+                elif failure == "wrong-case": receipt["render_preparation"]["case_id"] = "other-scene"
+                elif failure == "failed-call": receipt["owner_call"]["returned"] = False
+                elif failure == "setup-overlap": receipt["owner_call"]["completed_qpc"] = 19
+                elif failure == "missing-render": receipt["render_preparation"]["render_cycle"].pop("rendered")
+                elif failure == "failed-flush": receipt["render_preparation"]["dwm_flush"]["hresult"] = -1
+                elif failure == "missing-baseline": receipt.pop("baseline")
+                elif failure == "replaced-owner": receipt["capture_owner_same_object"] = False
+                elif failure == "original-claim": receipt["production_original_state_observed"] = True
+                elif failure == "created-claim": receipt["setup"]["created_unknown"] = False
+                else:
+                    state = receipt["after_getters"]["state"]
+                    if failure == "unloaded": state["owner_unloaded_since_setup"] = True
+                    elif failure == "wrong-root": state["same_xaml_root"] = False
+                    elif failure == "changed-visual": state["visual_identity"] = "0x99"
+                    elif failure == "changed-clip": state["clip_identity"] = "0x99"
+                    elif failure == "geometry-change": state["owner_to_window"]["offset_x"] += 1
+                original = deepcopy(node)
+                audit, gaps = composition_clip(node)
+                self.assertEqual(audit["status"], "unavailable")
+                self.assertTrue(gaps)
+                self.assertIsNone(audit["window_geometry"])
+                self.assertEqual(node, original)
 
     def test_retained_production_binding_measures_geometry_but_not_presentation(self):
         node = retained_sample(); original = deepcopy(node)

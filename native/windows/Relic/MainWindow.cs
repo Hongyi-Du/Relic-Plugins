@@ -252,6 +252,7 @@ public sealed partial class MainWindow : Window
         var reveal = id; var ancestors = new HashSet<string>();
         while (reveal.Length > 0 && ancestors.Add(reveal)) { folded.Remove(reveal); reveal = orgs.FirstOrDefault(o => o.Text("id") == reveal).Text("parent"); }
         SaveViewState();
+        LayoutColumns();
         await Refresh();
         if (different && digestOpen) await LoadDigest(false);
         ScrollToLatest();
@@ -272,7 +273,16 @@ public sealed partial class MainWindow : Window
     }
     private void DrawSide() => DrawSidebar();
     private void DrawChat() => DrawConversation();
-    private void ScrollToLatest() => DispatcherQueue.TryEnqueue(async () => { await Task.Delay(40); stream.UpdateLayout(); chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null, true); });
+    private void ScrollToLatest()
+    {
+        // Finish this conversation's current layout before choosing its end.
+        // A queued delay can outlive the action that requested the scroll: for
+        // example, opening a file then narrows the chat and wraps a message.
+        // Scrolling that later layout would move the reader past the position
+        // retained when they opened the file (or started reading history).
+        root.UpdateLayout();
+        chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null, true);
+    }
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
     {

@@ -9,6 +9,8 @@ import math
 
 SOURCE = "actual ElementCompositionPreview.GetElementVisual(owner).Clip"
 RETAINED_SOURCE = "production-retained backing Visual from ClipToolbarLogo"
+PREPARED_SOURCE = "diagnostic-prepared backing Visual retained before authoritative capture"
+PREPARED_BINDING = "actual IUnknown identities in retained preparation and read-only checkpoints"
 PREFIX = "Microsoft.UI.Composition."
 IDENTITY3 = [1, 0, 0, 1, 0, 0]
 IDENTITY4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
@@ -31,6 +33,79 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def validate_preparation(node, raw):
+    """Validate measured setup/readback order without claiming original state."""
+    receipt = raw.get("diagnostic_preparation") or {}
+    setup, call = receipt.get("setup") or {}, receipt.get("owner_call") or {}
+    render = receipt.get("render_preparation") or {}
+    require(receipt.get("capture_owner_same_object") is True
+            and receipt.get("read_only_authoritative_window") is True
+            and receipt.get("production_original_state_observed") is False
+            and setup.get("production_original_state_observed") is False
+            and raw.get("production_backing_visual_binding_available") is False
+            and raw.get("backing_visual_read") is True and "error" not in receipt,
+            "Diagnostic preparation is not bound to this owner or is mislabelled as original production state")
+    require(isinstance(setup.get("case_id"), str) and bool(setup["case_id"])
+            and setup["case_id"] == render.get("case_id")
+            and type(setup.get("qpc_frequency")) is int and setup["qpc_frequency"] > 0
+            and type(setup.get("owner_count")) is int and setup["owner_count"] > 0
+            and type(call.get("index")) is int and 0 <= call["index"] < setup["owner_count"],
+            "Prepared clip case, owner index or clock source differs")
+    require(all(item.get("may_create") is True and item.get("created_unknown") is True for item in (setup, call))
+            and call.get("api") == "ElementCompositionPreview.GetElementVisual(actual owner)"
+            and call.get("returned") is True and "error" not in call,
+            "Actual potentially mutating preparation call is missing, failed or mislabelled")
+    cycle, commit, flush = (render.get(key) or {} for key in ("render_cycle", "request_commit", "dwm_flush"))
+    require(render.get("failure") is None and commit.get("source") == "Window.Compositor.RequestCommitAsync"
+            and commit.get("completed") is True and flush.get("source") == "DwmFlush"
+            and type(flush.get("hresult")) is int and flush["hresult"] >= 0
+            and (cycle.get("rendering") or {}).get("source") == "CompositionTarget.Rendering"
+            and (cycle.get("rendered") or {}).get("source") == "CompositionTarget.Rendered",
+            "Existing render/commit/flush preparation did not complete")
+    clocks = [setup.get("started_qpc"), call.get("started_qpc"), call.get("completed_qpc"), setup.get("completed_qpc"),
+              cycle.get("redraw_request_started_qpc"), cycle.get("redraw_request_completed_qpc"),
+              (cycle.get("rendering") or {}).get("qpc"), (cycle.get("rendered") or {}).get("qpc"),
+              commit.get("started_qpc"), commit.get("completed_qpc"), flush.get("started_qpc"), flush.get("completed_qpc")]
+    states = []
+    for label in ("baseline", "before_desktop_readback", "after_desktop_readback", "before_getters", "after_getters"):
+        point = receipt.get(label) or {}
+        require("error" not in point and isinstance(point.get("state"), dict), "Prepared clip checkpoint is missing or failed: " + label)
+        clocks.extend((point.get("started_qpc"), point.get("completed_qpc")))
+        states.append(point["state"])
+    require(all(type(clock) is int and clock > 0 for clock in clocks) and clocks == sorted(clocks),
+            "Potentially mutating setup or baseline overlaps authoritative readback/getter observations")
+    require(all(state == states[0] for state in states), "Actual prepared owner/Visual/clip changed across the observed interval")
+    state = states[0]
+    for key in ("owner_identity", "root_identity", "visual_identity"):
+        identity = call.get(key)
+        require(isinstance(identity, str) and identity.startswith("0x") and int(identity[2:], 16) > 0
+                and state.get(key) == identity, "Actual prepared COM identity changed or is absent: " + key)
+    require(state.get("owner_is_loaded") is True and state.get("owner_unloaded_since_setup") is False
+            and state.get("same_xaml_root") is True and state.get("same_retained_owner") is True
+            and state.get("owner_local_bounds") == node.get("local_bounds")
+            and state.get("owner_to_window") == node.get("transform")
+            and state.get("xaml_clip_present") == raw.get("xaml_clip_present")
+            and "retained_baseline_clip_identity" in state and "retained_baseline_geometry_identity" in state
+            and state.get("clip_identity") == state["retained_baseline_clip_identity"]
+            and state.get("geometry_identity") == state["retained_baseline_geometry_identity"]
+            and state.get("properties") == raw.get("before") == raw.get("after"),
+            "Prepared backing Visual is detached, replaced or differs from actual captured owner/getters")
+    if state["properties"].get("clip_present") is False:
+        require(state.get("clip_identity") is None and state.get("geometry_identity") is None,
+                "Measured absent clip contradicts retained clip/geometry identities")
+    elif state["properties"].get("clip_present") is True:
+        for key in ("clip_identity", "geometry_identity"):
+            if key == "geometry_identity" and not (state["properties"].get("clip") or {}).get("geometry", {}).get("type"):
+                continue
+            identity = state.get(key)
+            require(isinstance(identity, str) and identity.startswith("0x") and int(identity[2:], 16) > 0,
+                    "Actual present clip/geometry has no retained COM identity: " + key)
+    return {"basis": "diagnostic-prepared", "production_original_state_observed": False,
+            "may_create": True, "created_unknown": True,
+            "limitations": ["Property reads are not compositor animation samples or final-PNG coverage",
+                            "Preparation may have created handoff visuals and installed WinUI listeners"]}
+
+
 def composition_clip(node):
     """Return a measured geometry audit and gaps; never repair the raw record."""
     raw = node.get("composition_clip_evidence")
@@ -43,11 +118,13 @@ def composition_clip(node):
         issues.append({"id": node.get("id"), "property": property_name, "reason": reason})
 
     try:
-        require(isinstance(raw, dict) and raw.get("source") in (SOURCE, RETAINED_SOURCE), "Backing Visual clip has no actual-owner receipt")
+        require(isinstance(raw, dict) and raw.get("source") in (SOURCE, RETAINED_SOURCE, PREPARED_SOURCE), "Backing Visual clip has no actual-owner receipt")
         require(raw.get("status") == "measured" and raw.get("owner_id") == node.get("id"), "Composition clip collection or owner identity is incomplete")
         require(isinstance(raw.get("owner_runtime_type"), str) and bool(raw["owner_runtime_type"])
                 and raw.get("owner_type") == node.get("type"), "Composition clip runtime owner differs from the rendered node")
         require(raw.get("owner_is_loaded") is True, "Composition clip owner is not actually loaded")
+        if raw.get("source") == PREPARED_SOURCE:
+            audit["observation_basis"] = validate_preparation(node, raw)
         if raw.get("source") == RETAINED_SOURCE:
             retained = raw.get("production_binding")
             require(isinstance(retained, dict)
@@ -65,7 +142,8 @@ def composition_clip(node):
                     and retained["revision_before"] == retained["revision_after"],
                     "Production clip was detached/reassigned or its revision is missing")
         binding = raw.get("binding") or {}
-        require(binding.get("source") == "actual IUnknown identity comparison; acquired references released in finally"
+        binding_source = PREPARED_BINDING if raw.get("source") == PREPARED_SOURCE else "actual IUnknown identity comparison; acquired references released in finally"
+        require(binding.get("source") == binding_source
                 and all(binding.get(k) is True for k in ("visual_same_object_after", "clip_same_object_after", "geometry_same_object_after")),
                 "Backing Visual, clip or geometry COM identity changed or is unverified")
         require(raw.get("properties_stable") is True and isinstance(raw.get("before"), dict) and raw["before"] == raw.get("after"),
