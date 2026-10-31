@@ -8,6 +8,10 @@ struct ConversationRow: Identifiable {
     let separator: String?
     let continued: Bool
 
+    static func prepareReplies(_ items: [Node], words: Words, now: Date) async -> [ConversationRow] {
+        build(items, words: words, now: now, separators: false)
+    }
+
     // This async nonisolated entry runs CPU work on the cooperative executor,
     // never on Model's main actor. Callers retain just one worker per model.
     static func prepare(messages: [Node], steps: [Node], member: Node, live: [Node], status: Node,

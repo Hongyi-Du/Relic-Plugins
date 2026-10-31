@@ -59,7 +59,7 @@ struct RichText: View {
     private func table(_ block: MarkdownBlock) -> [[String]] { parsed?.table(block) ?? [] }
     var body: some View {
         Group {
-        if parsed == nil { SelectableText(value: AttributedString(text), pointSize: baseSize, lineHeight: textLineHeight) }
+        if parsed == nil { Color.clear.frame(height: textLineHeight).accessibilityHidden(true) }
         else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
             // The outer conversation virtualizes messages. Inside one message
             // the layout needs the actual paragraph height: a second vertical
@@ -71,10 +71,12 @@ struct RichText: View {
                     blockView(block).padding(.top, blockGap(index))
                 }
                 if presentedBlocks < blocks.count {
-                    // Keep the remaining text readable while native paragraph
-                    // views are materialized over subsequent UI frames.
-                    SelectableText(value: AttributedString(blocks.dropFirst(presentedBlocks).map(\.text).joined(separator: "\n\n")),
-                        pointSize: baseSize, lineHeight: textLineHeight).padding(.top, 8)
+                    // Do not lay out the entire unprepared remainder as a
+                    // second text document on every two-block admission. Each
+                    // paragraph enters the native tree once, after background
+                    // parsing, rather than plain text followed by formatted
+                    // text with a different height.
+                    Color.clear.frame(height: textLineHeight).padding(.top, 8).accessibilityHidden(true)
                 }
             }.padding(.bottom, blocks.last.map { blockMargins($0, last: true).bottom } ?? 0)
         } }
@@ -374,10 +376,13 @@ struct ConversationStream: View {
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged(); preservingDisclosure = true })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
-                    }.defaultScrollAnchor(.bottom)
+                    }.defaultScrollAnchor(initialLoad ? .bottom : nil)
                         // Start at the latest page before lazy row creation.
                         // Otherwise a cold mount first constructs the oldest
                         // visible rows and then discards them on the tail seek.
+                        // Once that actual target appears, remove the default
+                        // size-change anchor: explicit user/follow targets own
+                        // subsequent append and Home/End positioning.
                         .modifier(RecordedSurface(background: .clear, kind: "region"))
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
@@ -811,22 +816,27 @@ struct ThreadView: View {
     @EnvironmentObject var m: Model
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 if !m.threadData["error"].text.isEmpty || m.threadData["root"].isNull {
                     OverviewBlock { ReferenceLabel(m.threadData["error"].text.isEmpty ? m.t("common.loading") : m.t("common.load_failed", ["error": m.threadData["error"].text]), size: 12.5, color: RelicStyle.muted, lines: 0) }
                 } else {
-                    let rows = m.conversationRows(m.threadData["replies"].rows, separators: false)
+                    let rows = m.threadRows
+                    let compact = m.preferences["density"].text == "compact"
                     MessageView(item: m.threadData["root"], inThread: true).padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 11)
                         .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "region"))
                         .accessibilitySortPriority(Double(rows.count * 2 + 4))
                     ReferenceLabel(m.t(m.threadData["replies"].rows.isEmpty ? "thread.no_replies" : "thread.replies", ["n": String(m.threadData["replies"].rows.count)]), size: 12, color: RelicStyle.muted).padding(.horizontal, 16).padding(.top, 10)
                         .accessibilitySortPriority(Double(rows.count * 2 + 3))
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                            MessageView(item: row.item, inThread: true, continued: row.continued).padding(.top, row.continued ? 4 : m.preferences["density"].text == "compact" ? 7 : 14)
-                                .accessibilitySortPriority(Double((rows.count - index) * 2))
-                        }
-                    }.padding(.horizontal, 16).padding(.bottom, 16)
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        ProgressiveRow(estimatedHeight: 100, workLabel: "thread-reply") {
+                            MessageView(item: row.item, inThread: true, continued: row.continued)
+                                .onAppear { PerformanceRendering.rowAppeared("thread") }
+                                .onDisappear { PerformanceRendering.rowDisappeared("thread") }
+                        }.padding(.top, row.continued ? 4 : compact ? 7 : 14)
+                            .padding(.horizontal, 16).padding(.bottom, index == rows.count - 1 ? 16 : 0)
+                            .accessibilitySortPriority(Double((rows.count - index) * 2))
+                    }
+                    if rows.isEmpty { Color.clear.frame(height: 16).accessibilityHidden(true) }
                     ThreadComposer().padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 14)
                 }
             }

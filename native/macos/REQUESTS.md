@@ -1,3 +1,19 @@
+d4e7f6a / 41191509218 FAILS startup at 261.997 ms, 173.875 MiB /9 threads.
+The separate body scope peaks at 270.288 ms; individual text measurement stays
+below 5 ms. RichText was constructing the entire source as plain native text,
+then reconstructing the entire remaining suffix on every two-block admission.
+Remove those duplicate text documents: parsed paragraphs enter once, with a
+non-accessible temporary spacer while preparation proceeds. All final content
+and visible-completion checks remain required.
+Native test 41191509214 (301 tests) confirms restored initial placement but
+fails appended text (391 /2418 pt gaps). The default bottom anchor is now used
+only while initialLoad is true, then removed so actual row targets own appends
+and Home/End. Its earlier permanent size-change behavior is not retained.
+The thread replies also used a non-lazy VStack and rebuilt grouping in the
+view body. Prepare reply rows off the main actor before publishing a response,
+virtualize them in one LazyVStack, and stage visible reply construction. A real
+mounted 3000-reply test requires actual first text, fewer than 40 native text
+documents, full data retention, and cleanup. No shared API changes requested.
 712cb0b / 41190893980 FAILS startup, first 270.766 ms /max 359.569 ms,
 174.297 MiB /9 threads. Identity batching is gone, but without the initial
 bottom anchor the cold viewport constructs early rows before seeking the tail
