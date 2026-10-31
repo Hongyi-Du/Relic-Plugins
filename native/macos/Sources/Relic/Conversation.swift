@@ -312,7 +312,6 @@ struct ConversationStream: View {
     @State private var firstPresentedID: String?
     @State private var mountedViewport = false
     @State private var mountedComposer = false
-    @State private var visibleRow: String?
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
@@ -372,7 +371,6 @@ struct ConversationStream: View {
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
                     }.defaultScrollAnchor(.bottom)
-                        .scrollPosition(id: $visibleRow, anchor: .bottom)
                         .modifier(RecordedSurface(background: .clear, kind: "region"))
                         .scrollDisabled(!enabled).focusable(enabled).focused($viewportFocused).focusEffectDisabled()
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
@@ -385,12 +383,12 @@ struct ConversationStream: View {
                             guard !latest.id.isEmpty, latest.size.height > 0, !preservingDisclosure,
                                   initialLoad || userFollowsLatest else { return }
                             following.followsBottom = true
-                            visibleRow = latest.id; proxy.scrollTo(latest.id, anchor: .bottom)
+                            proxy.scrollTo(latest.id, anchor: .bottom)
                             initialLoad = false
                         }
                         .onPreferenceChange(StreamBottom.self) { metrics in
                             keyboard.finishDisclosureLayout()
-                            // The bound row identity owns initial placement and
+                            // Explicit row targets own initial placement and
                             // content-size anchoring. Scrolling to
                             // the estimated document maximum here feeds every
                             // lazy height correction back into another layout.
@@ -405,7 +403,10 @@ struct ConversationStream: View {
                                let first = m.streamRows.first?.id {
                                 olderAnchor = first
                                 m.run {
-                                    do { try await m.loadOlder() }
+                                    do {
+                                        try await m.loadOlder()
+                                        if !m.isPreparingConversation && firstPresentedIndex == 0 { olderAnchor = nil }
+                                    }
                                     catch { olderAnchor = nil; throw error }
                                 }
                             }
@@ -414,7 +415,7 @@ struct ConversationStream: View {
                 }
                 else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if mountedComposer {
-                    ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
+                    ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: m.streamVersion) {
                 let ticket = PerformanceRendering.beginSurface()
@@ -447,8 +448,15 @@ struct ConversationStream: View {
                     firstPresentedID = m.streamRows[next].id
                     do { try await Task.sleep(for: .milliseconds(32)) }
                     catch { RowMountQueue.shared.release(turn); return }
+                    if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
+                    else if userFollowsLatest, let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                    // Let the explicit target settle before another cold view
+                    // mutation enters the same AppKit layout transaction.
+                    do { try await Task.sleep(for: .milliseconds(32)) }
+                    catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
                 }
+                olderAnchor = nil
             }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollFollowing(); userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
@@ -456,28 +464,28 @@ struct ConversationStream: View {
                     if preservingDisclosure { userFollowsLatest = following.followsBottom }
                     preservingDisclosure = false
                     following.contentChanged()
-                    if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil }
+                    if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
                     else if !m.streamRows.isEmpty {
-                        if (initialLoad || userFollowsLatest), let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
+                        if (initialLoad || userFollowsLatest), let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = true
-                    if let id = latestRowID { visibleRow = id }
+                    if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
                     // A lazy height correction is not a user scroll. Only
                     // native live scrolling or scoped keyboard input changes
                     // the person's follow-latest intent.
                     keyboard.didUserScroll = { nearBottom in
                         initialLoad = false; userFollowsLatest = nearBottom
-                        following.followsBottom = nearBottom; preservingDisclosure = false
+                        following.followsBottom = nearBottom; preservingDisclosure = false; olderAnchor = nil
                     }
                     keyboard.scrollToEdge = { top in
                         initialLoad = false
-                        userFollowsLatest = !top; preservingDisclosure = false
+                        userFollowsLatest = !top; preservingDisclosure = false; olderAnchor = nil
                         following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
-                        else if let id = latestRowID { visibleRow = id; proxy.scrollTo(id, anchor: .bottom) }
+                        else if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
                 .onDisappear { keyboard.scrollToEdge = nil; keyboard.didUserScroll = nil }
