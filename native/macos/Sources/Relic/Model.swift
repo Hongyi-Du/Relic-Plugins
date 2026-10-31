@@ -99,6 +99,7 @@ import RelicCore
     let defaults: UserDefaults
     var drafts: [String: ChatDraft] = [:]
     var client: Client?
+    var startupStage: ((String) -> Void)?
     private let host = ServerHost()
     private var eventTask: Task<Void, Never>?, refreshTask: Task<Void, Never>?
     private var plainTask: Task<Void, Never>?
@@ -148,9 +149,13 @@ import RelicCore
                 let root = env["RELIC_ENGINE_ROOT"].map { URL(fileURLWithPath: $0) } ?? Bundle.main.resourceURL!.appendingPathComponent("engine")
                 client = try await host.start(root: root, python: env["RELIC_PYTHON"])
             }
-            preferences = try await get("/api/prefs"); platform = try await get("/api/platform")
+            startupStage?("preferences")
+            preferences = try await get("/api/prefs")
+            startupStage?("platform")
+            platform = try await get("/api/platform")
             let language = Words.normalize(preferences["lang"].text.isEmpty ? Locale.current.identifier : preferences["lang"].text)
             _ = try await post("/api/prefs", ["lang": language])
+            startupStage?("language")
             words.load(try await get("/api/i18n?lang=" + language)); ready = true
             try await refresh()
             eventTask = Task { [weak self] in
@@ -249,7 +254,9 @@ import RelicCore
         }
     }
     private func refreshOnce() async throws {
+        startupStage?("organizations")
         do { organizations = try await get("/api/orgs").rows } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
+        startupStage?("copies")
         let copyResponse = try await get("/api/cc")
         copies = copyResponse["items"].rows
         unreadCopies = copyResponse["unread"].integer
@@ -259,10 +266,12 @@ import RelicCore
         if organization.isEmpty, let first = organizations.first { setSelection(ChatSelection(first["id"].text)) }
         guard !organization.isEmpty else { return }
         let selected = selection
+        startupStage?("snapshot")
         let snap = try await get(selected.path("?lang=" + words.language))
         let chatQuery = selected.member.isEmpty ? "/chat?kind=group&limit=1000"
             : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=1000"
         let chat = try await get(selected.path(chatQuery))
+        startupStage?("history")
         let who = snap["members"].rows.first { $0["name"].text == selected.member } ?? Node()
         var live = Node(), convo = Node()
         if who["embedded"].flag { live = try await get(selected.path("/live?member=" + Client.segment(selected.member))) }
@@ -270,6 +279,7 @@ import RelicCore
         guard selected == selection else { return }
         let hadHistory = !messages.isEmpty
         guard await mergeMessages(chat["items"].rows, selected: selected) else { return }
+        startupStage?("publish")
         snapshot = snap
         if !hadHistory { moreChat = chat["more"].flag }
         let chatKey = member.isEmpty ? "group" : "member:" + member

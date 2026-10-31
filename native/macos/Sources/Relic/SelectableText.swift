@@ -60,9 +60,10 @@ struct SelectableText: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
         let offered = proposal.width ?? (monospaced ? 100_000 : 400)
         let available = offered.isFinite ? max(1, offered) : 400
-        return NativeTextStyle.contentSize(nsView.attributedString(), available: available, maximumLines: maximumLines)
+        return context.coordinator.measurements.size(nsView.attributedString(), width: available, lines: maximumLines)
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
+        let measurements = PassageMeasurementCache()
         var parent: SelectableText
         init(_ parent: SelectableText) { self.parent = parent }
         func textViewDidChangeSelection(_ notification: Notification) {

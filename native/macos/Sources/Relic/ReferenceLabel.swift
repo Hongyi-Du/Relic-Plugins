@@ -107,18 +107,13 @@ struct ReferenceLabel: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferenceLabelView, context: Context) -> CGSize? {
         let trace = UIWorkTrace.begin("label.measure"); defer { UIWorkTrace.end(trace) }
         let width = (proposal.width?.isFinite == true ? proposal.width : nil) ?? 100_000
-        let storage = NSTextStorage(attributedString: nsView.attributedString()), layout = NSLayoutManager()
-        layout.delegate = nsView.pathLineBreaks
-        let container = NSTextContainer(containerSize: CGSize(width: max(0.01, width), height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0; container.maximumNumberOfLines = lines
-        container.lineBreakMode = containerBreakMode
-        storage.addLayoutManager(layout); layout.addTextContainer(container); layout.ensureLayout(for: container)
-        let used = layout.usedRect(for: container)
-        return CGSize(width: min(width, ceil(used.width)), height: max(lineHeight ?? size * 1.6, used.height))
+        return nsView.measurements.label(nsView.attributedString(), width: width, lines: lines, mode: containerBreakMode,
+            minimum: lineHeight ?? size * 1.6, pathBreaks: nsView.pathLineBreaks)
     }
 }
 
 final class ReferenceLabelView: ReadOnlyTextView {
+    let measurements = TextMeasurementCache()
     // The same TextKit painter draws into this view's owned backing image.
     // Mounted SwiftUI and direct bitmap comparisons retain the legacy path as
     // an independent regression baseline, including native color glyphs.
