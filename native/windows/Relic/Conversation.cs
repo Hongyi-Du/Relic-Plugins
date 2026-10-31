@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Relic.Core;
 using System.Text.Json.Nodes;
@@ -173,6 +174,45 @@ public sealed partial class MainWindow
         {
             keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
         }
+        var latestIntentQueued = false;
+        void FollowLatestIntent(string source)
+        {
+            if (latestIntentQueued || keepLatest || loadingOlder || closing || org.Length == 0) return;
+            var request = latestRequest; var selectedOrg = org; var selectedMember = member;
+            latestIntentQueued = true;
+            PerformanceTrace.Count("conversation.latest.intent." + source, 1);
+            // Do not change the virtual anchor inside the native scroll event.
+            // A later wheel/drag or navigation invalidates this intent before
+            // the real, already-arranged last row is requested on the UI queue.
+            if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+            {
+                latestIntentQueued = false;
+                if (!keepLatest && !loadingOlder && !closing && request == latestRequest
+                    && org == selectedOrg && member == selectedMember) ScrollToLatest();
+            })) latestIntentQueued = false;
+        }
+        ScrollBar? verticalBar = null;
+        void VerticalBarScrolled(object sender, ScrollEventArgs args)
+        {
+            if (verticalBar is not { Maximum: > 0 } bar) return;
+            if (args.ScrollEventType is ScrollEventType.First or ScrollEventType.SmallDecrement or ScrollEventType.LargeDecrement
+                || (args.ScrollEventType is ScrollEventType.ThumbTrack or ScrollEventType.ThumbPosition
+                    && args.NewValue < bar.Maximum - 1))
+                LeaveLatest();
+            else if (args.ScrollEventType == ScrollEventType.Last || args.NewValue >= bar.Maximum - 1)
+                FollowLatestIntent("scrollbar");
+        }
+        chatScroll.Loaded += (_, _) =>
+        {
+            if (verticalBar != null) verticalBar.Scroll -= VerticalBarScrolled;
+            verticalBar = DialogPart<ScrollBar>(chatScroll, "VerticalScrollBar");
+            if (verticalBar != null) verticalBar.Scroll += VerticalBarScrolled;
+        };
+        chatScroll.Unloaded += (_, _) =>
+        {
+            if (verticalBar != null) verticalBar.Scroll -= VerticalBarScrolled;
+            verticalBar = null;
+        };
         // ScrollViewer and selectable message children can handle these routed
         // events before application handlers. Still observe the user's intent
         // without consuming the event or replacing native scrolling/selection.
@@ -190,10 +230,26 @@ public sealed partial class MainWindow
         chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest()), true);
         // Touchpad/touch panning is direct manipulation, not a wheel event.
         chatScroll.DirectManipulationStarted += (_, _) => LeaveLatest();
+        chatScroll.ViewChanging += (_, e) =>
+        {
+            // ScrollableHeight is an estimate until distant virtual rows are
+            // measured. Capture the requested end BEFORE that estimate changes;
+            // repeatedly scrolling to the old numeric maximum can stop hundreds
+            // of messages short of the real last row in a long conversation.
+            var maximum = chatScroll.ScrollableHeight;
+            if (maximum > 0 && e.FinalView.VerticalOffset >= maximum - 1
+                && e.FinalView.VerticalOffset > chatScroll.VerticalOffset + 1)
+                FollowLatestIntent("final_view");
+        };
         chatScroll.ViewChanged += async (_, e) =>
         {
             if (plainMode && !plainTimer.IsEnabled) plainTimer.Start();
-            if (!e.IsIntermediate) await LoadOlderAtTop();
+            if (!e.IsIntermediate)
+            {
+                if (chatScroll.ScrollableHeight > 0 && chatScroll.VerticalOffset >= chatScroll.ScrollableHeight - 1)
+                    FollowLatestIntent("settled_view");
+                await LoadOlderAtTop();
+            }
         };
         foreach (var text in new[] { editor, threadEditor })
         {
