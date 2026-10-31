@@ -1,0 +1,76 @@
+name: Native responsiveness
+run-name: Native responsiveness - ${{ github.ref_name }} - ${{ inputs.mode || 'candidate' }}
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Label the same strict measurement as baseline or candidate
+        type: choice
+        options: [baseline, candidate]
+        default: candidate
+  push:
+    branches: [native-apps, native-macos]
+    paths:
+      - 'native/**'
+      - 'scripts/performance/**'
+      - '.github/workflows/native-responsiveness.yml'
+permissions:
+  contents: read
+concurrency:
+  group: native-responsiveness-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test synthetic scale, real paging, and fixed resource gates
+        run: python -m unittest discover -s scripts/performance -p 'test_*.py' -v
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install psutil
+      - name: Build the native client
+        run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/performance-windows
+      - name: Prepare the isolated CI desktop
+        run: ./scripts/visual/windows-display.ps1
+      - name: Measure exhaustive and seeded interaction against synthetic large data
+        run: python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --mode ${{ inputs.mode || 'candidate' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Relic-responsiveness-Windows-${{ inputs.mode || 'candidate' }}
+          path: performance/windows
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install psutil
+      - run: swift build --package-path native/macos -c release --arch arm64
+      - run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output native-build/performance-macos
+      - name: Measure exhaustive and seeded interaction against synthetic large data
+        shell: bash
+        run: |
+          for binary in native-build/performance-macos/*/Relic.app/Contents/MacOS/Relic; do
+            python3 scripts/performance/run.py --client macos --exe "$binary" --output performance/macos --mode '${{ inputs.mode || 'candidate' }}'
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Relic-responsiveness-macOS-${{ inputs.mode || 'candidate' }}
+          path: performance/macos
