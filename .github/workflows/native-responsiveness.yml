@@ -1,5 +1,5 @@
 name: Native responsiveness
-run-name: Native responsiveness - ${{ github.ref_name }} - ${{ inputs.mode || 'candidate' }}
+run-name: Native responsiveness - ${{ github.ref_name }} - ${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && ' - diagnostic only' || '' }}
 on:
   workflow_dispatch:
     inputs:
@@ -8,6 +8,10 @@ on:
         type: choice
         options: [baseline, candidate]
         default: candidate
+      diagnostic:
+        description: Observe 30 seconds after the first failure; always fails and cannot count as acceptance
+        type: boolean
+        default: false
   push:
     branches: [native-apps, native-macos]
     paths:
@@ -46,11 +50,16 @@ jobs:
       - name: Prepare the isolated CI desktop
         run: ./scripts/visual/windows-display.ps1
       - name: Measure exhaustive and seeded interaction against synthetic large data
-        run: python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --mode ${{ inputs.mode || 'candidate' }}
+        env:
+          RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
+        run: |
+          $diagnosticArgs = @()
+          if ($env:RELIC_PERF_DIAGNOSTIC -eq 'true') { $diagnosticArgs += '--diagnostic' }
+          python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --mode ${{ inputs.mode || 'candidate' }} @diagnosticArgs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Relic-responsiveness-Windows-${{ inputs.mode || 'candidate' }}
+          name: Relic-responsiveness-Windows-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
           path: performance/windows
   macos:
     runs-on: macos-15
@@ -68,12 +77,16 @@ jobs:
       - run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output native-build/performance-macos
       - name: Measure exhaustive and seeded interaction against synthetic large data
         shell: bash
+        env:
+          RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
         run: |
+          diagnostic_args=()
+          if [[ "$RELIC_PERF_DIAGNOSTIC" == "true" ]]; then diagnostic_args+=(--diagnostic); fi
           for binary in native-build/performance-macos/*/Relic.app/Contents/MacOS/Relic; do
-            python3 scripts/performance/run.py --client macos --exe "$binary" --output performance/macos --mode '${{ inputs.mode || 'candidate' }}'
+            python3 scripts/performance/run.py --client macos --exe "$binary" --output performance/macos --mode '${{ inputs.mode || 'candidate' }}' "${diagnostic_args[@]}"
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Relic-responsiveness-macOS-${{ inputs.mode || 'candidate' }}
+          name: Relic-responsiveness-macOS-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
           path: performance/macos
