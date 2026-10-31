@@ -1,3 +1,27 @@
+## 2026-10-31: Amendment 5 shared validation cleanup failure
+
+The native apps and whole-window capture pass at `f8f8704` (macOS: 248 tests,
+4/4 real window captures). Shared Python validation is not yet consistently green:
+[Windows Python 3.11 job](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41155754934/job/124402065105)
+fails `test_runner.Runner.test_claude_session_created_then_resumed` in
+`plugins/relic/tests/test_runner.py:103`, `tearDown -> self.tmp.cleanup()`.
+The remaining `relic.sqlite3-wal` is held open, producing `WinError 32` then
+`WinError 5`; the run ends `Ran 497 tests ... FAILED (errors=1, skipped=38)`.
+Please fix the shared runner/test lifetime so outstanding background database
+work has released its handles before temporary state cleanup. Investigate the
+gap between `runner.is_running()` becoming false and the runner actually
+finishing; do not suppress the test or treat a retry as the fix. The test already
+uses `TemporaryDirectory(ignore_cleanup_errors=True)`, which did not prevent
+this failure on Python 3.11. No client API change is needed. macOS cannot edit
+the shared engine/tests under the agreed ownership split.
+
+Static inspection confirms the ordering: `scripts/relic_run.py` writes the
+terminal run state at the start of `finally`, then calls `Store()`,
+`clear_focus`, receipts and `wake.dispatch`. `runner.is_running()` immediately
+returns false for terminal status, so `Runner.turn()` can return while that
+process is still using SQLite. The test should await actual runner process
+completion before cleanup; preserve production receipt/wake ordering.
+
 ## 2026-10-31: Amendment 5 supersedes the strict parity gate
 
 The person accepts the current look. Stop parity iteration and new matrix work.
