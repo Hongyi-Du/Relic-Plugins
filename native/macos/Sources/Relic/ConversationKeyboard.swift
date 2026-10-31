@@ -11,6 +11,25 @@ import SwiftUI
     private var disclosureOrigin: NSPoint?
     private var disclosureHeight: CGFloat = 0
     private var disclosureGeneration = 0
+    private var bottomAdjustmentPending = false
+    private var bottomGeneration = 0
+
+    func settleBottom() {
+        guard !bottomAdjustmentPending else { return }
+        bottomAdjustmentPending = true
+        let generation = bottomGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, generation == self.bottomGeneration else { return }
+            self.bottomAdjustmentPending = false
+            guard let scroll = self.scroll, let document = scroll.documentView else { return }
+            let clip = scroll.contentView
+            var target = clip.bounds
+            target.origin.y = document.isFlipped ? document.frame.maxY - clip.bounds.height : document.frame.minY
+            let origin = clip.constrainBoundsRect(target).origin
+            guard abs(origin.y - clip.bounds.origin.y) > 1 else { return }
+            clip.scroll(to: origin); scroll.reflectScrolledClipView(clip)
+        }
+    }
 
     func preserveDisclosurePosition() {
         discardDisclosurePosition()
@@ -21,6 +40,7 @@ import SwiftUI
 
     func discardDisclosurePosition() {
         disclosureGeneration += 1; disclosureOrigin = nil
+        bottomGeneration += 1; bottomAdjustmentPending = false
     }
 
     func finishDisclosureLayout() {

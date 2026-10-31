@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import Combine
 @testable import Relic
 import RelicCore
 
