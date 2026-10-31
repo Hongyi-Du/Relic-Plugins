@@ -168,18 +168,11 @@ public sealed partial class MainWindow
     }
     private void WireComposer()
     {
-        // Deferred text preparation and virtual rows can change the extent
-        // after the initial end anchor was brought into view. Follow only when
-        // the reader was already following the latest messages; never force
-        // synchronous layout or override an upward/history scroll.
-        stream.SizeChanged += (_, _) => FollowLatestAfterLayout();
-        chatScroll.SizeChanged += (_, _) => FollowLatestAfterLayout();
         plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
-        chatScroll.PointerWheelChanged += (_, e) => { if (e.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) { keepLatest = false; latestRequest++; } };
-        chatScroll.PointerPressed += (_, _) => { keepLatest = false; latestRequest++; };
+        chatScroll.PointerWheelChanged += (_, e) => { if (e.GetCurrentPoint(chatScroll).Properties.MouseWheelDelta > 0) { keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++; } };
+        chatScroll.PointerPressed += (_, _) => { keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++; };
         chatScroll.ViewChanged += async (_, e) =>
         {
-            if (!e.IsIntermediate && keepLatest) FollowLatestAfterLayout();
             if (plainMode && !plainTimer.IsEnabled) plainTimer.Start();
             if (!e.IsIntermediate && !keepLatest && !loadingOlder && chatMore && chatScroll.VerticalOffset < 32)
                 await Run(LoadOlderMessages);
@@ -376,7 +369,7 @@ public sealed partial class MainWindow
     private async Task LoadOlderMessages()
     {
         if (loadingOlder) return;
-        loadingOlder = true; keepLatest = false; latestRequest++;
+        loadingOlder = true; keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
         try
         {
         var selectedOrg = org; var selectedMember = member;

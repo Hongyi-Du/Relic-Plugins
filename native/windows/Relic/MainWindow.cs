@@ -321,19 +321,6 @@ public sealed partial class MainWindow : Window
     }
     private void DrawSide() => DrawSidebar();
     private void DrawChat() => DrawConversation();
-    private bool followLatestQueued;
-    private void FollowLatestAfterLayout()
-    {
-        if (!keepLatest || loadingOlder || closing || followLatestQueued) return;
-        followLatestQueued = true;
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-        {
-            followLatestQueued = false;
-            if (keepLatest && !loadingOlder && !closing
-                && chatScroll.ScrollableHeight - chatScroll.VerticalOffset > 1)
-                chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null, true);
-        });
-    }
     private void ScrollToLatest()
     {
         // Finish this conversation's current layout before choosing its end.
@@ -342,6 +329,7 @@ public sealed partial class MainWindow : Window
         // Scrolling that later layout would move the reader past the position
         // retained when they opened the file (or started reading history).
         keepLatest = true;
+        chatScroll.VerticalAnchorRatio = 1;
         var request = ++latestRequest;
         stream.BringLastIntoView();
         _ = SettleLatest();
@@ -352,7 +340,7 @@ public sealed partial class MainWindow : Window
                 await WaitForMarkdown();
                 if (!closing && keepLatest && request == latestRequest)
                 {
-                    stream.BringLastIntoView(); FollowLatestAfterLayout();
+                    stream.BringLastIntoView();
                 }
             }
             catch (TimeoutException) { /* Loading continues; never override a later user scroll. */ }

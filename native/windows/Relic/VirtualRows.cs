@@ -43,16 +43,19 @@ internal sealed class VirtualRows : Grid
     }
     internal void BringLastIntoView()
     {
-        BringIndexIntoView(Children.Count - 1, 1);
+        // Align the last row above the content's real bottom padding. Let the
+        // ScrollViewer's bottom anchor preserve it as deferred rows settle;
+        // repeated ChangeView(maximum) fights virtual extent estimation.
+        BringIndexIntoView(Children.Count - 1, 1, -Padding.Bottom);
     }
-    internal void BringIndexIntoView(int index, double alignment = .5)
+    internal void BringIndexIntoView(int index, double alignment = .5, double offset = 0)
     {
         if (index < 0 || index >= Children.Count) return;
         var last = repeater.GetOrCreateElement(index) as FrameworkElement;
         // Let the normal frame measure the new anchor. UpdateLayout here
         // recursively measured every dirty pane inside the chat command.
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            () => last?.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false, VerticalAlignmentRatio = alignment }));
+            () => last?.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false, VerticalAlignmentRatio = alignment, VerticalOffset = offset }));
     }
     internal bool MoveFocus(UIElement source, int delta, Func<UIElement, Control?> focusTarget)
     {
