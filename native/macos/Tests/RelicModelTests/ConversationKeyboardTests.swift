@@ -144,6 +144,24 @@ import RelicCore
         override var isFlipped: Bool { documentCoordinatesFlipped }
     }
 
+    func testEndCompletionUsesTheNativeRangeOnlyAfterTheActualTargetIsVisible() throws {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 900))
+        scroll.documentView = document; scroll.tile()
+        let keyboard = ConversationKeyboard(); keyboard.scroll = scroll
+        let end = document.bounds.maxY - scroll.contentView.bounds.height
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: end - 16))
+        XCTAssertFalse(keyboard.finishRealizedEnd(bottom: 300, viewportHeight: 120), "An offscreen target must still be realized by SwiftUI")
+        XCTAssertEqual(scroll.contentView.bounds.minY, end - 16, accuracy: 0.01)
+        XCTAssertTrue(keyboard.finishRealizedEnd(bottom: 120, viewportHeight: 120))
+        XCTAssertEqual(scroll.contentView.bounds.minY, end, accuracy: 0.01)
+        XCTAssertTrue(keyboard.finishRealizedEnd(bottom: 104, viewportHeight: 120))
+        XCTAssertEqual(scroll.contentView.bounds.minY, end, accuracy: 0.01, "A settled real target must not feed back into another seek")
+        scroll.contentView.scroll(to: .zero)
+        XCTAssertFalse(keyboard.finishRealizedEnd(bottom: 120, viewportHeight: 120), "Never jump to a distant estimate that would discard the realized target")
+        XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 0.01)
+    }
+
     func testOnlyThisScrollViewsUserInputChangesFollowIntent() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

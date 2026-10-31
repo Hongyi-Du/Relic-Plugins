@@ -411,7 +411,8 @@ struct ConversationStream: View {
                             guard !latest.id.isEmpty, latest.size.height > 0, !preservingDisclosure,
                                   initialLoad || userFollowsLatest else { return }
                             following.followsBottom = true
-                            if abs(latest.bottom - viewport.size.height) > 1 { proxy.scrollTo(latest.id, anchor: .bottom) }
+                            if !keyboard.finishRealizedEnd(bottom: latest.bottom, viewportHeight: viewport.size.height),
+                               abs(latest.bottom - viewport.size.height) > 1 { proxy.scrollTo(latest.id, anchor: .bottom) }
                             initialLoad = false
                         }
                         .onPreferenceChange(StreamBottom.self) { metrics in

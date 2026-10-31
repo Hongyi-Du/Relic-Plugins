@@ -1,3 +1,12 @@
+`35bd31b` 严格压力 `41253717577`：最长236.579 ms、295.391 MiB、9线程，
+全部菜单/对话框/缩放操作及前两组完整历史通过。第一组23页、5850行、实际顶部和末尾均通过。
+第三组End仍有16 pt原生尾部间距，因此actions=173、随机阶段=0，整体FAIL，不能称为完成。
+截图和行探针均确认实际最新消息9104已在屏幕内（并非空白）；原生document范围仍有余量。
+产品在实际末尾目标已进入视口时完成AppKit范围对齐，未实现目标继续交给SwiftUI，
+在读历史时不触发；新测试保留离屏/巨大估算不跳转、实际末尾对齐及稳定后不反复定位断言。
+既有全部原生内容、分页、250 ms与随机场景检查保持不变。
+`20ea445` 的阴影方向修正已通过原有像素测试，Native apps41254198203正在打包；
+测试容差未改。证据：`S:\Codex\Outputs\Relic-native-visual\responsiveness-35bd31b\macos\`。
 35bd31b / Native apps41253717697 compiles, but its existing shadow edge test
 FAILS15 pixel assertions (other307 tests pass). The Quartz path inverted y in
 an already-flipped native context, placing the shadow above the surface.
