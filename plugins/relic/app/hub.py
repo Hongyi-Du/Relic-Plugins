@@ -422,6 +422,7 @@ class Hub:
         kind = origin.get("kind")
         wake_from = list(origin.get("wake_from") or [])
         state = {"status": "running", "started": time.time(), "pid": os.getpid(), "prompt": text[:300],
+                 "wake_message_ids": list(origin.get("wake_message_ids") or []),
                  "wake_from": wake_from, "wake_hop": int(origin.get("hop") or 0), "via": "relic-app"}
         runner.write_state(org_id, member, state)
         # the first item of a turn carries start=True: the page shows the running turn from there
@@ -759,8 +760,7 @@ def _option(params, kind):
 
 
 def _last_id(store, org_id):
-    with store.db() as db:
-        return db.execute("SELECT COALESCE(MAX(id), 0) FROM messages WHERE org_id=?", (org_id,)).fetchone()[0]
+    return wake.message_checkpoint(store, org_id)
 
 
 def _sent_after(store, org_id, member, after, skip_prefix=None):
@@ -773,15 +773,4 @@ def _sent_after(store, org_id, member, after, skip_prefix=None):
 
 
 def _receipt(store, org_id, member, wake_from, after, state):
-    """One receipt to the wakers of an App-run turn, worded like the runner's (scripts/relic_run.py receipt)."""
-    replied = _sent_after(store, org_id, member, after, skip_prefix=wake.RECEIPT_MARK)
-    if state.get("status") == "failed":
-        what = "the turn failed: %s" % (state.get("error") or "unknown error")[-1200:]
-    elif all(m in replied for m in wake_from):
-        what = "the turn finished; it also messaged you during the turn. Its final words in its own session:\n%s" % (
-            (state.get("reply") or "(no reply)")[-600:])
-    else:
-        what = "the turn finished without a reply through Relic. Its final words in its own session:\n%s" % (
-            (state.get("reply") or "(no reply)")[-1500:])
-    return store.send_as(org_id, member, wake_from, "%s %s was woken by your message(s); %s" % (
-        wake.RECEIPT_MARK, member, what))
+    return wake.receipt(store, org_id, member, wake_from, after, state)
