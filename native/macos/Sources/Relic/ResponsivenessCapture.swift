@@ -15,12 +15,16 @@ import RelicCore
         var activeWindow: NSWindow?, captureOutput: URL?
         var failureState: [String: Any] = [:]
         var errors: [String] = [], receipts: [[String: Any]] = []
+        var display: CaptureDisplay?
         var seed = 0, randomSeconds = 0.0, randomActions = 0
         do {
             let manifest = Node(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))))
             let output = URL(fileURLWithPath: manifest["output"].text, isDirectory: true)
             captureOutput = output
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            display = try CaptureDisplay(cases: manifest["plan"].rows.filter { $0["kind"].text == "resize" }
+                + [Node(["width": 1440, "height": 900])], output: output)
+            try await Task.sleep(for: .milliseconds(250))
             seed = manifest["seed"].integer
             let watchdog = ResponsivenessWatchdog(output: output); monitor = watchdog
             for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
@@ -86,7 +90,8 @@ import RelicCore
         }
         monitor?.finish(["actions": receipts, "errors": errors, "random_seconds": randomSeconds,
                          "random_actions": randomActions, "seed": seed, "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState])
-        model?.stop(); activeWindow?.orderOut(nil); activeWindow?.contentView = nil; activeWindow?.close(); NSApp.terminate(nil)
+        model?.stop(); activeWindow?.orderOut(nil); activeWindow?.contentView = nil; activeWindow?.close()
+        display?.restore(); NSApp.terminate(nil)
     }
 
     private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL) async throws -> [String: Any] {
@@ -102,6 +107,11 @@ import RelicCore
         case "resize":
             window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: CGFloat(action["width"].integer), height: CGFloat(action["height"].integer))), display: true)
             await settle()
+            result["window_frame"] = ElementCapture.box(window.frame)
+            guard abs(window.frame.width - CGFloat(action["width"].integer)) <= 1,
+                  abs(window.frame.height - CGFloat(action["height"].integer)) <= 1 else {
+                throw RelicError.message("Runner display constrained the requested pressure window size")
+            }
         case "menu":
             m.appMenu = action["name"].text; await settle(); m.appMenu = nil; await settle()
         case "dialog":

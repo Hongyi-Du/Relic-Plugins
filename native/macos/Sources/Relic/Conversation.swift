@@ -61,7 +61,12 @@ struct RichText: View {
         Group {
         if parsed == nil { SelectableText(value: AttributedString(text), pointSize: baseSize, lineHeight: textLineHeight) }
         else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            // The outer conversation virtualizes messages. Inside one message
+            // the layout needs the actual paragraph height: a second vertical
+            // lazy stack supplies estimates that change the outer row's height
+            // and can strand its scroll target beyond any mounted content.
+            // Paragraph creation still advances two blocks per display turn.
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blocks.prefix(presentedBlocks).enumerated()), id: \.offset) { index, block in
                     blockView(block).padding(.top, blockGap(index))
                 }

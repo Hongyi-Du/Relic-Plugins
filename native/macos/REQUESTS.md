@@ -1,5 +1,16 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+868e7d0's failure-window.png proves the conversation is actually blank, despite
+the measured bottom gap being zero (1063 rows, no mounted message probe).
+The nested vertical lazy Markdown stack is now replaced by a staged ordinary
+VStack inside each virtualized message, so a message supplies actual paragraph
+height to its parent. This hypothesis still needs the mounted-text test and
+strict pressure run. 5b01fb9 separately fails the unchanged startup watchdog at
+389.489 ms; no passing latency claim is made. Pressure captures now use the
+existing CI-only CaptureDisplay, because the default 1024-wide runner silently
+constrained the requested 1440x900 window. Every resize records and verifies the
+actual window dimensions; no product display or sizing behavior is changed.
+
 149dfa8 / 41180797049 exposes a real long-Markdown regression: after appending
 a new message, the actual mounted native text is absent. Its stronger pressure
 readiness also fails at startup (41180797022, max 203.643 ms, no visible-row
