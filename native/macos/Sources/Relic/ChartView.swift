@@ -83,9 +83,9 @@ struct ChartView: View {
                 HStack(spacing: 6) {
                     OrganizationBadge(node: node)
                     ReferenceLabel(node["name"].text, size: 13, weight: 650, owner: identity).frame(maxWidth: .infinity, alignment: .leading)
-                    if node["cabinet"].flag { ChartChip(text: m.t("org.cabinet_chip"), tone: "sec") }
-                    if node["kind"].text == "subgroup" { ChartChip(text: m.t("org.kind_subgroup")) }
-                    if node["status"].text != "active" { ChartChip(text: m.t(node["status"].text == "closed" ? "org.status_closed" : "org.status_dissolved")) }
+                    if node["cabinet"].flag { ChartChip(text: m.t("org.cabinet_chip"), tone: "sec", weight: 600) }
+                    if node["kind"].text == "subgroup" { ChartChip(text: m.t("org.kind_subgroup"), weight: 650) }
+                    if node["status"].text != "active" { ChartChip(text: m.t(node["status"].text == "closed" ? "org.status_closed" : "org.status_dissolved"), weight: 650) }
                 }
                 ReferenceLabel(leader, size: 11.5, color: RelicStyle.secondary, owner: identity)
                 HStack(spacing: 6) {
