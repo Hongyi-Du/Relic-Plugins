@@ -3,15 +3,31 @@
 验收标准已由 Amendment 5 替代：当前外观已获接受，逐元素报告保留为回归信号，
 不再要求零差异。现在完成统一标题栏、四张真实整窗截图、原生构建/测试与安装包。
 
-已提交透明标题栏、隐藏系统窗口标题、full-size content、40px 应用顶栏、系统红黄绿按钮，
-以及只在顶栏空白处生效的窗口拖动和双击缩放。已加入原生窗口按钮位置和拖动命中测试。
-`RELIC_TITLEBAR_MANIFEST` 入口只允许 GitHub Actions，使用真实 `screencapture -l`
-截取完整窗口；不使用 ImageRenderer 或内容缓存冒充整窗。`41153327678` 的 Release 构建、
-两个标题栏测试已通过；该轮旧滚动条试验出现不稳定失败，因此也已撤回。整窗截图和新一轮
-完整构建/测试仍待 CI 验证。
+已实现透明标题栏、隐藏系统窗口标题、full-size content、40px 应用顶栏、系统红黄绿按钮，
+以及只在顶栏空白处生效的窗口拖动和双击缩放。原生窗口按钮位置和拖动命中测试已通过。
+`RELIC_TITLEBAR_CAPTURE=1` 入口只允许 GitHub Actions，使用真实 `screencapture -l`
+截取完整窗口，不使用 ImageRenderer 或内容缓存冒充整窗。
+
+`3f583b7` 的 macOS 四张整窗图全部成功，且已逐张查看：明暗主题、1440×900 和1024×700，
+红黄绿按钮均显示，顶栏没有额外标题条、重叠或裁切。PNG 尺寸与请求尺寸完全一致。
+图片和原始窗口记录位于 `S:\Codex\Outputs\Relic-native-visual\titlebar-3f583b7\macos\`。
+[整窗截图 CI（macOS job 成功）](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41153904958)。
+该次 Windows job 仍失败，由 Windows 会话修复，不能把整条截图工作流称为成功。
+
+同提交的 Release 构建、248项 macOS 测试（零失败）、Windows 构建/测试、共享检查、两平台
+打包全部成功：[Native apps](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41153910199)。
+Windows/macOS × Python 3.11/3.13 四组验证全部成功：
+[Validate Windows and macOS packages](https://github.com/Hongyi-Du/Relic-Plugins/actions/runs/41153910116)。
+
+macOS 产物为 `Relic-native-macOS-arm64-unsigned`，ZIP 是
+`relic-native-macos-v0.7.1-beta.1.zip`，已下载到
+`S:\Codex\Outputs\Relic-native-visual\titlebar-3f583b7\packages\macos\`。
+ZIP 完整性检查通过，内含 `Relic.app/Contents/MacOS/Relic` 和 `Info.plist`，Bundle ID 为
+`ai.hongyidu.relic`。本机没有解压运行或安装。实际 Mac 上仍由使用者确认窗口拖动、
+双击缩放、红黄绿按钮和日常聊天操作；CI 已验证渲染和原生控件几何/命中逻辑。
 
 已合入包含 PR #6 / `716ab44` 的共享引擎（合并提交 `4bafa12`）。已撤回尚未完成的
-消息导航重排、页签文字裁切和光标等待试验。未在本机安装、启动或修改正在运行的服务器。
+消息导航重排、页签文字裁切、光标等待和不稳定的隐藏滚动条试验。未在本机安装、启动或修改正在运行的服务器。
 共享工作流和包产物协调见 `REQUESTS.md`。PR #4 保持打开，不由本会话合并。
 
 以下为 Amendment 4 的历史诊断记录，不再作为当前交付门禁。
