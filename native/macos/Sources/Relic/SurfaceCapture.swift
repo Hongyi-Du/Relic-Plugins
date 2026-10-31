@@ -28,6 +28,7 @@ struct RecordedSurface: ViewModifier {
     var rings: [SurfaceRing] = []
     var outline: SurfaceOutline? = nil
     var nativeFill = false
+    var nativeFillComponentBits = 8
     @State private var cardIdentity = "relic-card/" + UUID().uuidString
     @Environment(\.captureOpacity) private var opacity
     private var surfaceOwner: String? { owner ?? (kind == "card" ? cardIdentity : nil) }
@@ -65,7 +66,8 @@ struct RecordedSurface: ViewModifier {
                 // Keep AppKit's original fill path when SwiftUI composites
                 // shadows. Quantizing that fill into another 8-bit image first
                 // changed its antialiased border pixels in the mounted test.
-                NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner, ownedLayer: shadows.isEmpty)
+                NativeSurfaceFill(color: background, corners: cornerRadii ?? Array(repeating: radius, count: 4), owner: surfaceOwner,
+                    ownedLayer: shadows.isEmpty || nativeFillComponentBits > 8, componentBits: nativeFillComponentBits)
                 }
             } else if shadows.isEmpty { shape.fill(background) }
             else {
