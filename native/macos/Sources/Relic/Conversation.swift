@@ -321,7 +321,7 @@ struct ConversationStream: View {
                                 }
                                 MessageView(item: row.item, continued: row.continued)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: m.preferences["density"].text == "compact"))
-                                }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row") } }
+                                }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
                                 }.padding(.bottom, row.id == rows.last?.id && m.displayLiveItems.isEmpty ? 24 : 0)

@@ -152,6 +152,11 @@ import RelicCore
                 throw RelicError.message("History data loaded but its first row is not at the visible top: \(ConversationKeyboardMount.edgeGap(in: window, atTop: true) ?? -1) pt")
             }
             result["visible_top_gap_pt"] = topGap
+            let topRows = RenderReadiness.visibleConversationRows(in: window)
+            result["visible_top_rows"] = topRows
+            guard let first = m.streamRows.first?.id, topRows.contains(first) else {
+                throw RelicError.message("History's first message is not actually visible")
+            }
             result["pages_loaded"] = m.historyPagesLoaded
             result["oldest_message_id"] = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].integer ?? 0
             result["history_complete"] = !m.moreChat
@@ -161,6 +166,11 @@ import RelicCore
                 throw RelicError.message("End did not restore the visible latest history row: \(ConversationKeyboardMount.bottomGap(in: window) ?? -1) pt")
             }
             result["visible_bottom_gap_pt"] = bottomGap
+            let bottomRows = RenderReadiness.visibleConversationRows(in: window)
+            result["visible_bottom_rows"] = bottomRows
+            guard let last = m.streamRows.last?.id, bottomRows.contains(last) else {
+                throw RelicError.message("History's latest message is not actually visible")
+            }
         default: throw RelicError.message("Unknown performance action: " + kind)
         }
         result["passed"] = true
