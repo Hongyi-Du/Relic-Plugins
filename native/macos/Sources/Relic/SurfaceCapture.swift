@@ -1,6 +1,13 @@
 import SwiftUI
 import AppKit
 
+enum NativeDiagnostics {
+    // Invisible paint-measurement views have no production accessibility or
+    // interaction role. Retain them for the explicit visual harness and the
+    // XCTest fixtures that inspect their receipts, not ordinary app rendering.
+    static let enabled = ProcessInfo.processInfo.environment["RELIC_VISUAL_MANIFEST"] != nil || NSClassFromString("XCTestCase") != nil
+}
+
 // These values draw the production surface and describe that same drawing to
 // the capture probe. No reference measurements are consulted.
 struct RecordedSurface: ViewModifier {
@@ -121,7 +128,12 @@ struct RecordedSurface: ViewModifier {
                     }
                 }.allowsHitTesting(false)
             }
-            .overlay(SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: surfaceOwner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline, hoverObservation: hoverObservation).padding(-(outline?.outset ?? 0)).allowsHitTesting(false))
+            .overlay {
+                // The outline path is actual paint and always stays enabled.
+                if outline != nil || NativeDiagnostics.enabled {
+                    SurfacePaintProbe(background: background, border: border, borderWidth: borderWidth, radius: radius, edges: edges, opacity: opacity, kind: kind, owner: surfaceOwner, hovered: hovered, shadows: shadows, cornerRadii: cornerRadii, insetLeadingWidth: insetLeadingWidth, insetLeadingColor: insetLeadingColor, borderDash: borderDash, selected: selected, expanded: expanded, current: current, unread: unread, insetRingWidth: insetRingWidth, insetRingColor: insetRingColor, outerRingWidth: outerRingWidth, outerRingColor: outerRingColor, rings: rings, outline: outline, hoverObservation: hoverObservation).padding(-(outline?.outset ?? 0)).allowsHitTesting(false)
+                }
+            }
             .onHover { hoverObservation.received($0) }
     }
 }

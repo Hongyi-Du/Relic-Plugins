@@ -37,6 +37,16 @@ Shared Windows test fix needed: `41163309124` Windows fails compiling
 does not exist in the current context`. Please update that linked-source test
 project when merging your diagnostic/readback changes. The macOS job is green.
 
+`e5033b5` performance run `41164873872` gets past startup (188.634 ms maximum
+through the first group action) and fails switching to the first private chat:
+**305.656 ms**, **145.734 MiB**, **8 threads**. Label measurement cache reduced
+recorded work from 5659 calls / 379.933 ms (`aa9d969`) to 9444 calls / 39.224 ms;
+these are different early-stop windows, not equal-duration throughput claims.
+The next fix preserves the existing organization snapshot across chat switches
+instead of destroying/recreating its entire member tree and inspector. Pure
+surface diagnostic probes are now mounted only for visual capture/XCTest;
+actual outline painting and production accessibility remain active.
+
 Confirmed macOS hot paths at `1e1fc14`: `ConversationStream` deliberately uses
 an eager VStack for the complete 1000-item response; `Timeline.merge` searches
 the accumulated array for every incoming item (quadratic); message Markdown
