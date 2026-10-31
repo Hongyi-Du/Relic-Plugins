@@ -1,5 +1,17 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+Windows investigation update: normal instrumented 95391fb fails startup at
+526.135 ms (CI 41172272959). Diagnostic-only 41172273041 records 496.444 ms
+and captures the UI thread inside UpdateNativeTitleBarLayout's WinRT collection
+iterator. Every global LayoutUpdated previously traversed native title-bar
+owners and recomputed transforms even for unrelated conversation layout.
+The client now marks these bounds dirty only for actual owner size, command,
+XamlRoot/DPI, or window presenter changes; completed layout consumes that flag.
+Two raw counters in heartbeat/completion record notifications versus actual
+measurements. A new strict run and real caption-control captures must validate
+this change. The sample establishes redundant work, not the original hang's
+exact stack; the unmeasured native modal interval remains under investigation.
+
 **Current Windows acceptance is not complete.** The final integration repeat
 at 8d5f1ef (CI 41171258624) failed while opening Settings: maximum UI dispatch
 1425.178 ms, WM_NULL timeout, 325.180 MiB peak RSS, 38 threads, early stop.

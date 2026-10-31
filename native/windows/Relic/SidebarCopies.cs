@@ -36,6 +36,7 @@ public sealed partial class MainWindow
             snap.Rows("decisions").Count, copyInbox.Unread, words.Language, root.ActualTheme);
         if (state == toolbarState) return;
         toolbarState = state;
+        titlebarLayoutDirty = true;
         toolbar.PrimaryCommands.Clear();
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toolbar, T("page.titlebar"));
         void AddCommand(UIElement content)
