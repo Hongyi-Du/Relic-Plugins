@@ -1,5 +1,16 @@
 ## A7 update: field-scoped observation for all model presentation state
 
+7008a0b diagnostic 41187257750 now retains both real stack files. Its first-
+stall sample has 308/677 main-thread samples in ForEachChild.updateValue;
+installObservationSlow appears with 128 and 117 samples, including repeated
+copies of ObservationGraphMutation dictionaries. Source mapping identifies
+latestRowID read inside every row's background closure: each child subscribes
+to displayLiveItems (liveItems/liveStatus/snapshot) and streamRows. Resolve the
+shared last-row/live/density values once outside ForEach and capture immutable
+values per row. Visible MessageView children retain their own observed content.
+This is a concrete observation-registration hotspot, not a measured parse or
+TextKit stall. The diagnostic remains ineligible; strict results are pending.
+
 9a2ebda Native apps 41186594058 passes all jobs and 299 Mac tests, including
 the actual long-Markdown append/Home/End and original shadow pixel assertions.
 Its pressure failure still stands. Latest native-apps 6648e83 is merged,
