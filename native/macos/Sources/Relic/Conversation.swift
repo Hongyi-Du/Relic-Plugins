@@ -295,6 +295,7 @@ struct ConversationStream: View {
                 GeometryReader { viewport in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
+                            Color.clear.frame(height: 8).id("start").accessibilityHidden(true)
                             let rows = m.streamRows
                             if rows.isEmpty && m.displayLiveItems.isEmpty {
                                 NoticeLayout {
@@ -322,7 +323,7 @@ struct ConversationStream: View {
                             // the scroll target. Padding outside the target is
                             // scrolled offscreen by scrollTo(anchor: .bottom).
                             Color.clear.frame(height: 24).id("end")
-                        }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 8)
+                        }.frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged() })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
@@ -398,7 +399,7 @@ struct ConversationStream: View {
                     initialLoad = m.streamRows.isEmpty
                     let model = m
                     keyboard.scrollToEdge = { top in
-                        if top, let first = model.streamRows.first?.id { proxy.scrollTo(first, anchor: .top) }
+                        if top { proxy.scrollTo("start", anchor: .top) }
                         else if !top { proxy.scrollTo("end", anchor: .bottom) }
                     }
                 }
