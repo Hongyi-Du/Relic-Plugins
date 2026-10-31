@@ -421,6 +421,32 @@ final class ModelTransport: URLProtocol {
         XCTAssertTrue(model.members.isEmpty)
         XCTAssertTrue(model.snapshot["org"].isNull)
     }
+    func testUnchangedRefreshDoesNotRepublishEntireViewButNewMessageStillAppears() async throws {
+        let model = try model(); defer { model.stop() }
+        var newMessage = false
+        ModelTransport.handler = { request in
+            switch request.url!.path {
+            case "/api/orgs": return (200, #"[{"id":"a"}]"#)
+            case "/api/cc": return (200, #"{"items":[],"unread":0}"#)
+            case "/api/org/a": return (200, #"{"org":{"id":"a"},"members":[]}"#)
+            case "/api/org/a/chat": return (200, newMessage
+                ? #"{"items":[{"id":1,"body":"first"},{"id":2,"body":"new"}],"more":false}"#
+                : #"{"items":[{"id":1,"body":"first"}],"more":false}"#)
+            default: XCTFail("Unexpected request"); return (500, "{}")
+            }
+        }
+        try await model.refresh()
+        while model.isPreparingConversation { await Task.yield() }
+        var publications = 0
+        let subscription = model.objectWillChange.sink { publications += 1 }
+        try await model.refresh()
+        XCTAssertEqual(publications, 0, "unchanged SSE refresh must not invalidate all view trees")
+        newMessage = true; try await model.refresh()
+        while model.isPreparingConversation { await Task.yield() }
+        XCTAssertEqual(model.messages.map { $0["id"].integer }, [1, 2])
+        XCTAssertGreaterThan(publications, 0)
+        subscription.cancel()
+    }
 }
 
 private extension InputStream {

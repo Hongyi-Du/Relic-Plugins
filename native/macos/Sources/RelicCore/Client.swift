@@ -11,6 +11,14 @@ public struct Node {
     public var object: [String: Any] { raw as? [String: Any] ?? [:] }
     public var integer: Int { (raw as? NSNumber)?.intValue ?? Int(text) ?? 0 }
     public var display: String { self["display"].text.isEmpty ? self["name"].text : self["display"].text }
+    // JSON payload equality is value-based (dictionary insertion order does
+    // not matter). Run deep comparisons on the generic executor, not the UI.
+    public static func sameContent(_ left: Node, _ right: Node) async -> Bool {
+        (left.raw as? NSObject)?.isEqual(right.raw) ?? false
+    }
+    public static func sameRows(_ left: [Node], _ right: [Node]) async -> Bool {
+        left.count == right.count && zip(left, right).allSatisfy { pair in (pair.0.raw as? NSObject)?.isEqual(pair.1.raw) == true }
+    }
 }
 
 public enum RelicError: LocalizedError {

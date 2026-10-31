@@ -6,15 +6,15 @@ import RelicCore
 @MainActor final class Model: ObservableObject {
     @Published var organizations: [Node] = []
     @Published var messages: [Node] = [] { didSet { messageGeneration += 1; prepareConversation() } }
-    @Published var liveItems: [Node] = [] { didSet { prepareConversation() } }
-    @Published var liveStatus = Node() { didSet { prepareConversation() } }
+    @Published var liveItems: [Node] = [] { didSet { liveGeneration += 1; prepareConversation() } }
+    @Published var liveStatus = Node() { didSet { liveGeneration += 1; prepareConversation() } }
     @Published var streamRows: [ConversationRow] = []
     @Published var streamVersion = 0
     @Published var inputSuggestions: InputSuggestionsState?
     @Published var conversation = Node() { didSet { prepareConversation() } }
     @Published var copies: [Node] = []
     @Published var unreadCopies = 0
-    @Published var snapshot = Node()
+    @Published var snapshot = Node() { didSet { prepareConversation() } }
     @Published var preferences = Node()
     @Published var platform = Node()
     @Published var words = Words() { didSet { prepareConversation() } }
@@ -111,6 +111,7 @@ import RelicCore
     var isPreparingConversation: Bool { conversationTask != nil }
     private var conversationGeneration = 0
     private var messageGeneration = 0
+    private var liveGeneration = 0
     private var fileRequest = UUID()
     private var previousDecisions: [String: Set<String>] = [:]
     private var previousMessages: [String: String] = [:]
@@ -258,11 +259,15 @@ import RelicCore
     }
     private func refreshOnce() async throws {
         startupStage?("organizations")
-        do { organizations = try await get("/api/orgs").rows } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
+        do {
+            let updated = try await get("/api/orgs").rows
+            if !(await Node.sameRows(organizations, updated)) { organizations = updated }
+        } catch { throw RelicError.message(t("boot.load_orgs_failed", ["error": error.localizedDescription])) }
         startupStage?("copies")
         let copyResponse = try await get("/api/cc")
-        copies = copyResponse["items"].rows
-        unreadCopies = copyResponse["unread"].integer
+        let updatedCopies = copyResponse["items"].rows
+        if !(await Node.sameRows(copies, updatedCopies)) { copies = updatedCopies }
+        if unreadCopies != copyResponse["unread"].integer { unreadCopies = copyResponse["unread"].integer }
         if let previousCopies, unreadCopies > previousCopies, let copy = copies.first(where: { !$0["read"].flag }) { backgroundNotify(t("cc.notify", ["org": copy["org_name"].text, "id": copy["protocol_id"].text, "title": copy["title"].text]), org: copy["org"].text, member: "") }
         previousCopies = unreadCopies
         if !organization.isEmpty && !organizations.contains(where: { $0["id"].text == organization }) { setSelection(ChatSelection()) }
@@ -276,6 +281,7 @@ import RelicCore
         let chat = try await get(selected.path(chatQuery))
         startupStage?("history")
         let who = snap["members"].rows.first { $0["name"].text == selected.member } ?? Node()
+        let liveRevision = liveGeneration
         var live = Node(), convo = Node()
         if who["embedded"].flag { live = try await get(selected.path("/live?member=" + Client.segment(selected.member))) }
         if who["has_transcript"].flag { convo = try await get(selected.path("/convo?member=" + Client.segment(selected.member))) }
@@ -283,11 +289,24 @@ import RelicCore
         let hadHistory = !messages.isEmpty
         guard await mergeMessages(chat["items"].rows, selected: selected) else { return }
         startupStage?("publish")
-        snapshot = snap
+        let snapshotChanged = !(await Node.sameContent(snapshot, snap))
+        guard selected == selection else { return }
+        if snapshotChanged { snapshot = snap; revision += 1 }
         if !hadHistory { moreChat = chat["more"].flag }
         let chatKey = member.isEmpty ? "group" : "member:" + member
         if !snap["chats"][chatKey]["last"]["id"].isNull { defaults.set(snap["chats"][chatKey]["last"]["id"].integer, forKey: "seen." + organization + "/" + chatKey) }
-        liveItems = live["items"].rows; liveStatus = live["status"]; conversation = convo; revision += 1
+        let updatedLive = live["items"].rows
+        let itemsChanged = !(await Node.sameRows(liveItems, updatedLive))
+        let statusChanged = !(await Node.sameContent(liveStatus, live["status"]))
+        let conversationChanged = !(await Node.sameContent(conversation, convo))
+        guard selected == selection else { return }
+        // A streamed item can arrive during the request or background diff.
+        // Do not replace that newer turn with the earlier HTTP snapshot.
+        if liveRevision == liveGeneration {
+            if itemsChanged { liveItems = updatedLive }
+            if statusChanged { liveStatus = live["status"] }
+        }
+        if conversationChanged { conversation = convo }
         let ids = Set(snap["decisions"].rows.map { $0["kind"].text + ":" + $0["id"].text + ":" + $0["member"].text })
         if let previous = previousDecisions[organization], !ids.subtracting(previous).isEmpty { backgroundNotify(t("notify.decisions", ["n": String(ids.count), "org": snap["org"]["name"].text])) }
         previousDecisions[organization] = ids
@@ -345,10 +364,11 @@ import RelicCore
         while selected == selection && !Task.isCancelled {
             let generation = messageGeneration, current = messages
             let merged = await Timeline.mergeInBackground(prepend ? incoming : current, prepend ? current : incoming)
+            let changed = !(await Node.sameRows(current, merged))
             guard selected == selection else { return false }
             // A refresh and an older page can finish together. Rebase onto the
             // latest immutable array instead of overwriting the other response.
-            if generation == messageGeneration { messages = merged; return true }
+            if generation == messageGeneration { if changed { messages = merged }; return true }
         }
         return false
     }
