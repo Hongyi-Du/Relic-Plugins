@@ -4,38 +4,36 @@ import SwiftUI
 @testable import Relic
 
 @MainActor final class NativeSurfaceFillTests: XCTestCase {
-    func testHighPrecisionOwnedFillPreservesTheActualDialogComposite() throws {
+    func testOriginalDialogFillDrawsIntoTheActualCaptureBitmap() throws {
         _ = NSApplication.shared
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent(".build/draw-diagnostics", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        var images: [Data] = []
-        for owned in [false, true] {
-            let root = Color.clear.frame(width: 160, height: 84)
+        let root = Color.clear.frame(width: 160, height: 84)
                 .modifier(RecordedSurface(background: Color(red: 0.93, green: 0.91, blue: 0.88),
                     border: .black.opacity(0.2), borderWidth: 1, radius: 16,
-                    shadows: SurfaceShadow.dialog, nativeFill: true, nativeFillComponentBits: owned ? 16 : 8)).padding(56)
+                    shadows: SurfaceShadow.dialog, nativeFill: true)).padding(56)
             let host = NSHostingView(rootView: root)
             host.frame = NSRect(x: 0, y: 0, width: 272, height: 196)
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
             defer { window.orderOut(nil); window.contentView = nil; window.close() }
             host.layoutSubtreeIfNeeded()
-            let fill = try XCTUnwrap(NativeSurfaceFill.mountedViews(in: window).first)
-            fill.recordDraws = true; fill.needsDisplay = true; fill.layer?.setNeedsDisplay()
+            let fill = NativeSurfaceFill.mountedViews(in: window).first
+            fill?.recordDraws = true; fill?.needsDisplay = true; fill?.layer?.setNeedsDisplay()
             host.displayIfNeeded(); CATransaction.flush()
             let bitmap = try XCTUnwrap(CaptureRaster.forView(host)); host.cacheDisplay(in: host.bounds, to: bitmap)
-            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:])); images.append(png)
-            let name = owned ? "owned-16" : "original"
-            try png.write(to: directory.appendingPathComponent("dialog-precision-\(name).png"))
-            try JSONSerialization.data(withJSONObject: fill.observation(), options: [.sortedKeys])
-                .write(to: directory.appendingPathComponent("dialog-precision-\(name).json"))
-            if owned {
-                XCTAssertEqual(fill.currentOwnedImage()?.bitsPerComponent, 16)
-                XCTAssertEqual(fill.backingPaintObservation()["current"] as? Bool, true)
-            }
-        }
-        XCTAssertEqual(images[0], images[1], "No pixel tolerance is added for an independently owned higher precision fill")
+                let actual = try XCTUnwrap(fill)
+                let buffer = try XCTUnwrap(bitmap.bitmapData)
+                let expected = "0x" + String(UInt(bitPattern: UnsafeMutableRawPointer(buffer)), radix: 16)
+                let observed = (actual.lastDraw?["context_bitmap"] as? [String: Any])?["data_address"] as? String
+                let record: [String: Any] = ["source": "actual cacheDisplay destination and original native draw CGContext",
+                    "capture_bitmap_data": expected, "actual_fill": actual.observation(),
+                    "bitmap_width": bitmap.pixelsWide, "bitmap_height": bitmap.pixelsHigh,
+                    "bitmap_bytes_per_row": bitmap.bytesPerRow]
+                try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+                    .write(to: directory.appendingPathComponent("dialog-original-draw-buffer.json"))
+                XCTAssertEqual(observed, expected, "Bind the original fill to the actual destination, without a new rendering path")
     }
     func testOwnedFillImageRetainsTheHostedFillAndShadowPixels() throws {
         _ = NSApplication.shared

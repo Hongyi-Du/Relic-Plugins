@@ -39,6 +39,8 @@ import AppKit
                     "layer_identity": String(describing: ObjectIdentifier(layer)),
                     "class": String(describing: type(of: indicator)), "display_mode": indicator.displayMode.rawValue,
                     "bounds": ElementCapture.box(indicator.bounds), "animations": animations,
+                    "layer_local_time": number(localTime), "layer_speed": number(Double(layer.speed)),
+                    "layer_begin_time": number(layer.beginTime), "layer_time_offset": number(layer.timeOffset),
                     "model_opacity": number(Double(layer.opacity)),
                     "presentation_opacity": layer.presentation().map { number(Double($0.opacity)) } ?? NSNull()])
             }
@@ -64,6 +66,7 @@ import AppKit
             // do not wait forever for a removal that CoreAnimation does not own.
             let stableRows = rows.map { row -> [String: Any] in
                 var copy = row
+                copy.removeValue(forKey: "layer_local_time")
                 copy["animations"] = (row["animations"] as? [[String: Any]] ?? []).map { animation in
                     var stable = animation; stable.removeValue(forKey: "elapsed_local_seconds"); return stable
                 }

@@ -189,7 +189,7 @@ struct RightPane: View {
                             Button { m.setPane(pane.0) } label: {
                                 HStack(spacing: 5) {
                                     ReferenceIcon(name: ["org", "work", "file", "thread"][index], size: 15, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary, owner: "relic-tab/" + pane.0)
-                                    ReferenceLabel(m.t(pane.1), size: 12.5, weight: m.pane == pane.0 ? 600 : 400, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary, owner: pane.0 == "thread" ? nil : "relic-tab/" + pane.0)
+                                    ReferenceLabel(m.t(pane.1), size: 12.5, weight: m.pane == pane.0 ? 600 : 400, color: m.pane == pane.0 ? RelicStyle.ink : RelicStyle.secondary, owner: "relic-tab/" + pane.0)
                                     if pane.0 == "thread" { Button { m.closeThread() } label: { ReferenceIcon(name: "x", size: 12, color: RelicStyle.muted, owner: "relic-icon-button/thread-close").frame(width: 16, height: 16) }.buttonStyle(.plain).help(m.t("panel.close_thread")).accessibilityLabel(m.t("panel.close_thread")).accessibilityIdentifier("relic-icon-button/thread-close") }
                                 }.padding(.horizontal, 9).frame(height: 28)
                             }.buttonStyle(QuietButtonStyle(selected: m.pane == pane.0, selectionApplicable: true)).accessibilityIdentifier("relic-tab/" + pane.0).accessibilityLabel(m.t(pane.1)).accessibilityAddTraits(m.pane == pane.0 ? [.isSelected] : [])
