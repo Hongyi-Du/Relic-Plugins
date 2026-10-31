@@ -40,6 +40,18 @@ final class ModelTransport: URLProtocol {
         XCTAssertFalse(model.recipientPicker)
         XCTAssertNil(model.appMenu)
     }
+    func testRepeatedAppMenuDismissalDoesNotRepublishConversationData() throws {
+        let model = try model()
+        var updates = 0
+        let subscription = model.objectWillChange.sink { updates += 1 }
+        defer { subscription.cancel() }
+        model.appMenu = nil
+        XCTAssertEqual(updates, 0)
+        model.appMenu = "file"; model.appMenu = "file"
+        XCTAssertEqual(updates, 1)
+        model.appMenu = nil; model.appMenu = nil
+        XCTAssertEqual(updates, 2, "Only actual menu changes should notify views")
+    }
     func testDialogPresentationDoesNotInvalidateConversationAndOrganizationData() throws {
         let model = try model()
         var dataUpdates = 0, presentationUpdates = 0

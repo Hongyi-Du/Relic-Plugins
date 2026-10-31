@@ -76,7 +76,11 @@ import Observation
     var mentionVisible = false
     weak var mentionEditor: ComposerTextView?
     @Published var recipientAnchor = CGRect.zero
-    @Published var appMenu: String?
+    @Published private var presentedAppMenu: String?
+    var appMenu: String? {
+        get { presentedAppMenu }
+        set { if newValue != presentedAppMenu { presentedAppMenu = newValue } }
+    }
     let dialogPresentation = DialogPresentation()
     var sheet: Sheet? {
         get { dialogPresentation.sheet }
