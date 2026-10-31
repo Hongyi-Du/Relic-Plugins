@@ -14,7 +14,7 @@ import RelicCore
     @Published var conversation = Node() { didSet { prepareConversation() } }
     @Published var copies: [Node] = []
     @Published var unreadCopies = 0
-    @Published var snapshot = Node() { didSet { prepareConversation() } }
+    @Published var snapshot = Node() { didSet { members = snapshot["members"].rows; prepareConversation() } }
     @Published var preferences = Node()
     @Published var platform = Node()
     @Published var words = Words() { didSet { prepareConversation() } }
@@ -131,7 +131,7 @@ import RelicCore
         if let data = defaults.data(forKey: "selection"), let saved = try? JSONDecoder().decode(ChatSelection.self, from: data) { setSelection(saved) }
     }
     var selection: ChatSelection { ChatSelection(organization, member) }
-    var members: [Node] { snapshot["members"].rows }
+    private(set) var members: [Node] = []
     var selectedMember: Node { members.first { $0["name"].text == member } ?? Node() }
     var secretary: String { snapshot["org"]["secretary"].text }
     func name(_ who: String) -> String { who == "human" ? (preferences["name"].text.isEmpty ? t("common.you") : preferences["name"].text) : members.first { $0["name"].text == who }?.display ?? who }

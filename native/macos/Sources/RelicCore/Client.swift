@@ -2,8 +2,12 @@ import Foundation
 
 public struct Node {
     public let raw: Any
-    public init(_ raw: Any = [String: Any]()) { self.raw = raw }
-    public subscript(_ key: String) -> Node { Node((raw as? [String: Any])?[key] ?? NSNull()) }
+    private let dictionary: NSDictionary?
+    public init(_ raw: Any = [String: Any]()) { self.raw = raw; dictionary = raw as? NSDictionary }
+    // JSONSerialization returns Foundation dictionaries. Casting an entire
+    // dictionary to [String: Any] on every field read revalidates/bridges all
+    // its keys; a vocabulary lookup then costs the size of the whole word list.
+    public subscript(_ key: String) -> Node { Node(dictionary?.object(forKey: key) ?? NSNull()) }
     public var text: String { if raw is NSNull { return "" }; return (raw as? String) ?? String(describing: raw) }
     public var flag: Bool { (raw as? Bool) ?? false }
     public var rows: [Node] { (raw as? [Any] ?? []).map(Node.init) }
@@ -131,16 +135,24 @@ public final class Client {
 
 public struct Words {
     public private(set) var language = "en-US"
-    private var strings = Node()
+    private struct Entry { let one: String?, other: String }
+    private var strings: [String: Entry] = [:]
     public private(set) var languages: [Node] = []
     public init() {}
     public static func normalize(_ language: String) -> String { language.lowercased().hasPrefix("zh") ? "zh-CN" : "en-US" }
-    public mutating func load(_ response: Node) { language = Self.normalize(response["lang"].text); strings = response["strings"]; languages = response["languages"].rows.filter { ["zh-CN", "en-US"].contains($0["code"].text) } }
+    public mutating func load(_ response: Node) {
+        language = Self.normalize(response["lang"].text)
+        strings = response["strings"].object.mapValues { raw in
+            let value = Node(raw)
+            if raw is NSDictionary { return Entry(one: ReferenceText.shortcutLabel(value["one"].text), other: ReferenceText.shortcutLabel(value["other"].text)) }
+            return Entry(one: nil, other: value.isNull ? "" : ReferenceText.shortcutLabel(value.text))
+        }
+        languages = response["languages"].rows.filter { ["zh-CN", "en-US"].contains($0["code"].text) }
+    }
     public func t(_ key: String, _ args: [String: String] = [:]) -> String {
-        var value = strings[key]
-        if value.raw is [String: Any] { value = value[language == "en-US" && args["n"] == "1" ? "one" : "other"] }
         // Missing vocabulary is a CI failure; never leak an implementation key into UI.
-        var result = value.isNull ? "" : ReferenceText.shortcutLabel(value.text)
+        guard let value = strings[key] else { return "" }
+        var result = language == "en-US" && args["n"] == "1" ? value.one ?? value.other : value.other
         for (key, value) in args { result = result.replacingOccurrences(of: "{" + key + "}", with: value) }
         return result
     }
