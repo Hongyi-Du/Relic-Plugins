@@ -1,5 +1,13 @@
 # Current delivery policy — Amendment 7 responsiveness
 
+The a9bfd92 instrumentation run 41176231953 exposed a separate regression:
+deriving SelectorBar for a measure override caused WinUI's native Style TargetType
+check to see Control, throwing 0x800F1000 on Settings. Its actual
+app-unhandled.jsonl is retained in candidate-a9bfd92/windows. That derived class
+is removed and the original SelectorBar restored; only the outer Grid/StackPanel
+timings remain. Headless build passes. This correction is not the original modal
+stall fix, and requires CI runtime verification.
+
 Integration repeat **ecd83a1 / CI 41175412099 fails Windows** while opening
 Settings: maximum UI delay **566.015 ms**, WM_NULL timeout, **345.605 MiB**,
 **38** threads, early stop before the monkey phase. Windows/shared sources are

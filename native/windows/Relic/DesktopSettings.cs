@@ -284,7 +284,7 @@ public sealed partial class MainWindow
         }
         body.Loaded += (_, _) => PaintNavigation();
         body.ActualThemeChanged += (_, _) => PaintNavigation();
-        var navigationBar = new NativeSettingsSelector
+        var navigationBar = new SelectorBar
         {
             Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch,
             Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""

@@ -67,26 +67,3 @@ internal sealed class NativeSettingsStack(string scope) : StackPanel
         finally { NativeSettingsLayoutTrace.Finish(scope + ".Arrange", start, this); }
     }
 }
-
-internal sealed class NativeSettingsSelector : SelectorBar
-{
-    internal NativeSettingsSelector() => DefaultStyleKey = typeof(SelectorBar);
-    protected override void OnApplyTemplate()
-    {
-        var start = NativeSettingsLayoutTrace.Start();
-        try { base.OnApplyTemplate(); }
-        finally { NativeSettingsLayoutTrace.Finish("Settings.NavigationSelector.ApplyTemplate", start, this, Items.Count); }
-    }
-    protected override Size MeasureOverride(Size availableSize)
-    {
-        var start = NativeSettingsLayoutTrace.Start();
-        try { return base.MeasureOverride(availableSize); }
-        finally { NativeSettingsLayoutTrace.Finish("Settings.NavigationSelector.Measure", start, this, Items.Count); }
-    }
-    protected override Size ArrangeOverride(Size finalSize)
-    {
-        var start = NativeSettingsLayoutTrace.Start();
-        try { return base.ArrangeOverride(finalSize); }
-        finally { NativeSettingsLayoutTrace.Finish("Settings.NavigationSelector.Arrange", start, this, Items.Count); }
-    }
-}
