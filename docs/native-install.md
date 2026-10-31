@@ -5,7 +5,17 @@ a browser or a web view. Both contain the same `plugins/relic` Python engine.
 Build and unit-test evidence does not replace trying the actual native windows.
 
 这些审阅构建分别使用 SwiftUI 和 WinUI 3，两端携带同一份 Python 核心。CI 构建及单元测试
-与真机界面验收是不同的步骤。当前不要覆盖正在使用的版本；先在游戏结束后试用候选版。
+与真机界面验收是不同的步骤。当前候选版的合并和安装由 Claude 在本人试用后安排。
+
+The app's own 40 px toolbar is its title bar. Drag an empty area to move the
+window, or double-click it to maximize/restore. Windows retains its system
+caption buttons and macOS retains its traffic lights in the same row. Light
+and dark full-window screenshots are published by the **Native window chrome**
+workflow; element comparisons remain a non-blocking regression report.
+
+应用自身的 40 px 工具行就是标题栏：空白处可拖动窗口，双击可最大化或还原；
+Windows 系统窗口按钮和 macOS 红黄绿按钮都在这一行。**Native window chrome**
+工作流提供亮色、暗色的整窗截图；逐元素比较保留为回归报告，不再阻塞交付。
 
 ## Requirements / 前置条件
 
@@ -26,13 +36,13 @@ Node.js 22+ 及相应 ACP adapter。原生候选版沿用现有插件和账号�
 ## Windows
 
 Download `Relic-Windows-<version>-Setup.exe` from the PR's **Native apps** workflow
-artifact. Run it after closing the game. It installs per user under
+artifact. Run it when ready to try the candidate. It installs per user under
 `%LOCALAPPDATA%\Programs\Relic`, without administrator rights, and adds Start menu
 and desktop shortcuts. Open **Relic** from that shortcut. The installer does not
 automatically open it. Uninstall through Windows Settings; organization data in
 the Relic data directory is not an installer-owned file and is retained.
 
-下载 CI artifact 中的 `Relic-Windows-<version>-Setup.exe`，游戏结束后安装。
+下载 CI artifact 中的 `Relic-Windows-<version>-Setup.exe`，准备试用时再安装。
 从开始菜单或桌面的 **Relic** 打开；安装器不会自动启动应用。候选版未签名。
 同一 artifact 的 ZIP 可解压后直接运行 `Relic.exe`，需保留整个目录。
 
