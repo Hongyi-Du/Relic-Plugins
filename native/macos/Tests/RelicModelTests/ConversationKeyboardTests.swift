@@ -151,15 +151,34 @@ import RelicCore
         let keyboard = ConversationKeyboard(); keyboard.scroll = scroll
         let end = document.bounds.maxY - scroll.contentView.bounds.height
         scroll.contentView.scroll(to: NSPoint(x: 0, y: end - 16))
-        XCTAssertFalse(keyboard.finishRealizedEnd(bottom: 300, viewportHeight: 120), "An offscreen target must still be realized by SwiftUI")
+        XCTAssertFalse(keyboard.finishRealizedEnd(bottom: 300, height: 100, viewportHeight: 120), "An offscreen target must still be realized by SwiftUI")
         XCTAssertEqual(scroll.contentView.bounds.minY, end - 16, accuracy: 0.01)
-        XCTAssertTrue(keyboard.finishRealizedEnd(bottom: 120, viewportHeight: 120))
+        XCTAssertTrue(keyboard.finishRealizedEnd(bottom: 120, height: 100, viewportHeight: 120))
         XCTAssertEqual(scroll.contentView.bounds.minY, end, accuracy: 0.01)
-        XCTAssertTrue(keyboard.finishRealizedEnd(bottom: 104, viewportHeight: 120))
+        XCTAssertTrue(keyboard.finishRealizedEnd(bottom: 104, height: 100, viewportHeight: 120))
         XCTAssertEqual(scroll.contentView.bounds.minY, end, accuracy: 0.01, "A settled real target must not feed back into another seek")
         scroll.contentView.scroll(to: .zero)
-        XCTAssertFalse(keyboard.finishRealizedEnd(bottom: 120, viewportHeight: 120), "Never jump to a distant estimate that would discard the realized target")
+        XCTAssertFalse(keyboard.finishRealizedEnd(bottom: 120, height: 100, viewportHeight: 120), "Never jump to a distant estimate that would discard the realized target")
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 0.01)
+    }
+
+    func testEndCompletesTheRealLatestRowWhenItsBodyIsStillPartlyClipped() {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 900))
+        scroll.documentView = document; scroll.tile()
+        let keyboard = ConversationKeyboard(); keyboard.scroll = scroll
+        let end = document.bounds.maxY - scroll.contentView.bounds.height
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: end - 73))
+        XCTAssertFalse(keyboard.finishRealizedEnd(bottom: 193, height: 60, viewportHeight: 120), "A wholly offscreen row remains the framework's responsibility")
+        XCTAssertEqual(scroll.contentView.bounds.minY, end - 73, accuracy: 0.01)
+        keyboard.enabled = false
+        XCTAssertFalse(keyboard.finishRealizedEnd(bottom: 193, height: 123, viewportHeight: 120))
+        XCTAssertEqual(scroll.contentView.bounds.minY, end - 73, accuracy: 0.01)
+        keyboard.enabled = true
+        XCTAssertTrue(keyboard.finishRealizedEnd(bottom: 193, height: 123, viewportHeight: 120), "A realized row intersecting the viewport must finish End even if its lower body is clipped")
+        XCTAssertEqual(scroll.contentView.bounds.minY, end, accuracy: 0.01)
+        XCTAssertTrue(keyboard.finishRealizedEnd(bottom: 120, height: 123, viewportHeight: 120))
+        XCTAssertEqual(scroll.contentView.bounds.minY, end, accuracy: 0.01, "A settled End must not start another layout seek")
     }
 
     func testOnlyThisScrollViewsUserInputChangesFollowIntent() {

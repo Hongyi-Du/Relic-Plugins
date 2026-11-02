@@ -102,20 +102,22 @@ enum PerformancePhase: String {
             result["click_handled_unix_ms"] = click.unixMilliseconds
             // Observe promptly; waiting for unrelated inspector/surface tasks
             // or a fixed quiet period would change this into a settle metric.
-            let deadline = click.uptime + 15
+            let deadline = click.uptime + openLimitMilliseconds / 1000
             repeat {
                 if model.selection == target, model.selectedChatLoadVersion > loadVersion,
                    !model.isLoadingSelectedChat, !model.isPreparingConversation,
-                   let latest = observeLatest(model: model, window: window, expected: truth, expectedEmpty: expectedEmpty), latest.ready {
+                   let latest = observeLatest(model: model, window: window, expected: truth, expectedEmpty: expectedEmpty) {
                     observation = latest
-                    let elapsed = (ProcessInfo.processInfo.systemUptime - click.uptime) * 1000
-                    result["open_ms"] = elapsed
-                    if elapsed > openLimitMilliseconds { errors.append("Actual latest content appeared after 1000 ms: \(elapsed) ms") }
-                    break
+                    if latest.ready {
+                        let elapsed = (ProcessInfo.processInfo.systemUptime - click.uptime) * 1000
+                        result["open_ms"] = elapsed
+                        if elapsed > openLimitMilliseconds { errors.append("Actual latest content appeared after 1000 ms: \(elapsed) ms") }
+                        break
+                    }
                 }
                 try await Task.sleep(for: .milliseconds(10))
             } while ProcessInfo.processInfo.systemUptime < deadline
-            if observation == nil { throw RelicError.message("The requested chat's actual latest content did not become visible") }
+            if observation?.ready != true { throw RelicError.message("The requested chat's actual latest content did not become visible within 1000 ms") }
             if !independentTruth { errors.append("Missing independent fixture latest_message_id/expected_empty; projection alone cannot prove Amendment 9 acceptance") }
         } catch { errors.append(String(describing: error)) }
         if let observation {
@@ -123,6 +125,8 @@ enum PerformancePhase: String {
             result["visible_latest_row_id"] = observation.rowID
             result["visible_latest_markdown"] = observation.markdown
             result["visible_latest_text_views"] = observation.textViews
+            if let gap = observation.bottomGap { result["visible_latest_bottom_gap_pt"] = Double(gap) }
+            else { result["visible_latest_bottom_gap_pt"] = NSNull() }
         }
         result["latest_visible"] = observation?.ready == true
         if handled == nil { result["click_events"] = 0 }
@@ -138,6 +142,7 @@ enum PerformancePhase: String {
     struct LatestObservation {
         let messageID: String, rowID: String
         let markdown: Int, textViews: Int
+        let bottomGap: CGFloat?
         let ready: Bool
     }
     static func observeLatest(model: Model, window: NSWindow, expected: String, expectedEmpty: Bool = false) -> LatestObservation? {
@@ -148,7 +153,7 @@ enum PerformancePhase: String {
             let actual = descendants(root).compactMap { $0 as? ReferenceLabelView }.filter {
                 $0.productionRegion == "conversation" && !label.isEmpty && $0.string == label && visible($0)
             }
-            return LatestObservation(messageID: "", rowID: "", markdown: 0, textViews: actual.count, ready: !actual.isEmpty)
+            return LatestObservation(messageID: "", rowID: "", markdown: 0, textViews: actual.count, bottomGap: nil, ready: !actual.isEmpty)
         }
         guard let row = model.streamRows.last else { return nil }
         let messageID = row.item["id"].text
@@ -168,8 +173,17 @@ enum PerformancePhase: String {
         let requiresMarkdown = !body.isEmpty && !["notice", "acts", "receipt"].contains(row.item["type"].text)
         // A header or an admitted row placeholder is not message content.
         let actualBody = requiresMarkdown ? !markdown.isEmpty && text.contains(where: { $0 is QuoteTextView }) : !text.isEmpty
+        var bottomGap: CGFloat?
+        if let scroll = probe.enclosingScrollView, let document = scroll.documentView {
+            let clip = scroll.contentView.bounds
+            let gap = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+            if gap.isFinite { bottomGap = max(0, gap) }
+        }
+        // A few pixels of a ready text view can intersect the viewport while
+        // its readable body remains behind the composer. Require the actual
+        // native end as well as the independent ID and native content checks.
         return LatestObservation(messageID: messageID, rowID: row.id, markdown: markdown.count, textViews: text.count,
-            ready: actualBody && markdown.allSatisfy(\.ready))
+            bottomGap: bottomGap, ready: actualBody && markdown.allSatisfy(\.ready) && bottomGap.map { $0 <= 2 } == true)
     }
     private static func intersects(_ view: NSView, row: CGRect, root: NSView) -> Bool {
         let overlap = view.convert(view.bounds, to: root).intersection(row)

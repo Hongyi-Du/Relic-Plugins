@@ -25,9 +25,11 @@ import SwiftUI
     /// ScrollViewReader realizes the actual last row before this completion.
     /// A lazy stack can retain a small extent beyond that row after history
     /// measurement. Finish against AppKit's current range only while the real
-    /// target is inside the viewport, never by jumping to an unrealized estimate.
-    @discardableResult func finishRealizedEnd(bottom: CGFloat, viewportHeight: CGFloat) -> Bool {
-        guard enabled, bottom > 0, bottom <= viewportHeight + 1,
+    /// target intersects the viewport, never by jumping to an unrealized estimate.
+    /// Its lower edge may still be clipped after the preceding long row settles.
+    @discardableResult func finishRealizedEnd(bottom: CGFloat, height: CGFloat, viewportHeight: CGFloat) -> Bool {
+        guard enabled, bottom.isFinite, height.isFinite, viewportHeight.isFinite,
+              height > 0, viewportHeight > 0, bottom > 0, bottom - height < viewportHeight,
               let scroll, let document = scroll.documentView else { return false }
         let clip = scroll.contentView, bounds = clip.bounds
         let gap = document.isFlipped ? document.bounds.maxY - bounds.maxY : bounds.minY - document.bounds.minY
