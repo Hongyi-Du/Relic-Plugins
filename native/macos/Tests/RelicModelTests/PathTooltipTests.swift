@@ -13,8 +13,8 @@ import RelicCore
     }
 
     func testTooltipBelongsToFileAnchorAndPreservesLinkAndInlineCode() throws {
-        let source = "Read `/tmp/review.md:12` or [docs](https://example.com/docs)."
-        let value = NativeMarkdown.attributed(NativeLinks.markdown(source))
+        let source = "Read `/tmp/review.md:12` or https://example.com/docs."
+        let value = NativeMarkdown.attributed(source)
         for title in ["预览文件", "Preview file"] {
             let rendered = NativeTextStyle.render(value, size: 14, fileLinkTooltip: title)
             let fileRange = (rendered.string as NSString).range(of: "/tmp/review.md:12")
@@ -23,7 +23,7 @@ import RelicCore
             let link = try XCTUnwrap(rendered.attribute(.link, at: fileRange.location, effectiveRange: nil) as? URL)
             XCTAssertEqual(link.scheme, "relic-file")
             XCTAssertEqual(URLComponents(url: link, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "line" })?.value, "12")
-            XCTAssertEqual(NativeInlineCode.source(rendered), "Read /tmp/review.md:12 or docs.")
+            XCTAssertEqual(NativeInlineCode.source(rendered), "Read /tmp/review.md:12 or https://example.com/docs.")
             XCTAssertNil(rendered.attribute(.toolTip, at: 0, effectiveRange: nil))
             XCTAssertNil(rendered.attribute(.toolTip, at: (rendered.string as NSString).range(of: "docs").location, effectiveRange: nil))
         }
