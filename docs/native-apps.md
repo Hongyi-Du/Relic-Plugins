@@ -1,5 +1,12 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: merged native-macos 761bfa9 (including 283a131's
+partly visible End correction and one-second failed-open observation).
+REQUESTS has no new server route dependency. Superseded shared capture jobs
+are cancelled to free CI slots; current native builds and pressure profiles
+remain required. The displayed-tail manifest correction below is now published
+for the macOS observer to consume as well.
+
 Windows activation no longer destroys/replaces the sidebar during a pointer
 click: the old Activated handler called DrawSide for every active notification,
 including activation by pointer. It now marks the selected chat seen only on
