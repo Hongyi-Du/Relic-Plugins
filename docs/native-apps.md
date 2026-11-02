@@ -1,5 +1,14 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: integrating Mac2426050/4fa63a6 (macOS-supported row
+spacing and one stable native list container per timeline row). The preceding
+e3aed94 cannot build on macOS because listRowSpacing is unavailable there;
+863b18f native Windows tests/build and parity contracts pass in41545293243,
+while its Mac jobs fail at that compiler error. Windows focused CI863b18f also
+hit startup stalls before history/open actions; normal full and explicit native
+stack diagnostics are retained separately. No startup failure is called a
+successful history result. REQUESTS introduces no shared API/gate dependency.
+
 Changes for the clients: optional workflow_dispatch phase/client selectors now
 provide focused feedback using the existing manifest v2 and --phase behavior.
 Single-phase reports remain acceptance_eligible:false. Every push still runs
