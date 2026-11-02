@@ -189,6 +189,7 @@ import Combine
     @ObservationIgnored private var navigationGeneration = 0
     @ObservationIgnored private var navigationTask: Task<Void, Error>?
     var isLoadingSelectedChat: Bool { navigationTask != nil }
+    @ObservationIgnored private(set) var selectedChatLoadVersion = 0
     @ObservationIgnored private var refreshAfterNavigation = false
     @ObservationIgnored private var messageGeneration = 0
     @ObservationIgnored private var liveGeneration = 0
@@ -499,6 +500,7 @@ import Combine
             if !snap["chats"][key]["last"]["id"].isNull {
                 defaults.set(snap["chats"][key]["last"]["id"].integer, forKey: "seen." + selected.org + "/" + key)
             }
+            selectedChatLoadVersion += 1
             return
         }
     }

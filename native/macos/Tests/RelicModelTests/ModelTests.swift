@@ -188,6 +188,8 @@ final class ModelTransport: URLProtocol {
         XCTAssertEqual(model.streamRows.last?.item["id"].integer, 42)
         XCTAssertEqual(model.streamRows.last?.preparedBody?.source, "**Latest** message")
         XCTAssertTrue(model.moreChat)
+        XCTAssertEqual(model.selectedChatLoadVersion, 1)
+        XCTAssertFalse(model.isLoadingSelectedChat)
     }
     func testPrivateChatClickLoadsItsLiveAndTranscriptResources() async throws {
         let model = try model(); defer { model.stop() }

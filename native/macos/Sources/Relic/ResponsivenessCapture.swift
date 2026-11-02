@@ -17,8 +17,12 @@ import RelicCore
         var errors: [String] = [], receipts: [[String: Any]] = []
         var display: CaptureDisplay?
         var seed = 0, randomSeconds = 0.0, randomActions = 0
+        var phase = PerformancePhase.legacy, fixtureProfile = ""
+        var idleInterval: [String: Any] = [:]
         do {
             let manifest = Node(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))))
+            phase = try PerformancePhase(manifest: manifest)
+            fixtureProfile = manifest["fixture"]["profile"].text
             let output = URL(fileURLWithPath: manifest["output"].text, isDirectory: true)
             captureOutput = output
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -52,9 +56,51 @@ import RelicCore
             guard current.ready else { throw RelicError.message(current.error) }
             try await settleConversation(current)
             for action in manifest["plan"].rows {
-                watchdog.action(action["id"].text + ":" + action["kind"].text)
-                receipts.append(try await perform(action, model: current, window: window, output: output))
+                if phase == .switchChats, !action["warmup"].flag, !action["switch_index"].isNull {
+                    watchdog.action("switch:" + action["switch_index"].text)
+                } else { watchdog.action(action["id"].text + ":" + action["kind"].text) }
+                do {
+                    let receipt: [String: Any]
+                    if action["kind"].text == "idle", phase == .idle {
+                        guard env["RELIC_PERF_DIAGNOSTIC"] != "true" else {
+                            throw RelicError.message("Idle CPU measurement cannot include diagnostic sampling")
+                        }
+                        current.appMenu = nil; current.sheet = nil
+                        try await settleConversation(current)
+                        let seconds = max(12, action["seconds"].integer)
+                        let began = ProcessInfo.processInfo.systemUptime, beganEpoch = Date().timeIntervalSince1970 * 1000
+                        watchdog.action("idle-measure")
+                        // No screenshot, AX/tree walk, or diagnostic sampler in
+                        // the idle interval. Shared monitoring reads real CPU.
+                        try await Task.sleep(for: .seconds(seconds))
+                        let ended = ProcessInfo.processInfo.systemUptime, endedEpoch = Date().timeIntervalSince1970 * 1000
+                        watchdog.action("idle-complete")
+                        idleInterval = ["start_unix_ms": beganEpoch, "end_unix_ms": endedEpoch,
+                            "start_uptime_seconds": began, "end_uptime_seconds": ended,
+                            "elapsed_seconds": ended - began, "requested_seconds": seconds,
+                            "screenshots": 0, "accessibility_snapshots": 0]
+                        var completed = action.object
+                        completed["idle_seconds"] = ended - began; completed["idle_interval"] = idleInterval
+                        completed["passed"] = true; receipt = completed
+                    } else { receipt = try await perform(action, model: current, window: window, output: output, phase: phase) }
+                    receipts.append(receipt)
+                    if receipt["passed"] as? Bool == false {
+                        let failures = receipt["errors"] as? [String] ?? ["Native action failed"]
+                        errors.append(contentsOf: failures.map { action["id"].text + ": " + $0 })
+                        if !phase.continuesFailedActions { throw RelicError.message(failures.joined(separator: "; ")) }
+                    }
+                } catch {
+                    if !phase.continuesFailedActions { throw error }
+                    var receipt = action.object; receipt["passed"] = false; receipt["errors"] = [String(describing: error)]
+                    receipts.append(receipt); errors.append(action["id"].text + ": " + String(describing: error))
+                }
             }
+            if phase == .switchChats {
+                let completed = receipts.filter { $0["warmup"] as? Bool == false && $0["passed"] as? Bool == true && $0["did_switch"] as? Bool == true }
+                let indices = Set(completed.compactMap { $0["switch_index"] as? Int })
+                if completed.count != 200 || indices != Set(0..<200) { errors.append("The 200 distinct measured real chat switches did not complete: \(completed.count)") }
+            }
+            if phase.runsMonkey {
             let deck = manifest["monkey"].rows
             guard !deck.isEmpty else { throw RelicError.message("Empty monkey action deck") }
             let start = ProcessInfo.processInfo.systemUptime
@@ -62,12 +108,17 @@ import RelicCore
             repeat {
                 let action = deck[randomActions % deck.count]
                 watchdog.action("monkey:" + action["kind"].text)
-                var receipt = try await perform(action, model: current, window: window, output: output)
+                var receipt = try await perform(action, model: current, window: window, output: output, phase: phase)
+                if receipt["passed"] as? Bool == false { throw RelicError.message((receipt["errors"] as? [String] ?? ["Monkey navigation failed"]).joined(separator: "; ")) }
                 random = random &* 6364136223846793005 &+ 1442695040888963407
                 let targets = ["sidebar", "menu:file", "menu:edit", "menu:view", "menu:help", "pane:overview", "pane:workspace", "pane:files"]
                 let target = action["kind"].text == "menu" ? "menu:" + action["name"].text
                     : action["kind"].text == "pane" ? "pane:" + action["pane"].text : targets[Int(random % UInt64(targets.count))]
                 current.appMenu = nil; current.sheet = nil; await settle()
+                if phase.usesPointerNavigation, receipt["open_ms"] != nil {
+                    receipt["navigation_pointer_target"] = receipt["pointer_target"]
+                    receipt["navigation_click_events"] = receipt["click_events"]
+                }
                 receipt["pointer_target"] = target
                 let pointerStarted = ProcessInfo.processInfo.systemUptime
                 receipt["click_events"] = try await click(window, target: target)
@@ -76,6 +127,7 @@ import RelicCore
                 randomActions += 1
                 randomSeconds = ProcessInfo.processInfo.systemUptime - start
             } while randomSeconds < Double(max(180, manifest["seconds"].integer))
+            }
         } catch {
             errors.append(String(describing: error))
             if let window = activeWindow, let output = captureOutput {
@@ -89,18 +141,24 @@ import RelicCore
                 catch { errors.append(String(describing: error)) }
             }
         }
-        monitor?.finish(["actions": receipts, "errors": errors, "random_seconds": randomSeconds,
-                         "random_actions": randomActions, "seed": seed, "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState])
+        let independentTruth = !phase.usesPointerNavigation || receipts.filter { ["organization", "group", "private"].contains($0["kind"] as? String ?? "") }
+            .allSatisfy { $0["amendment9_eligible"] as? Bool == true }
+        monitor?.finish(["phase": phase.rawValue, "fixture_profile": fixtureProfile, "profile": fixtureProfile,
+                         "amendment9_eligible": phase != .legacy && env["RELIC_PERF_DIAGNOSTIC"] != "true" && independentTruth,
+                         "actions": receipts, "errors": errors, "random_seconds": randomSeconds,
+                         "random_actions": randomActions, "seed": seed, "idle_interval": idleInterval,
+                         "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState])
         model?.stop(); activeWindow?.orderOut(nil); activeWindow?.contentView = nil; activeWindow?.close()
         display?.restore(); NSApp.terminate(nil)
     }
 
-    private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL) async throws -> [String: Any] {
+    private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL, phase: PerformancePhase = .legacy) async throws -> [String: Any] {
         let started = ProcessInfo.processInfo.systemUptime, kind = action["kind"].text
         var result = action.object
         m.appMenu = nil; m.sheet = nil
         switch kind {
-        case "group", "private":
+        case "organization", "group", "private":
+            if phase.usesPointerNavigation { return await PerformanceNavigation.open(action, phase: phase, model: m, window: window) }
             try await m.select(action["org"].text, kind == "private" ? action["member"].text : "")
             try await settleConversation(m)
             guard m.organization == action["org"].text else { throw RelicError.message("Organization navigation did not complete") }
