@@ -185,6 +185,12 @@ import Combine
     @ObservationIgnored private var conversationTask: Task<Void, Never>?
     var isPreparingConversation: Bool { conversationTask != nil }
     @ObservationIgnored private var conversationGeneration = 0
+    @ObservationIgnored private var preparationSuspended = 0
+    @ObservationIgnored private var navigationGeneration = 0
+    @ObservationIgnored private var navigationTask: Task<Void, Error>?
+    var isLoadingSelectedChat: Bool { navigationTask != nil }
+    @ObservationIgnored private(set) var selectedChatLoadVersion = 0
+    @ObservationIgnored private var refreshAfterNavigation = false
     @ObservationIgnored private var messageGeneration = 0
     @ObservationIgnored private var liveGeneration = 0
     @ObservationIgnored private var fileRequest = UUID()
@@ -287,10 +293,10 @@ import Combine
         drafts[selection.key] = value
         if let data = try? JSONEncoder().encode(drafts) { defaults.set(data, forKey: "drafts") }
     }
-    func stop() { inputSuggestions = nil; toasts = []; activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); conversationTask?.cancel(); host.stop() }
+    func stop() { inputSuggestions = nil; toasts = []; activeSpeech?.stop(); persistDraft(); eventTask?.cancel(); refreshTask?.cancel(); plainTask?.cancel(); conversationTask?.cancel(); navigationTask?.cancel(); host.stop() }
     private func prepareConversation() {
         conversationGeneration += 1
-        guard conversationTask == nil else { return }
+        guard preparationSuspended == 0, conversationTask == nil else { return }
         conversationTask = Task { [weak self] in
             guard let self else { return }
             defer { self.conversationTask = nil }
@@ -354,7 +360,11 @@ import Combine
         if !organization.isEmpty && !organizations.contains(where: { $0["id"].text == organization }) { setSelection(ChatSelection()) }
         if organization.isEmpty, let first = organizations.first { setSelection(ChatSelection(first["id"].text)) }
         guard !organization.isEmpty else { return }
+        // A click owns its own current-chat request. Background global refresh
+        // must not put it behind the previous chat or publish an older snapshot.
+        guard navigationTask == nil else { refreshAfterNavigation = true; return }
         let selected = selection
+        let navigation = navigationGeneration
         startupStage?("snapshot")
         let snap = try await get(selected.path("?lang=" + words.language))
         let chatQuery = selected.member.isEmpty ? "/chat?kind=group&limit=1000"
@@ -366,12 +376,12 @@ import Combine
         var live = Node(), convo = Node()
         if who["embedded"].flag { live = try await get(selected.path("/live?member=" + Client.segment(selected.member))) }
         if who["has_transcript"].flag { convo = try await get(selected.path("/convo?member=" + Client.segment(selected.member))) }
-        guard selected == selection else { return }
+        guard selected == selection, navigation == navigationGeneration else { return }
         let hadHistory = !messages.isEmpty
-        guard await mergeMessages(chat["items"].rows, selected: selected) else { return }
+        guard await mergeMessages(chat["items"].rows, selected: selected, navigation: navigation) else { return }
         startupStage?("publish")
         let snapshotChanged = !(await Node.sameContent(snapshot, snap))
-        guard selected == selection else { return }
+        guard selected == selection, navigation == navigationGeneration else { return }
         if snapshotChanged { snapshot = snap; revision += 1 }
         if !hadHistory { moreChat = chat["more"].flag }
         let chatKey = member.isEmpty ? "group" : "member:" + member
@@ -380,7 +390,7 @@ import Combine
         let itemsChanged = !(await Node.sameRows(liveItems, updatedLive))
         let statusChanged = !(await Node.sameContent(liveStatus, live["status"]))
         let conversationChanged = !(await Node.sameContent(conversation, convo))
-        guard selected == selection else { return }
+        guard selected == selection, navigation == navigationGeneration else { return }
         // A streamed item can arrive during the request or background diff.
         // Do not replace that newer turn with the earlier HTTP snapshot.
         if liveRevision == liveGeneration {
@@ -399,6 +409,7 @@ import Combine
         if !threadID.isEmpty { try await loadThread() }
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
+        navigationGeneration += 1; navigationTask?.cancel(); navigationTask = nil
         let sameOrganization = organization == next.org && !next.org.isEmpty
         inputSuggestions = nil
         mentionEditor?.closeMentions()
@@ -430,8 +441,72 @@ import Combine
         // Clicking the active chat refreshes it without throwing away loaded
         // history, its view identities, the draft, or the current scroll offset.
         if next != selection { setSelection(next, record: record) }
-        try await refresh()
+        navigationGeneration += 1
+        let generation = navigationGeneration
+        navigationTask?.cancel()
+        let task = Task { try await self.loadSelectedChat(next, generation: generation) }
+        navigationTask = task
+        defer {
+            if generation == navigationGeneration {
+                navigationTask = nil
+                if refreshAfterNavigation { refreshAfterNavigation = false; schedule() }
+            }
+        }
+        do { try await task.value }
+        catch {
+            if task.isCancelled || generation != navigationGeneration { return }
+            throw error
+        }
+        guard generation == navigationGeneration else { return }
         if digestOpen { try await loadDigest(false) }
+    }
+
+    private func loadSelectedChat(_ selected: ChatSelection, generation: Int) async throws {
+        guard !selected.org.isEmpty else { return }
+        let query = selected.member.isEmpty ? "/chat?kind=group&limit=1000"
+            : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=1000"
+        async let snapshotRequest = get(selected.path("?lang=" + words.language))
+        async let chatRequest = get(selected.path(query))
+        let snap = try await snapshotRequest
+        let who = snap["members"].rows.first { $0["name"].text == selected.member } ?? Node()
+        let liveRevision = liveGeneration
+        async let liveRequest = optionalChatResource(who["embedded"].flag, path: selected.path("/live?member=" + Client.segment(selected.member)))
+        async let transcriptRequest = optionalChatResource(who["has_transcript"].flag, path: selected.path("/convo?member=" + Client.segment(selected.member)))
+        let (chat, live, transcript) = try await (chatRequest, liveRequest, transcriptRequest)
+        while !Task.isCancelled, selected == selection, generation == navigationGeneration {
+            let messageRevision = messageGeneration, current = messages
+            let merged = await Timeline.mergeInBackground(current, chat["items"].rows)
+            let sameMessages = await Node.sameRows(current, merged)
+            let sameSnapshot = await Node.sameContent(snapshot, snap)
+            let sameLive = await Node.sameRows(liveItems, live["items"].rows)
+            let sameStatus = await Node.sameContent(liveStatus, live["status"])
+            let sameTranscript = await Node.sameContent(conversation, transcript)
+            guard !Task.isCancelled, selected == selection, generation == navigationGeneration else { return }
+            guard messageRevision == messageGeneration else { continue }
+            // Publish one response batch without starting projections of its
+            // intermediate empty/member/snapshot states on successive turns.
+            preparationSuspended += 1
+            if !sameSnapshot { snapshot = snap; revision += 1 }
+            if !sameMessages { messages = merged }
+            if current.isEmpty { moreChat = chat["more"].flag }
+            if liveRevision == liveGeneration {
+                if !sameLive { liveItems = live["items"].rows }
+                if !sameStatus { liveStatus = live["status"] }
+            }
+            if !sameTranscript { conversation = transcript }
+            preparationSuspended -= 1
+            if !sameSnapshot || !sameMessages || !sameLive || !sameStatus || !sameTranscript { prepareConversation() }
+            let key = selected.member.isEmpty ? "group" : "member:" + selected.member
+            if !snap["chats"][key]["last"]["id"].isNull {
+                defaults.set(snap["chats"][key]["last"]["id"].integer, forKey: "seen." + selected.org + "/" + key)
+            }
+            selectedChatLoadVersion += 1
+            return
+        }
+    }
+    private func optionalChatResource(_ enabled: Bool, path: String) async throws -> Node {
+        if enabled { return try await get(path) }
+        return Node()
     }
     func navigate(_ delta: Int) { guard let next = history.move(delta) else { return }; run { try await self.select(next.org, next.member, record: false) } }
     func loadOlder() async throws {
@@ -446,12 +521,12 @@ import Combine
         UIWorkTrace.gauge("history_pages_loaded", historyPagesLoaded)
         moreChat = result["more"].flag
     }
-    private func mergeMessages(_ incoming: [Node], selected: ChatSelection, prepend: Bool = false) async -> Bool {
-        while selected == selection && !Task.isCancelled {
+    private func mergeMessages(_ incoming: [Node], selected: ChatSelection, prepend: Bool = false, navigation: Int? = nil) async -> Bool {
+        while selected == selection && !Task.isCancelled && (navigation == nil || navigation == navigationGeneration) {
             let generation = messageGeneration, current = messages
             let merged = await Timeline.mergeInBackground(prepend ? incoming : current, prepend ? current : incoming)
             let changed = !(await Node.sameRows(current, merged))
-            guard selected == selection else { return false }
+            guard selected == selection, navigation == nil || navigation == navigationGeneration else { return false }
             // A refresh and an older page can finish together. Rebase onto the
             // latest immutable array instead of overwriting the other response.
             if generation == messageGeneration { if changed { messages = merged }; return true }

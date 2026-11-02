@@ -2,6 +2,23 @@ import XCTest
 @testable import Relic
 
 @MainActor final class RowMountQueueTests: XCTestCase {
+    func testLatestContentGetsTheNextTurnWithoutReorderingPeersOrStrandingOtherPanes() async {
+        let queue = RowMountQueue(), active = UUID()
+        let acquired = await queue.acquire(active); XCTAssertTrue(acquired)
+        var order: [String] = []
+        var tasks: [Task<Void, Never>] = []
+        for (name, priority) in [("inspector", 0), ("visible-1", 10), ("visible-2", 10), ("latest", 20)] {
+            let id = UUID(), count = tasks.count + 1
+            tasks.append(Task {
+                if await queue.acquire(id, priority: priority) { order.append(name); queue.release(id) }
+            })
+            while queue.waitingCount < count { await Task.yield() }
+        }
+        queue.release(active)
+        for task in tasks { await task.value }
+        XCTAssertEqual(order, ["latest", "visible-1", "visible-2", "inspector"])
+        XCTAssertTrue(queue.isIdle)
+    }
     func testOneRowAtATimeAndCancellationDoesNotStrandFollowingRows() async {
         let queue = RowMountQueue(), first = UUID(), removed = UUID(), last = UUID()
         let acquired = await queue.acquire(first)

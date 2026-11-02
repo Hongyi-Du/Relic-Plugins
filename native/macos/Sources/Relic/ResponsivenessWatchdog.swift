@@ -19,7 +19,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
 
     init(output: URL) { self.output = output }
     func begin() {
-        write(["pid": ProcessInfo.processInfo.processIdentifier, "unix_ms": Self.epoch,
+        write(["pid": ProcessInfo.processInfo.processIdentifier, "unix_ms": Self.epoch, "phases_version": 2,
                "capture_diagnostics": NativeDiagnostics.enabled], "performance-ready.json")
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(50), leeway: .milliseconds(1))

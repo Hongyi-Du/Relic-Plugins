@@ -7,10 +7,10 @@ import SwiftUI
     static let shared = RowMountQueue()
     private var active: UUID?
     private var activeTrace: Int?
-    private var waiting: [(UUID, CheckedContinuation<Bool, Never>, String)] = []
+    private var waiting: [(UUID, CheckedContinuation<Bool, Never>, String, Int)] = []
     var waitingCount: Int { waiting.count }
     var isIdle: Bool { active == nil && waiting.isEmpty }
-    func acquire(_ id: UUID, label: String = "row") async -> Bool {
+    func acquire(_ id: UUID, label: String = "row", priority: Int = 0) async -> Bool {
         await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 if Task.isCancelled { continuation.resume(returning: false) }
@@ -18,7 +18,10 @@ import SwiftUI
                     active = id; activeTrace = UIWorkTrace.begin("mount-turn." + label)
                     continuation.resume(returning: true)
                 }
-                else { waiting.append((id, continuation, label)) }
+                else {
+                    let position = waiting.firstIndex { $0.3 < priority } ?? waiting.endIndex
+                    waiting.insert((id, continuation, label, priority), at: position)
+                }
             }
         }, onCancel: { Task { @MainActor in self.cancelWaiting(id) } })
     }
@@ -39,8 +42,14 @@ import SwiftUI
     }
 }
 
+private struct RowMountPriority: EnvironmentKey { static let defaultValue = 0 }
+extension EnvironmentValues {
+    var rowMountPriority: Int { get { self[RowMountPriority.self] } set { self[RowMountPriority.self] = newValue } }
+}
+
 struct ProgressiveRow<Content: View>: View {
     @Environment(\.captureRegion) private var region
+    @Environment(\.rowMountPriority) private var priority
     var estimatedHeight: CGFloat
     var estimatedWidth: CGFloat? = nil
     var workLabel: String? = nil
@@ -54,7 +63,7 @@ struct ProgressiveRow<Content: View>: View {
             guard !mounted else { return }
             let ticket = PerformanceRendering.beginSurface(), turn = UUID()
             defer { PerformanceRendering.endSurface(ticket) }
-            guard await RowMountQueue.shared.acquire(turn, label: workLabel ?? "row." + region) else { return }
+            guard await RowMountQueue.shared.acquire(turn, label: workLabel ?? "row." + region, priority: priority) else { return }
             defer { RowMountQueue.shared.release(turn) }
             guard !Task.isCancelled else { return }
             mounted = true

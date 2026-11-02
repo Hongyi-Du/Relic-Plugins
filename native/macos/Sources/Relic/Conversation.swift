@@ -47,7 +47,12 @@ struct RichText: View {
     let text: String
     var pointSize: CGFloat? = nil
     var document = false
-    init(_ text: String, pointSize: CGFloat? = nil, document: Bool = false) { self.text = text; self.pointSize = pointSize; self.document = document }
+    init(_ text: String, pointSize: CGFloat? = nil, document: Bool = false, prepared: PreparedMarkdown? = nil) {
+        self.text = text; self.pointSize = pointSize; self.document = document
+        let seed = prepared?.source == text ? prepared : nil
+        _prepared = State(initialValue: seed); _presentedBlocks = State(initialValue: seed?.blocks.count ?? 0)
+    }
+    @Environment(\.rowMountPriority) private var priority
     private var baseSize: CGFloat { pointSize ?? (document ? 13.5 : m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) }
     private var textLineHeight: CGFloat { baseSize * (document ? 1.7 : 1.65) }
     @State private var prepared: PreparedMarkdown?
@@ -65,35 +70,30 @@ struct RichText: View {
             // the layout needs the actual paragraph height: a second vertical
             // lazy stack supplies estimates that change the outer row's height
             // and can strand its scroll target beyond any mounted content.
-            // Paragraph creation still advances two blocks per display turn.
+            // A prepared message enters once; it does not change height after
+            // every pair of paragraphs while the person is trying to read it.
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blocks.prefix(presentedBlocks).enumerated()), id: \.offset) { index, block in
                     blockView(block).padding(.top, blockGap(index))
                 }
                 if presentedBlocks < blocks.count {
-                    // Do not lay out the entire unprepared remainder as a
-                    // second text document on every two-block admission. Each
-                    // paragraph enters the native tree once, after background
-                    // parsing, rather than plain text followed by formatted
-                    // text with a different height.
+                    // An unprepared document has one placeholder until its
+                    // background parse completes and its native turn arrives.
                     Color.clear.frame(height: textLineHeight).padding(.top, 8).accessibilityHidden(true)
                 }
             }.padding(.bottom, blocks.last.map { blockMargins($0, last: true).bottom } ?? 0)
         } }
         }.task(id: text) {
+            guard parsed == nil || presentedBlocks < blocks.count else { return }
             let ticket = PerformanceRendering.beginMarkdown()
             defer { PerformanceRendering.endMarkdown(ticket) }
             let value = await MarkdownPreparation.shared.prepare(text)
             guard !Task.isCancelled else { return }
-            while prepared?.source != text || presentedBlocks < value.blocks.count {
-                // Share the native construction budget with row identities,
-                // panes and editors. Independent paragraph timers otherwise
-                // publish into the same expensive layout transaction.
+            if prepared?.source != text || presentedBlocks < value.blocks.count {
                 let turn = UUID()
-                guard await RowMountQueue.shared.acquire(turn, label: "markdown-blocks") else { return }
+                guard await RowMountQueue.shared.acquire(turn, label: "markdown-blocks", priority: priority) else { return }
                 guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                if prepared?.source != text { prepared = value; presentedBlocks = min(2, value.blocks.count) }
-                else { presentedBlocks = min(presentedBlocks + 2, value.blocks.count) }
+                prepared = value; presentedBlocks = value.blocks.count
                 do { try await Task.sleep(for: .milliseconds(32)) }
                 catch { RowMountQueue.shared.release(turn); return }
                 RowMountQueue.shared.release(turn)
@@ -362,13 +362,14 @@ struct ConversationStream: View {
                                     ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center).frame(maxWidth: .infinity).padding(.top, 18)
                                         .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: compact))
                                 }
-                                MessageView(item: row.item, continued: row.continued)
+                                MessageView(item: row.item, continued: row.continued, preparedBody: row.preparedBody)
                                     .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: compact))
                                 }.background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }
                                     .onAppear { PerformanceRendering.rowAppeared() }
                                     .onDisappear { PerformanceRendering.rowDisappeared() }
                                 }
                                 }.padding(.bottom, row.id == lastID && !hasLive ? 24 : 0).id(row.id)
+                                    .environment(\.rowMountPriority, row.id == lastID ? 20 : 10)
                                     .background {
                                         if row.id == lastID { GeometryReader { geometry in
                                             Color.clear.preference(key: LatestMessageSize.self, value: LatestMessageBounds(id: row.id, size: geometry.size, bottom: geometry.frame(in: .named("conversation")).maxY))
@@ -531,6 +532,7 @@ struct MessageView: View {
     let item: Node
     var inThread = false
     var continued = false
+    var preparedBody: PreparedMarkdown? = nil
     @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
     @State private var hovering = false
     @State private var threadAvatarImages: Set<String> = []
@@ -571,12 +573,7 @@ struct MessageView: View {
                         else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).help(recipientLabel) }
                         ReferenceLabel(m.clock(item["at"]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
                     } }
-                    // A cold row used to construct the author controls and all
-                    // native body/layout types in one display turn. Keep the
-                    // same final layout but admit its content separately.
-                    ProgressiveRow(estimatedHeight: 42, workLabel: "message-body") {
-                        MessageBodyContent(item: item, inThread: inThread, wantsPlain: wantsPlain)
-                    }
+                    MessageBodyContent(item: item, inThread: inThread, wantsPlain: wantsPlain, preparedBody: preparedBody)
                     if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {
                         ReferenceLabel(m.readReceipt(item), size: 11, color: RelicStyle.muted, lines: 0)
                     }
@@ -623,6 +620,7 @@ private struct MessageBodyContent: View {
     let item: Node
     let inThread: Bool
     let wantsPlain: Bool
+    let preparedBody: PreparedMarkdown?
     @State private var originalExpanded = false
     private var mine: Bool { item["from"].text == "human" }
     private var bodyText: String { item["body"].text.isEmpty ? item["text"].text : item["body"].text }
@@ -651,7 +649,7 @@ private struct MessageBodyContent: View {
     private func messageBubble(_ text: String, plain: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             if plain { HStack(spacing: 4) { ReferenceIcon(name: "lang", size: 13, color: RelicStyle.violet); ReferenceLabel(m.t("msg.plain"), size: 11, weight: 650, color: RelicStyle.violet) } }
-            RichText(text)
+            RichText(text, prepared: preparedBody)
         }.padding(.horizontal, plain ? 14 : 13).padding(.vertical, plain ? 10 : 9)
             .modifier(RecordedSurface(background: mine ? RelicStyle.mine : plain ? RelicStyle.violetSoft : RelicStyle.bubble,
                 border: plain ? RelicStyle.violet.opacity(0.22) : .clear, borderWidth: plain ? 1 : 0, radius: 14, kind: "card",
@@ -853,7 +851,7 @@ struct ThreadView: View {
                         .accessibilitySortPriority(Double(rows.count * 2 + 3))
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                         ProgressiveRow(estimatedHeight: 100, workLabel: "thread-reply") {
-                            MessageView(item: row.item, inThread: true, continued: row.continued)
+                            MessageView(item: row.item, inThread: true, continued: row.continued, preparedBody: row.preparedBody)
                                 .onAppear { PerformanceRendering.rowAppeared("thread") }
                                 .onDisappear { PerformanceRendering.rowDisappeared("thread") }
                         }.padding(.top, row.continued ? 4 : compact ? 7 : 14)

@@ -37,6 +37,9 @@ struct Sidebar: View {
                     if m.organizations.isEmpty { ReferenceLabel(m.t("side.no_orgs"), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
                     }
                 }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
+                    .background {
+                        if ResponsivenessCapture.enabled { NativeScrollOwner(identifier: "relic-performance-sidebar", title: "") }
+                    }
             }.frame(maxHeight: .infinity).accessibilityLabel(m.t("page.tree"))
                 .modifier(RecordedSurface(background: .clear, kind: "region"))
             HStack(spacing: 4) {
@@ -111,6 +114,7 @@ private struct OrgTree: View {
     }
     var body: some View {
                 Button {
+                    PerformancePointer.observed(PerformancePointer.organization(id))
                     if active { m.toggleFold(id) } else { m.run { try await m.select(id) } }
                 } label: {
                     HStack(spacing: 8) {
@@ -124,6 +128,7 @@ private struct OrgTree: View {
                         .accessibilityElement(children: .contain)
                         .environment(\.nativeElementParent, owner)
                 }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: expanded)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
+                    .modifier(PerformancePointerTarget(identity: PerformancePointer.organization(id)))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
                     .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
     }
@@ -140,6 +145,7 @@ struct SidebarChatRow: View {
     let who: Node?
     let group: Bool
     private var owner: String { "relic-list-row/" + m.organization + "/" + (group ? "group" : name) }
+    private var pointerTarget: String { !group && name.isEmpty ? "secretary-setup:" + m.organization : PerformancePointer.chat(m.organization, group ? "" : name) }
     private var secretary: Bool { !group && (who == nil || who?["secretary"].flag == true) }
     private var name: String { who?["name"].text ?? "" }
     private var selected: Bool { group ? m.member.isEmpty : !name.isEmpty && m.member == name }
@@ -169,6 +175,7 @@ struct SidebarChatRow: View {
             title, badgeText, subtitle, timestamp, unread > 0 ? unread > 99 ? "99+" : String(unread) : ""]
             .filter { !$0.isEmpty }.joined(separator: " ")
         Button {
+            PerformancePointer.observed(pointerTarget)
             if secretary && name.isEmpty { m.sheet = .secretary }
             else { m.run { try await m.select(m.organization, group ? "" : name) } }
         } label: {
@@ -190,6 +197,7 @@ struct SidebarChatRow: View {
                 .accessibilityElement(children: .contain)
                 .environment(\.nativeElementParent, owner)
         }.buttonStyle(QuietButtonStyle(selected: selected, selectionApplicable: true, radius: 8, unread: unread > 0)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
+            .modifier(PerformancePointerTarget(identity: pointerTarget))
             .contextMenu { if !group && !name.isEmpty { Button(m.t("chat.card")) { m.openCard(name) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: name) } } }
     }
     private var avatar: some View {

@@ -1,4 +1,14 @@
-AMENDMENT 9 — shared harness contract requested (2026-11-02)
+AMENDMENT 9 — shared contract received (2026-11-02)
+native-apps d9e051c provides docs/native-responsiveness.md manifest v2.
+Mac is adapting to the chosen names: switch-chats, workflows, open_ms,
+latest_visible, action.latest_message_id / expected_empty, fixture.profile,
+idle plan seconds:12 and idle-measure heartbeat, ready phases_version:2.
+The expected latest ID must come from the fixture, never the native model.
+All original acceptance limits and the two synthetic fixture profiles remain.
+No new shared route is required. Earlier proposed schema follows for history;
+the published v2 contract takes precedence over those proposed field names.
+
+Original shared harness request:
 Mac is implementing core navigation and real-pointer measurement, not treating
 any older pressure result as acceptance. Please add the exact-person-shape
 synthetic fixture alongside the existing larger fixture, and run every phase
