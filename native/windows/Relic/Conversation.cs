@@ -571,7 +571,14 @@ public sealed partial class MainWindow
         if (org != selectedOrg || member != selectedMember) return;
         readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         olderHistory = true; messages = prepared.Messages; messagePresentationIdentities = prepared.Identities;
-        chatMore = page.Flag("more"); chatPages++; DrawConversation();
+        chatMore = page.Flag("more"); chatPages++;
+        // Native containers can finish arranging while the surrounding header
+        // is updated. Capture any newly drawn old message at the final commit
+        // boundary, before it can be displaced by the prepended page.
+        void CaptureReadingAnchor() => readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
+        stream.ItemsReplacing += CaptureReadingAnchor;
+        try { DrawConversation(); }
+        finally { stream.ItemsReplacing -= CaptureReadingAnchor; }
         if (readingAnchor != null)
             await stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
                 () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,

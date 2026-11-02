@@ -252,6 +252,8 @@ internal sealed class NativeChatList : Grid
 
     private void BuildNext()
     {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var built = 0;
         while (builds.TryDequeue(out var work))
         {
             var valid = mounted.TryGetValue(work.Host, out var binding)
@@ -261,10 +263,12 @@ internal sealed class NativeChatList : Grid
                 if (!valid) continue;
                 using var timing = PerformanceTrace.Measure("conversation.list.row.build");
                 work.Host.Child = work.Entry.Row.Build(); work.Host.MinHeight = 0;
+                built++;
             }
             finally { Interlocked.Decrement(ref pendingBuilds); PresentationPreparation.NotifyCompletion(); }
-            // At most one actual XAML subtree per dispatcher turn.
-            break;
+            // Bound both elapsed construction and count. Cheap event rows do
+            // not each need an entire frame; rich rows retain an input yield.
+            if (built >= 4 || System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 4) break;
         }
         if (builds.Count == 0) pump.Stop();
         QueuePositionCheck();

@@ -1,5 +1,29 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Windows863b18f normal person-shape41545286685 passes workflows86/86 and
+history2/2 (85.329ms worst); switch runs all269 warmup/measured actions but
+only187 satisfy opening, with pending_other_rows28–41 in failed receipts.
+Both row pumps now construct at most four rows and at most4ms per16ms turn,
+instead of imposing a full frame delay on every cheap sidebar/event row.
+All original readiness predicates remain. Monkey's reading message502 became
+drawn only at the final ItemsReplacing boundary, after the earlier anchor read;
+the product now captures that actual old row at commit before prepending data.
+
+Native startup diagnostics41546004847 confirm both fixture histories can pass:
+large4/4 with97.046ms worst, person2/2 with a469.086ms startup stall. The latter
+retains actual UI-thread DWrite/D2D/XAML stacks before sidebar construction;
+offline symbols fail error6, so exported fallback names are not exact functions.
+These diagnostic-only results do not satisfy acceptance or explain all stalls.
+
+Changes for the clients: integrating Mac2426050/4fa63a6 (macOS-supported row
+spacing and one stable native list container per timeline row). The preceding
+e3aed94 cannot build on macOS because listRowSpacing is unavailable there;
+863b18f native Windows tests/build and parity contracts pass in41545293243,
+while its Mac jobs fail at that compiler error. Windows focused CI863b18f also
+hit startup stalls before history/open actions; normal full and explicit native
+stack diagnostics are retained separately. No startup failure is called a
+successful history result. REQUESTS introduces no shared API/gate dependency.
+
 Changes for the clients: optional workflow_dispatch phase/client selectors now
 provide focused feedback using the existing manifest v2 and --phase behavior.
 Single-phase reports remain acceptance_eligible:false. Every push still runs
