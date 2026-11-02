@@ -39,7 +39,7 @@ struct WorkspaceView: View {
                         OverviewBlock { heading(m.t("work.files")); FileTree(path: workspace["folder"].text, ancestors: []).padding(.horizontal, -6) }
                     }
                 }
-            }
+            }.background(ScrollAppearance())
         }.onAppear { selectMember() }.onChange(of: m.selection) { selectMember() }
             .task(id: m.organization + "/" + m.workspaceMember) {
                 let org = m.organization, member = m.workspaceMember; workspace = Node(); error = ""; loading = true
@@ -200,7 +200,7 @@ struct FilePreview: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                         Section { contents } header: { header }
-                    }
+                    }.background(ScrollAppearance())
                 }.onAppear { if m.fileLine > 0 { proxy.scrollTo(m.fileLine, anchor: .center) } }
                     .onChange(of: m.fileLine) { if m.fileLine > 0 { proxy.scrollTo(m.fileLine, anchor: .center) } }
                     .onChange(of: mode) { if mode == "source" && m.fileLine > 0 { proxy.scrollTo(m.fileLine, anchor: .center) } }
@@ -260,6 +260,7 @@ struct FilePreview: View {
                             .id(index + 1)
                     }
                 }.padding(.top, 7).padding(.bottom, 18).frame(minWidth: codeWidth, alignment: .leading)
+                    .background(ScrollAppearance())
             }.fixedSize(horizontal: false, vertical: true).background(GeometryReader { proxy in Color.clear.onAppear { codeWidth = proxy.size.width }.onChange(of: proxy.size.width) { codeWidth = proxy.size.width } })
                 .modifier(RecordedSurface(background: RelicStyle.background, border: RelicStyle.line, edges: EdgeInsets(top: 1, leading: 0, bottom: 0, trailing: 0), kind: "code"))
             if lines.count > 6000 { ReferenceLabel(m.t("file.lines_shown", ["max": "6000", "total": String(lines.count)]), size: 11.5, color: RelicStyle.muted).padding(.horizontal, 14).padding(.vertical, 6) }

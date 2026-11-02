@@ -150,6 +150,7 @@ struct RichText: View {
         switch block.kind {
         case "code": ScrollView(.horizontal) {
             SelectableText(value: AttributedString(block.text), pointSize: document ? 10.8 : 11.25, lineHeight: document ? 18.6 : 19.375, monospaced: true).fixedSize(horizontal: true, vertical: true).padding(.horizontal, 12).padding(.vertical, 10)
+                .background(ScrollAppearance())
         }.fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 8, kind: "code"))
         case "head": SelectableText(value: attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)), weight: .bold, pointSize: document ? baseSize * 1.02 : baseSize, lineHeight: textLineHeight * (document ? 1.02 : 1))
@@ -182,7 +183,7 @@ struct RichText: View {
                             .accessibilityLabel(String(attributed(cell).characters))
                     }
                 } }
-            }.padding(.vertical, 6) }.fixedSize(horizontal: false, vertical: true)
+            }.padding(.vertical, 6).background(ScrollAppearance()) }.fixedSize(horizontal: false, vertical: true)
         default: inline(block.text)
         }
     }
@@ -237,7 +238,7 @@ struct ChatView: View {
                     VStack(spacing: 14) {
                         ReferenceLabel(m.t("chat.no_orgs"), size: 18, weight: 650, alignment: .center)
                         ReferenceLabel(m.t("chat.no_orgs_hint"), size: 14, color: RelicStyle.muted, lines: 0, alignment: .center).padding(.bottom, 14)
-                    }.padding(30).frame(maxWidth: 880).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7).padding(.horizontal, 20).padding(.top, 8)
+                    }.padding(30).frame(maxWidth: 880).frame(maxWidth: .infinity).frame(height: m.windowSize.height * 0.7).padding(.horizontal, 20).padding(.top, 8).background(ScrollAppearance())
                 }
                 // The empty reference composer retains its 6px top and 16px
                 // bottom spacing even before an organization is selected.
@@ -300,6 +301,10 @@ private struct LatestMessageSize: PreferenceKey {
         if !next.id.isEmpty { value = next }
     }
 }
+private final class LatestMessageTracking {
+    var bounds = LatestMessageBounds()
+    var contentHeight: CGFloat = 0
+}
 private struct StreamMetrics: Equatable {
     var bottom: CGFloat = 0
     var height: CGFloat = 0
@@ -327,6 +332,7 @@ struct ConversationStream: View {
     @State private var mountedComposer = false
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
+    @State private var latestPlacement = LatestMessageTracking()
     private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
     var body: some View {
         ScrollViewReader { proxy in
@@ -387,7 +393,13 @@ struct ConversationStream: View {
                             // trailing space. A separate footer can be realized
                             // while the preceding lazy message is still absent.
                         }
+                            // The native viewport/composer survive a switch;
+                            // the lazy document's measured row range belongs
+                            // to one chat. Reusing that range across different
+                            // histories can leave the new 1,000 rows unrealized.
+                            .id(m.selection.key)
                             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
+                            .background(ScrollAppearance())
                             .environment(\.conversationDisclosure, { keyboard.preserveDisclosurePosition(); following.disclosureChanged(); preservingDisclosure = true })
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
@@ -403,6 +415,7 @@ struct ConversationStream: View {
                         .onKeyPress(phases: [.down, .repeat]) { keyboard.handle($0.key, modifiers: $0.modifiers) }
                         .coordinateSpace(name: "conversation")
                         .onPreferenceChange(LatestMessageSize.self) { latest in
+                            latestPlacement.bounds = latest
                             // Observe the actual newest row, including where
                             // native layout places it. Appending after a long
                             // message can change the preceding row's height
@@ -417,6 +430,8 @@ struct ConversationStream: View {
                             initialLoad = false
                         }
                         .onPreferenceChange(StreamBottom.self) { metrics in
+                            let heightChanged = abs(metrics.height - latestPlacement.contentHeight) > 1
+                            latestPlacement.contentHeight = metrics.height
                             keyboard.finishDisclosureLayout()
                             // Explicit row targets own initial placement and
                             // content-size anchoring. Scrolling to
@@ -424,6 +439,16 @@ struct ConversationStream: View {
                             // lazy height correction back into another layout.
                             // Observe the real position without moving it.
                             _ = following.observe(content: CGSize(width: metrics.width, height: metrics.height), bottom: metrics.bottom, viewport: viewport.size)
+                            // Lazy row admission can change the measured height
+                            // before the requested last row has been realized.
+                            // Continue that identity-based request only on a
+                            // real height change, never on offset-only updates
+                            // or by jumping to an estimated document maximum.
+                            if heightChanged, !preservingDisclosure, initialLoad || userFollowsLatest,
+                               !m.isPreparingConversation, let target = latestRowID,
+                               latestPlacement.bounds.id != target {
+                                proxy.scrollTo(target, anchor: .bottom)
+                            }
                             // Actual proximity to the top is sufficient. Lazy
                             // height corrections can retain the previous bottom
                             // following state during a Home/scroll transition.
@@ -487,7 +512,7 @@ struct ConversationStream: View {
                 do { try await Task.sleep(for: .milliseconds(32)) }
                 catch { return }
                 olderAnchor = nil
-            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollTracking(); userFollowsLatest = true; preservingDisclosure = false }
+            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollTracking(); latestPlacement = LatestMessageTracking(); userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     keyboard.discardDisclosurePosition()
@@ -519,7 +544,7 @@ struct ConversationStream: View {
                         userFollowsLatest = !top; preservingDisclosure = false; olderAnchor = nil
                         following.followsBottom = !top
                         if top { proxy.scrollTo("start", anchor: .top) }
-                        else if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                        else if let id = latestRowID { latestPlacement.bounds = LatestMessageBounds(); proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
                 .onDisappear { keyboard.scrollToEdge = nil; keyboard.didUserScroll = nil; keyboard.positionObservation = nil }
@@ -861,7 +886,7 @@ struct ThreadView: View {
                     if rows.isEmpty { Color.clear.frame(height: 16).accessibilityHidden(true) }
                     ThreadComposer().padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 14)
                 }
-            }
+            }.background(ScrollAppearance())
         }
     }
 }

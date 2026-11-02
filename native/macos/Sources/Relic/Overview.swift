@@ -390,7 +390,7 @@ struct RulesView: View {
                             ScrollView(.horizontal) {
                                 FittingScroll(maxHeight: 322) {
                                     SelectableText(value: AttributedString(rule["code"].text), pointSize: 12, lineHeight: 18.6, monospaced: true).fixedSize(horizontal: true, vertical: false).frame(maxWidth: .infinity, alignment: .leading)
-                                }
+                                }.background(ScrollAppearance())
                             }.padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
                                 .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 8, kind: "code"))
                             if !rule["code_sha256"].text.isEmpty { ReferenceLabel("sha256 " + String(rule["code_sha256"].text.prefix(16)) + "…", size: 12, color: RelicStyle.muted, monospaced: true) }

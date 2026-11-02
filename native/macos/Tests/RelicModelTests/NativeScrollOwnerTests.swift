@@ -5,6 +5,7 @@ import AppKit
 @MainActor final class NativeScrollOwnerTests: XCTestCase {
     func testDialogNameBelongsToTheActualScrollableViewport() throws {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 760, height: 370))
+        scroll.hasVerticalScroller = true
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 760, height: 600))
         scroll.documentView = document
         let label = NSTextField(labelWithString: "Protocol summary")
@@ -14,6 +15,8 @@ import AppKit
         document.addSubview(mount)
         mount.layoutSubtreeIfNeeded()
         XCTAssertTrue(mount.owner === scroll)
+        XCTAssertTrue(scroll.verticalScroller is ReferenceScroller, "A late named dialog configures its actual viewport without a window observer")
+        let scroller = scroll.verticalScroller
         XCTAssertEqual(scroll.accessibilityRole(), .scrollArea)
         XCTAssertEqual(scroll.accessibilityIdentifier(), "relic-dialog-panel/test")
         XCTAssertEqual(scroll.accessibilityLabel(), "Copies")
@@ -23,6 +26,7 @@ import AppKit
         XCTAssertTrue(scroll.documentView === document)
         mount.update(identifier: "relic-dialog-panel/test", title: "抄送")
         XCTAssertEqual(scroll.accessibilityLabel(), "抄送")
+        XCTAssertTrue(scroll.verticalScroller === scroller)
         let before = scroll.contentView.bounds.origin
         scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
         XCTAssertNotEqual(scroll.contentView.bounds.origin, before, "Naming retains native scrolling")

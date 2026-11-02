@@ -50,6 +50,9 @@ import RelicCore
         markdown.ready = true
         let ready = try XCTUnwrap(PerformanceNavigation.observeLatest(model: model, window: window, expected: "81"))
         XCTAssertTrue(ready.ready); XCTAssertEqual(ready.messageID, "81"); XCTAssertEqual(ready.rowID, "id:81#0")
+        model.streamRows.append(ConversationRow(id: "id:e82#0", item: Node(["id": "e82", "type": "notice", "text": "A later quiet event"]), separator: nil, continued: false))
+        XCTAssertTrue(try XCTUnwrap(PerformanceNavigation.observeLatest(model: model, window: window, expected: "81")).ready,
+            "A later quiet event must not change which actual message the independent fixture expects")
         XCTAssertEqual(try XCTUnwrap(ready.bottomGap), 0, accuracy: 0.01)
         document.setFrameSize(CGSize(width: 400, height: 313))
         row.frame = CGRect(x: 0, y: 197, width: 350, height: 99)

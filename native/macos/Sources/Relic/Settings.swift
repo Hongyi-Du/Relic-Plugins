@@ -31,6 +31,7 @@ struct SettingsView: View {
                     default: about
                     }
                 }.padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 28).frame(maxWidth: .infinity, alignment: .topLeading)
+                    .background(ScrollAppearance())
             }.frame(maxWidth: .infinity, maxHeight: .infinity).background(SettingsContentProbe())
         }.onAppear { name = m.preferences["name"].text }
     }

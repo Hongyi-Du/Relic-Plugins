@@ -4,12 +4,11 @@ import RelicAX
 @testable import Relic
 
 @MainActor final class ScrollAppearanceTests: XCTestCase {
-    func testScrollViewsMountedAfterInitialLayoutReceiveTheirNativeStyleOnWindowUpdate() throws {
+    func testLateContentMountStylesOnlyItsOwnViewportWithoutIdleWindowScans() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
-        let probe = ScrollAppearance.Probe(frame: .zero)
-        root.addSubview(probe); window.contentView = root
+        window.contentView = root
         defer { window.contentView = nil; window.close() }
         root.layoutSubtreeIfNeeded()
         func newScroll() -> NSScrollView {
@@ -20,19 +19,57 @@ import RelicAX
         }
         let late = newScroll()
         XCTAssertFalse(late.verticalScroller is ReferenceScroller)
-        window.update(); late.tile()
+        let probe = ScrollAppearance.Probe(frame: .zero)
+        try XCTUnwrap(late.documentView).addSubview(probe)
+        root.layoutSubtreeIfNeeded(); window.update(); late.tile()
         let scroller = try XCTUnwrap(late.verticalScroller as? ReferenceScroller)
+        XCTAssertTrue(probe.owner === late)
         XCTAssertEqual(late.contentSize.width, 190, accuracy: 0.01)
         XCTAssertEqual(scroller.frame.width, 10, accuracy: 0.01)
         late.contentView.scroll(to: NSPoint(x: 0, y: 100))
         late.reflectScrolledClipView(late.contentView)
         let position = late.contentView.bounds.origin
-        window.update()
+        root.layoutSubtreeIfNeeded(); window.update()
+        let checks = probe.configurationChecks
+        for _ in 0..<40 {
+            NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+            window.update()
+        }
+        XCTAssertEqual(probe.configurationChecks, checks, "Idle window updates must not search the native hierarchy or reconfigure scrolling")
         XCTAssertTrue(late.verticalScroller === scroller, "Repeated updates retain the actual native scroller and its state")
         XCTAssertEqual(late.contentView.bounds.origin, position)
         probe.removeFromSuperview()
         let detached = newScroll(); window.update()
-        XCTAssertFalse(detached.verticalScroller is ReferenceScroller, "An unmounted observer must leave its former window alone")
+        XCTAssertNil(probe.owner)
+        XCTAssertFalse(detached.verticalScroller is ReferenceScroller, "Other scroll views are configured by their own content mounts, not a window scan")
+        try XCTUnwrap(detached.documentView).addSubview(probe)
+        root.layoutSubtreeIfNeeded(); detached.tile()
+        XCTAssertTrue(probe.owner === detached)
+        XCTAssertTrue(detached.verticalScroller is ReferenceScroller, "A later dialog receives its own style when its content mounts")
+        XCTAssertTrue(late.verticalScroller === scroller)
+        XCTAssertEqual(late.contentView.bounds.origin, position)
+    }
+
+    func testNestedHorizontalContentConfiguresItsNearestActualScrollView() throws {
+        let outer = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        outer.hasVerticalScroller = true
+        let outerDocument = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
+        outer.documentView = outerDocument
+        let inner = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        inner.hasHorizontalScroller = true
+        let innerDocument = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 100))
+        inner.documentView = innerDocument; outerDocument.addSubview(inner)
+        let mount = ScrollAppearance.Probe(frame: .zero); innerDocument.addSubview(mount)
+        outer.layoutSubtreeIfNeeded(); inner.tile()
+        XCTAssertTrue(mount.owner === inner)
+        XCTAssertTrue(inner.horizontalScroller is ReferenceScroller)
+        XCTAssertFalse(outer.verticalScroller is ReferenceScroller, "A nested code block must not configure an ancestor viewport")
+        let scroller = try XCTUnwrap(inner.horizontalScroller)
+        XCTAssertFalse(ScrollAppearance.apply(to: inner), "An unchanged native viewport requires no mutation")
+        XCTAssertTrue(inner.horizontalScroller === scroller)
+        outerDocument.addSubview(mount); mount.resolveScroll()
+        XCTAssertTrue(mount.owner === outer)
+        XCTAssertTrue(outer.verticalScroller is ReferenceScroller)
     }
 
     func testRoleOnlyReaderDoesNotEnumerateTheQueriedElementsChildren() {

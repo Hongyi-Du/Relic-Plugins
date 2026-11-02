@@ -13,6 +13,7 @@ struct NativeScrollOwner: NSViewRepresentable {
     }
     final class Mount: NSView {
         private var ownerIdentifier = "", ownerTitle = ""
+        private var binding = false
         private(set) weak var owner: NSScrollView?
         override func isAccessibilityElement() -> Bool { false }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -24,10 +25,13 @@ struct NativeScrollOwner: NSViewRepresentable {
             bind(); needsLayout = true
         }
         private func bind() {
+            guard !binding else { return }
             guard !ownerIdentifier.isEmpty, let scroll = enclosingScrollView else { owner = nil; return }
+            binding = true; defer { binding = false }
             owner = scroll
-            scroll.setAccessibilityIdentifier(ownerIdentifier)
-            scroll.setAccessibilityLabel(ownerTitle)
+            if scroll.accessibilityIdentifier() != ownerIdentifier { scroll.setAccessibilityIdentifier(ownerIdentifier) }
+            if scroll.accessibilityLabel() != ownerTitle { scroll.setAccessibilityLabel(ownerTitle) }
+            ScrollAppearance.apply(to: scroll)
         }
     }
 }

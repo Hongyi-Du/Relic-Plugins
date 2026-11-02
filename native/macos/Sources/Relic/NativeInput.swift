@@ -40,7 +40,7 @@ struct MentionEditor: NSViewRepresentable {
         editor.needsInitialFocus = initiallyFocused
         editor.textColor = NSColor(textColor)
         if let viewportHeight { editor.fitViewport(height: viewportHeight) }
-        scroll.documentView = editor; editor.updatePlaceholder(); return scroll
+        scroll.documentView = editor; ScrollAppearance.apply(to: scroll); editor.updatePlaceholder(); return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
@@ -292,7 +292,7 @@ struct MentionSuggestions: View {
                     ForEach(Array(m.mentionItems.enumerated()), id: \.offset) { index, member in
                         MentionChoice(member: member, index: index)
                     }
-                }.padding(7)
+                }.padding(7).background(ScrollAppearance())
             }.frame(width: width, height: height)
                 .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", shadows: SurfaceShadow.dialog))
                 .background(GeometryReader { proxy in Color.clear.preference(key: MentionMenuBounds.self, value: proxy.frame(in: .named("relic-window"))) })

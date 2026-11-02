@@ -114,7 +114,7 @@ private struct LiveToolOutput: View {
     var body: some View {
         ViewThatFits(in: .vertical) {
             output
-            ScrollView { output }
+            ScrollView { output.background(ScrollAppearance()) }
         }.frame(maxHeight: 360, alignment: .topLeading)
     }
     private var output: some View {

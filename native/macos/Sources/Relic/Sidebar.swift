@@ -39,6 +39,7 @@ struct Sidebar: View {
                 }.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
                     .background {
                         if ResponsivenessCapture.enabled { NativeScrollOwner(identifier: "relic-performance-sidebar", title: "") }
+                        else { ScrollAppearance() }
                     }
             }.frame(maxHeight: .infinity).accessibilityLabel(m.t("page.tree"))
                 .modifier(RecordedSurface(background: .clear, kind: "region"))

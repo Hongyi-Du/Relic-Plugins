@@ -26,9 +26,9 @@ struct DetailsView: View {
                         SettingsSegments(options: [("open", m.t("task.working") + " " + String(tasks("open").count)), ("blocked", m.t("task.blocked") + " " + String(tasks("blocked").count)), ("done", m.t("details.filter_done") + " " + String(tasks("done").count)), ("all", m.t("common.all") + " " + String(tasks("all").count))], selection: $m.detailFilter).padding(.bottom, 12)
                         if tasks(m.detailFilter).isEmpty { ReferenceLabel(m.t("details.no_tasks"), size: 13, color: RelicStyle.muted).padding(22) }
                         Rows(Array(tasks(m.detailFilter).reversed())) { TaskCard(task: $0).padding(.bottom, 8) }
-                    }.padding(.vertical, 16).padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.vertical, 16).padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading).background(ScrollAppearance())
                 }
-            case "protocols": ScrollView { ProtocolList().padding(.vertical, 16).padding(.horizontal, 20) }
+            case "protocols": ScrollView { ProtocolList().padding(.vertical, 16).padding(.horizontal, 20).background(ScrollAppearance()) }
             case "docs": DocumentsView()
             default: TraceView()
             }
@@ -57,7 +57,7 @@ struct DocumentsView: View {
                             }.padding(.horizontal, 8).padding(.vertical, 6)
                         }.buttonStyle(QuietButtonStyle()).help(item["key"].text)
                     }
-                }.padding(8)
+                }.padding(8).background(ScrollAppearance())
             }.frame(width: 250).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -70,7 +70,7 @@ struct DocumentsView: View {
                             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 10, kind: "code"))
                     }
                     if !error.isEmpty { Text(error).foregroundStyle(RelicStyle.red) }
-                }.padding(.vertical, 16).padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.vertical, 16).padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading).background(ScrollAppearance())
             }.frame(maxWidth: .infinity)
         }.task(id: m.detailDocument) {
             guard !m.detailDocument.isEmpty else { doc = Node(); return }; error = ""
@@ -102,7 +102,7 @@ struct TraceView: View {
                     Rows(m.members) { who in
                         TraceMemberRow(member: who)
                     }
-                }.padding(8)
+                }.padding(8).background(ScrollAppearance())
             }.frame(width: 250).modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "region"))
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -121,7 +121,7 @@ struct TraceView: View {
                         if data["total"].integer > 0 { ReferenceLabel(m.t("trace.total", ["n": data["total"].text]) + (data["path"].text.isEmpty ? "" : " · " + data["path"].text), size: 12, color: RelicStyle.muted, lines: 0).padding(.top, 8) }
                     }
                     if !error.isEmpty { Text(error).foregroundStyle(RelicStyle.red) }
-                }.padding(.vertical, 16).padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.vertical, 16).padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading).background(ScrollAppearance())
             }.frame(maxWidth: .infinity)
         }.onAppear { if m.detailMember.isEmpty { m.detailMember = m.members.first?["name"].text ?? "" } }
         .task(id: m.organization + "/" + m.detailMember) { data = Node(); query = ""; filter = "all"; error = ""; do { try await load(older: false) } catch is CancellationError {} catch { self.error = error.localizedDescription } }

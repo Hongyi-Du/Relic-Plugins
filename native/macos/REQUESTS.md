@@ -1,4 +1,13 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+761bfa9 /41537608358 gives separate Mac results for all phases. Large history
+PASS(all4 histories,248.395ms/284.125MiB/9threads), but other phases FAIL;
+person-shape history still misses End by692pt. Idle CPU3.0947%large/2.6219%shape.
+Mac fixes idle full-window scroller scanning, per-chat lazy layout identity,
+and continuation of unrealized tail IDs only after real content-height changes.
+Open receipt must locate latest_message_id within timeline: quiet events can
+follow that message. It must not compare the independent expected message ID
+to the last event ID. Mac retains actual body/viewport/native-gap checks.
+Native build/test/package remains mandatory; no shared gate changes requested.
 CI coordination: Mac build/pressure slots are queued behind duplicate captures
 on both branches. Please prioritize current native-macos native tests and both
 pressure profiles; defer superseded native-apps Mac captures where appropriate.
