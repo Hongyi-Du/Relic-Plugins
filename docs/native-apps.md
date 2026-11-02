@@ -1,5 +1,20 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+The current Windows history candidate restores only fb820fa's one-time layout
+reset for an anchorless first-row intent and 5b41daa's PreviewKeyDown End
+ownership. The original actual-input/body/reading-position assertions remain.
+These two narrower product corrections passed the four fixed histories on
+0866447 before the later ScrollView experiment; the current version still
+requires new CI evidence, including monkey and both data profiles.
+
+The independent d201e40 large idle phase failed at 11.764% of one core. The
+first observed second accounted for 0.750 of the total 1.188 CPU seconds;
+the later interval was still above 2%. No deduction is made from process CPU.
+Healthy probe file writes are now batched within 200 ms while actual UI probes
+remain at 40 ms. Pending probes, new maxima and phase changes publish promptly;
+the final observation is flushed. This removes verified measurement overhead,
+not a claimed explanation of all product CPU. The ten-second/2% gate stays.
+
 Changes for the clients: merged native-macos 761bfa9 (including 283a131's
 partly visible End correction and one-second failed-open observation).
 REQUESTS has no new server route dependency. Superseded shared capture jobs

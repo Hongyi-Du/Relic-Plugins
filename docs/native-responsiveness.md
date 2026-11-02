@@ -56,6 +56,12 @@ event producer during idle; the app's background behavior remains active.
 These are additional checks; they do not replace the complete history or
 monkey requirements. Missing native v2 support fails explicitly.
 
+The Windows probe still dispatches at 40 ms. Healthy heartbeat file writes
+are batched within 200 ms; pending requests, new maxima and action changes
+publish without that batching, and exit flushes the last record. `sequence`
+counts published records while `pings` counts actual UI replies. No CPU time
+is subtracted, and no responsiveness or resource limit is adjusted.
+
 ## Changes for the clients
 
 - 2026-11-02: `latest_item_id` / `latest_item_kind` identify the independent
