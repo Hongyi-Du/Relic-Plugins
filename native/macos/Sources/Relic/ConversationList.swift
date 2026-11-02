@@ -50,7 +50,8 @@ struct ConversationStream: View {
                                             .frame(maxWidth: .infinity).padding(.top, 18)
                                             .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: compact))
                                     }
-                                    MessageView(item: row.item, continued: row.continued, preparedBody: row.preparedBody)
+                                    MessageView(item: row.item, continued: row.continued, preparedBody: row.preparedBody,
+                                                clockLabel: row.clockLabel, dayTooltip: row.dayTooltip, timestampContext: row.timestampContext)
                                         .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: compact))
                                 }
                                 .background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }

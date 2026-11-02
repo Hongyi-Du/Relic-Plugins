@@ -1,5 +1,15 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+2dfd2bf 的 Native apps41547206375、Python41547206382、整窗41547206346均PASS。
+large压力41547206354：idle PASS，单核CPU1.29877%、171.906MiB/9线程峰值，
+内存持平、末段线程8→6；其余阶段仍FAIL，主线程264–374ms，完整场景未完成。
+2426050诊断41546936631的实际栈显示NSTableView行插入/高度测量、SwiftUI
+PointerRegionUpdater重注册，以及每行Model.clock/day重复解析/创建formatter。
+下一候选在后台行准备中生成时间标签（语言、时区、午夜变化回退），普通Markdown
+去除整段错误的文件预览help，只在真正路径链接上保留原生toolTip；消息标签的help
+交由已有原生文本视图，减少行回收时SwiftUI tracking region重建。新增10项测试。
+采样仅用于找调用路径，诊断运行不作为验收；250ms/1000ms/2%与六阶段全部保留。
+
 2426050 / Native apps41546267685：331项macOS测试全部PASS（38.805秒），两端构建、
 合同检查与包通过。标准List的真实Home/End、5850行历史、跨聊天、height-only缩放和
 原子导航6项测试均通过；先前6个End/导航断言回归已经消除。

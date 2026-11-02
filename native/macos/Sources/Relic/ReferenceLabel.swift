@@ -21,6 +21,7 @@ struct ReferenceLabel: NSViewRepresentable {
     var textGlyphIcon = false
     var truncates = true
     var ownedLayer = false
+    var nativeTooltip: String? = nil
     @Environment(\.captureOpacity) private var opacity
     @Environment(\.captureRegion) private var region
     @Environment(\.nativeElementParent) private var nativeParent
@@ -38,6 +39,9 @@ struct ReferenceLabel: NSViewRepresentable {
         self.ownedLayer = ownedLayer
     }
     private var containerBreakMode: NSLineBreakMode { lines > 0 ? (truncates ? .byTruncatingTail : .byClipping) : .byWordWrapping }
+    func nativeHelp(_ text: String) -> Self {
+        var value = self; value.nativeTooltip = text; return value
+    }
     func makeNSView(context: Context) -> ReferenceLabelView {
         let trace = UIWorkTrace.begin("label.make." + region); defer { UIWorkTrace.end(trace) }
         let view = makeLabelView()
@@ -68,6 +72,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.hasExplicitAccessibilityName = accessibleName != nil
         view.textGlyphIcon = textGlyphIcon
         view.setAccessibilityLabel(accessibleName ?? text)
+        view.toolTip = nativeTooltip
         if ownedLayer {
             view.usesOwnedBackingImage = true
             view.canDrawSubviewsIntoLayer = false
@@ -104,6 +109,7 @@ struct ReferenceLabel: NSViewRepresentable {
         view.hasExplicitAccessibilityName = accessibleName != nil
         view.textGlyphIcon = textGlyphIcon
         view.setAccessibilityLabel(accessibleName ?? text)
+        if view.toolTip != nativeTooltip { view.toolTip = nativeTooltip }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReferenceLabelView, context: Context) -> CGSize? {
         let trace = UIWorkTrace.begin("label.measure"); defer { UIWorkTrace.end(trace) }

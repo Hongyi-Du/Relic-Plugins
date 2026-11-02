@@ -2,12 +2,33 @@ import Foundation
 import SwiftUI
 import RelicCore
 
+struct ConversationTimestampContext {
+    let language: String
+    let calendar: Calendar
+    let dayStart: Date
+    let dayEnd: Date
+
+    init(language: String, now: Date, calendar: Calendar = .current) {
+        self.language = language; self.calendar = calendar
+        let start = calendar.startOfDay(for: now)
+        dayStart = start
+        dayEnd = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+    }
+
+    func isCurrent(language: String, now: Date, calendar: Calendar = .current) -> Bool {
+        self.language == language && self.calendar == calendar && now >= dayStart && now < dayEnd
+    }
+}
+
 struct ConversationRow: Identifiable {
     let id: String
     let item: Node
     let separator: String?
     let continued: Bool
     var preparedBody: PreparedMarkdown? = nil
+    var clockLabel: String? = nil
+    var dayTooltip: String? = nil
+    var timestampContext: ConversationTimestampContext? = nil
 
     static func prepareReplies(_ items: [Node], words: Words, now: Date) async -> [ConversationRow] {
         await prepareBodies(build(items, words: words, now: now, separators: false), fromEnd: false)
@@ -39,19 +60,33 @@ struct ConversationRow: Identifiable {
         var previous: Node?, previousDate: Date?, lastDay: Date?
         let clock = DateFormatter(); clock.locale = Locale(identifier: "en_US_POSIX"); clock.timeZone = calendar.timeZone; clock.dateFormat = "HH:mm"
         let day = DateFormatter(); day.locale = Locale(identifier: words.language); day.timeZone = calendar.timeZone
+        let timestampContext = ConversationTimestampContext(language: words.language, now: now, calendar: calendar)
+        var dayLabels: [Date: String] = [:]
         func dayLabel(_ date: Date) -> String {
-            if calendar.isDate(date, inSameDayAs: now) { return words.t("time.today") }
-            if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return words.t("time.yesterday") }
-            day.setLocalizedDateFormatFromTemplate(calendar.component(.year, from: date) == calendar.component(.year, from: now) ? "MMMMd" : "yMMMMd")
-            return day.string(from: date)
+            let start = calendar.startOfDay(for: date)
+            if let cached = dayLabels[start] { return cached }
+            let label: String
+            if calendar.isDate(date, inSameDayAs: now) { label = words.t("time.today") }
+            else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { label = words.t("time.yesterday") }
+            else {
+                day.setLocalizedDateFormatFromTemplate(calendar.component(.year, from: date) == calendar.component(.year, from: now) ? "MMMMd" : "yMMMMd")
+                label = day.string(from: date)
+            }
+            dayLabels[start] = label
+            return label
         }
         return NodeRow.identify(items).map { row in
             let item = row.node, date = Timeline.date(item["at"])
+            // Reuse this batch's parsed date and formatters. A native row can
+            // be measured repeatedly without parsing its timestamp or creating
+            // Foundation formatters again on the UI thread.
+            let clockLabel = date.map { clock.string(from: $0) } ?? ""
+            let dayTooltip = (date.map(dayLabel) ?? "") + " " + clockLabel
             var separator: String?
             if separators, let date {
                 let start = calendar.startOfDay(for: date)
-                if lastDay != start { separator = dayLabel(date) + " " + clock.string(from: date); lastDay = start; previous = nil }
-                else if let earlier = previousDate, previous != nil, date.timeIntervalSince(earlier) > 20 * 60 { separator = clock.string(from: date); previous = nil }
+                if lastDay != start { separator = dayTooltip; lastDay = start; previous = nil }
+                else if let earlier = previousDate, previous != nil, date.timeIntervalSince(earlier) > 20 * 60 { separator = clockLabel; previous = nil }
             }
             let continued: Bool
             if let previous, let date, let earlier = previousDate {
@@ -60,7 +95,8 @@ struct ConversationRow: Identifiable {
                     date.timeIntervalSince(earlier) < 3 * 60 && previous["thread"].isNull
             } else { continued = false }
             if item["type"].text != "acts" { previous = item; previousDate = date }
-            return ConversationRow(id: row.id, item: item, separator: separator, continued: continued)
+            return ConversationRow(id: row.id, item: item, separator: separator, continued: continued,
+                                   clockLabel: clockLabel, dayTooltip: dayTooltip, timestampContext: timestampContext)
         }
     }
 }
