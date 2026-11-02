@@ -1,4 +1,10 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+CI coordination: Mac build/pressure slots are queued behind duplicate captures
+on both branches. Please prioritize current native-macos native tests and both
+pressure profiles; defer superseded native-apps Mac captures where appropriate.
+Mac opening observer now stops at the required1000ms and records failure,
+then continues with the next chat, matching the shared Windows policy. It does
+not spend15 additional seconds on each already-failed open. All gates remain.
 Mac f829275 builds and passes all313 native tests/package in41536223319.
 21fcd57 implements v2 real-pointer phases. A following Mac-only correction
 finishes End when the actual latest row intersects the viewport but its lower

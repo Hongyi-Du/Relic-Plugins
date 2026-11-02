@@ -102,7 +102,7 @@ enum PerformancePhase: String {
             result["click_handled_unix_ms"] = click.unixMilliseconds
             // Observe promptly; waiting for unrelated inspector/surface tasks
             // or a fixed quiet period would change this into a settle metric.
-            let deadline = click.uptime + 15
+            let deadline = click.uptime + openLimitMilliseconds / 1000
             repeat {
                 if model.selection == target, model.selectedChatLoadVersion > loadVersion,
                    !model.isLoadingSelectedChat, !model.isPreparingConversation,
@@ -117,7 +117,7 @@ enum PerformancePhase: String {
                 }
                 try await Task.sleep(for: .milliseconds(10))
             } while ProcessInfo.processInfo.systemUptime < deadline
-            if observation?.ready != true { throw RelicError.message("The requested chat's actual latest content did not become visible") }
+            if observation?.ready != true { throw RelicError.message("The requested chat's actual latest content did not become visible within 1000 ms") }
             if !independentTruth { errors.append("Missing independent fixture latest_message_id/expected_empty; projection alone cannot prove Amendment 9 acceptance") }
         } catch { errors.append(String(describing: error)) }
         if let observation {
