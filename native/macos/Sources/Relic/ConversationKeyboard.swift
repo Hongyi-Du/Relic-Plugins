@@ -22,6 +22,26 @@ import SwiftUI
         didUserScroll?(gap < 120)
     }
 
+    /// ScrollViewReader realizes the actual last row before this completion.
+    /// A lazy stack can retain a small extent beyond that row after history
+    /// measurement. Finish against AppKit's current range only while the real
+    /// target is inside the viewport, never by jumping to an unrealized estimate.
+    @discardableResult func finishRealizedEnd(bottom: CGFloat, viewportHeight: CGFloat) -> Bool {
+        guard enabled, bottom > 0, bottom <= viewportHeight + 1,
+              let scroll, let document = scroll.documentView else { return false }
+        let clip = scroll.contentView, bounds = clip.bounds
+        let gap = document.isFlipped ? document.bounds.maxY - bounds.maxY : bounds.minY - document.bounds.minY
+        guard gap > 1 else { return true }
+        // The completion must keep the realized target in view. A large stale
+        // estimate still belongs to the framework's row-positioning path.
+        guard gap < bottom else { return false }
+        var target = bounds
+        target.origin.y = document.isFlipped ? document.bounds.maxY - bounds.height : document.bounds.minY
+        clip.scroll(to: clip.constrainBoundsRect(target).origin)
+        scroll.reflectScrolledClipView(clip)
+        return true
+    }
+
     func preserveDisclosurePosition() {
         discardDisclosurePosition()
         guard let scroll, let document = scroll.documentView else { return }

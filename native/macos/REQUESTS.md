@@ -1,3 +1,12 @@
+35bd31b strict41253717577:236.579 ms,295.391 MiB,9threads. All171 non-history
+fixed actions and first two complete histories pass (first23pages/5850rows).
+Third history End FAILS with16pt native end gap; actual latest9104 is visibly
+mounted, not blank.173receipts,zero monkey; no acceptance.20ea445 fixes Quartz
+y-offset and its existing unchanged pixel tests pass (packaging pending).
+Finish native end range only after the actual target has entered the viewport;
+never jump to an offscreen/large unrealized extent. Keep explicit history
+reading intent and all real-content/Home/End guards. New native range test
+covers offscreen rejection, real completion and idempotence. Strict CI pending.
 35bd31b / Native apps41253717697 compiles, but its existing shadow edge test
 FAILS15 pixel assertions (other307 tests pass). The Quartz path inverted y in
 an already-flipped native context, placing the shadow above the surface.
