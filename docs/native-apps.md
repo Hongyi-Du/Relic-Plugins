@@ -1,5 +1,20 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Confirmed direct cause of the installed 1e1fc14 chat-navigation failure:
+SidebarCopies subscribed to ItemClick but accepted only a ListViewItem payload.
+For a ListViewItem explicitly inserted into Items, WinUI returns its Content
+(our Grid) as ClickedItem. The product therefore discarded actual native
+clicks. The early observer repeated the wrong assumption by comparing the
+payload with the row rather than row.Content. edd1bb4's actual input receipt
+proves pointer down/up reached a live row without unload; the framework source
+confirms the Content contract in ListViewBase::OnItemClick:
+https://github.com/microsoft/microsoft-ui-xaml/blob/winui3/release/1.8.12/dxaml/xcp/dxaml/lib/ListViewBase_Partial_Interaction.cpp#L516-L565
+The product now resolves the owning row from that actual Content and invokes
+its bound action. The observer counts only the real matching ItemClick and
+still requires the correct chat's drawn tail within one second. The expensive
+per-row default ListView outer-template experiment is reverted; no synthetic
+event or direct Select call is used to satisfy the opening phase.
+
 The current Windows history candidate restores only fb820fa's one-time layout
 reset for an anchorless first-row intent and 5b41daa's PreviewKeyDown End
 ownership. The original actual-input/body/reading-position assertions remain.

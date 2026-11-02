@@ -6,8 +6,13 @@ No human message content is read into a fixture or artifact.
 
 ## Installed 1e1fc14 findings
 
-The sidebar's ItemClick does route other organizations/chats to Select; no
-current-organization-only restriction was found. MainWindow.cs:204 returned
+The sidebar's ItemClick handler wrongly required ClickedItem to be a
+ListViewItem. WinUI returns the Content of an explicitly supplied item
+container, so the actual Grid payload never invoked its Select action. This
+is the direct navigation defect; there is no intentional restriction to the
+current organization. The observer must likewise match the real row.Content
+payload, and still prove actual selection, visible body and one-second timing.
+MainWindow.cs:204 returned
 immediately when Refresh was busy, so Select's await (:262) did not mean the
 requested chat had rendered. It then forced root.UpdateLayout on the old tree.
 Refresh :244 rebuilt every region for any successful event refresh. The chat

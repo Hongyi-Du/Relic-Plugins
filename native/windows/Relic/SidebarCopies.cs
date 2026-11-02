@@ -25,6 +25,7 @@ public sealed partial class MainWindow
     private readonly HashSet<string> expandedCopies = [];
     private string? toolbarState;
     private readonly Dictionary<(bool Selected, bool Alert), ControlTemplate> toolbarButtonTemplates = [];
+    private ControlTemplate? sidebarListTemplate;
     private ControlTemplate? sidebarItemTemplate;
     private ItemsPanelTemplate? sidebarItemsPanel;
     private bool sidebarKeyboardBound;
@@ -200,16 +201,30 @@ public sealed partial class MainWindow
         // controls, selection, bindings, and ThemeResources remain per row.
         var template = sidebarItemTemplate ??= (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
         var itemsPanel = sidebarItemsPanel ??= (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><StackPanel UseLayoutRounding='False'/></ItemsPanelTemplate>");
+        var listTemplate = sidebarListTemplate ??= (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+            "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='ListView'>" +
+            "<Border Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' UseLayoutRounding='False'>" +
+            "<ItemsPresenter x:Name='ItemsPresenter' Padding='{TemplateBinding Padding}' UseLayoutRounding='False'/></Border></ControlTemplate>");
         ListView Rows()
         {
-            // Keep the platform's complete ListView input/selection template.
-            // The outer repeater bounds the number of these realized rows;
-            // retain the native pointer and selection lifecycle inside them.
+            // The outer viewport already owns scrolling and virtualization.
+            // Keep a real list and item container without creating an
+            // additional ScrollViewer for every individual organization/chat.
             var list = new ListView { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(0), BorderThickness = new Thickness(0), UseLayoutRounding = false,
-                ItemsPanel = itemsPanel };
+                Template = listTemplate, ItemsPanel = itemsPanel };
             ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
             ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
-            list.ItemClick += async (_, e) => { if (e.ClickedItem is ListViewItem item && item.Tag is Func<Task> action) await Run(action); }; return list;
+            list.ItemClick += async (_, e) =>
+            {
+                // A ListViewItem supplied as its own item raises ItemClick
+                // with its Content, not the ListViewItem container. Resolve
+                // that exact content back to its owning row before invoking
+                // the row action; otherwise every real click is discarded.
+                var item = list.Items.OfType<NativeSidebarRow>().FirstOrDefault(candidate =>
+                    ReferenceEquals(candidate, e.ClickedItem) || ReferenceEquals(candidate.Content, e.ClickedItem));
+                if (item?.Tag is Func<Task> action) await Run(action);
+            };
+            return list;
         }
         void Add(ListView list, UIElement content, Func<Task> action, bool selected, int indent = 0, bool chat = false,
             NativeSidebarOrganization? organization = null, OverviewBadgeView? unreadBadge = null, string automationId = "")
