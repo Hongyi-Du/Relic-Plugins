@@ -1,3 +1,25 @@
+AMENDMENT 9 — shared harness contract requested (2026-11-02)
+Mac is implementing core navigation and real-pointer measurement, not treating
+any older pressure result as acceptance. Please add the exact-person-shape
+synthetic fixture alongside the existing larger fixture, and run every phase
+in its own app process so one failure cannot hide subsequent phase receipts.
+Requested input for each invocation (existing fixture/output/plan/seed remain):
+  manifest.phase: "open-every-chat" | "history" | "idle" | "switch-200" | "monkey"
+  manifest.plan: phase-specific existing action objects (id,kind,org,member),
+    organization selections may use kind:"organization"; group/private unchanged.
+  manifest.monkey / manifest.seconds: existing deck and >=180s for monkey.
+  manifest.idle_seconds: >=10, with live fixture writes paused for idle interval.
+  manifest.fixture_profile: "large" | "person-shape" (label, no real data).
+Mac completion keeps performance-complete.json and adds phase, actions,
+open_latest_ms, expected_latest_id, visible_latest_id, click_events and errors.
+Open/switch actions will be real native sidebar Button clicks after scrolling
+the target into view, timed from handled mouse input until the requested chat's
+actual latest content is visible. shared gate must require every open<=1000ms,
+200 completed switches,250ms watchdog, idle CPU<2%of one core averaged>=10s,
+flat memory/threads and full history/monkey outcomes separately on both fixtures.
+Please publish the chosen schema/phase-resource sampling contract in docs early;
+Mac accepts missing phase only as legacy run, never as Amendment9 acceptance.
+No server route or payload changes are requested. Mac-only code remains here.
 35bd31b strict41253717577:236.579 ms,295.391 MiB,9threads. All171 non-history
 fixed actions and first two complete histories pass (first23pages/5850rows).
 Third history End FAILS with16pt native end gap; actual latest9104 is visibly
