@@ -1,5 +1,12 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: integrate native-macos 21fcd57's manifest v2 native
+pointer navigation/independent phase implementation and a4658ea's selected-chat
+request prioritization. REQUESTS asks for no additional server route. Both
+fixture profiles and all phase assertions remain strict. The driver now emits
+an immediate CI notice for each completed phase and marks focused --phase runs
+ineligible for complete acceptance; the full six-phase run is still required.
+
 Changes for the clients (2026-11-02): the new phase-separated acceptance
 contract is in [native-responsiveness.md](native-responsiveness.md). Both
 clients must support manifest v2 phases, actual chat-click receipts under one
