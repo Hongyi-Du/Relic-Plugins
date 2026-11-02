@@ -1,5 +1,14 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: integrated native-macos a883d15 via 3670be1, covering
+viewport-scoped scroll styling, per-chat lazy ranges and content-height-driven
+tail continuation. REQUESTS reports all four large histories passed on its
+prior 761bfa9 run, but other phases and person-shape history failed; there is
+no whole-app acceptance yet. No shared route/gate adjustment is requested.
+The published latest_item_id/kind versus latest_message_id distinction remains
+the common contract. Suggestion-list clicks had the same Content/container
+mistake as chat navigation and now resolve their actual owning item too.
+
 Confirmed direct cause of the installed 1e1fc14 chat-navigation failure:
 SidebarCopies subscribed to ItemClick but accepted only a ListViewItem payload.
 For a ListViewItem explicitly inserted into Items, WinUI returns its Content
