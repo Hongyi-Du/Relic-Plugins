@@ -1,5 +1,14 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Windows candidate prepares each mounted SidebarText's actual glyphs on the
+bounded DirectWrite worker before revealing its unchanged native TextBlock.
+It retains layout, locale, font/weight/size/scaling and selection; it never
+substitutes a fixture word list. Shared-factory glyph analysis warms the CPU
+font cache, while final pixels still come from WinUI. Retention is bounded to
+16 analyses per mounted label and released on unload. Readiness now includes
+this work. CI must prove cache effectiveness and the original time limits;
+failed preparation restores native text and retains its HRESULT in the trace.
+
 Offline symbol replay41547913947 passes exact DLL/PDB identity and all-offset
 verification. The retained actual UI stack resolves to TrueType glyph raster:
 fsg_ExecuteGlyph/GlyphLookupCache -> D2D DrawGlyphRun -> native CTextBlock
