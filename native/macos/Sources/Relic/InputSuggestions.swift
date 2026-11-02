@@ -37,7 +37,7 @@ struct InputSuggestionsLayer: View {
                                     .buttonStyle(QuietButtonStyle(selected: index == menu.selected, selectionApplicable: true)).focusable(false)
                                     .onHover { if $0 { m.inputSuggestions?.selected = index } }
                             }
-                        }.padding(4)
+                        }.padding(4).background(ScrollAppearance())
                     }.frame(width: width, height: height)
                         .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 8, kind: "region", shadows: SurfaceShadow.small))
                         .accessibilityElement(children: .contain).accessibilityIdentifier("relic-suggestions/" + menu.controlID)

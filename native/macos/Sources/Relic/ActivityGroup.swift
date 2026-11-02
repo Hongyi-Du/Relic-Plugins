@@ -49,6 +49,6 @@ struct ActivityOutput: View {
             .modifier(RecordedSurface(background: RelicStyle.code, border: RelicStyle.line, borderWidth: 1, radius: 7, kind: "code"))
     }
     var body: some View {
-        ViewThatFits(in: .vertical) { content; ScrollView { content } }.frame(maxHeight: 360, alignment: .topLeading)
+        ViewThatFits(in: .vertical) { content; ScrollView { content.background(ScrollAppearance()) } }.frame(maxHeight: 360, alignment: .topLeading)
     }
 }

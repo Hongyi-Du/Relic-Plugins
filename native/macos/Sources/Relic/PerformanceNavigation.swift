@@ -155,7 +155,10 @@ enum PerformancePhase: String {
             }
             return LatestObservation(messageID: "", rowID: "", markdown: 0, textViews: actual.count, bottomGap: nil, ready: !actual.isEmpty)
         }
-        guard let row = model.streamRows.last else { return nil }
+        // Quiet organization events can follow the latest message. The fixture
+        // identifies that message independently, not the final timeline event.
+        guard let row = expected.isEmpty ? model.streamRows.last
+            : model.streamRows.first(where: { $0.item["id"].text == expected }) else { return nil }
         let messageID = row.item["id"].text
         guard !messageID.isEmpty, expected.isEmpty || expected == messageID else { return nil }
         let native = descendants(root)

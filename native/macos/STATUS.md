@@ -1,5 +1,25 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+761bfa9 / Native responsiveness 41537608358 已实际分别执行六阶段，仍 FAIL。
+macOS large：open 最长主线程316.994 ms，switch324.938 ms（停在warmup，未完成200次），
+idle CPU3.0947%、164.234 MiB/9线程且内存线程未增长；workflows189.796 ms但第二组织
+原生消息行0、挂载未完成；history四组全部PASS，248.395 ms/284.125 MiB/9线程；
+monkey279.187 ms，未完成规定时长。
+macOS person-shape：open391.352 ms、switch506.346 ms，均被250 ms门槛拒绝；
+idle CPU2.6219%、152.406 MiB/7线程；workflows373.495 ms；history189.951 ms但
+第一组End差692 pt且最后timeline节点未实现；monkey338.667 ms，未完成。
+两种数据均不具备通过资格，不能发布为已修复版本。
+原始JSON和截图：S:\Codex\Outputs\Relic-native-visual\responsiveness-761bfa9\
+（macos-large、macos-person-shape、windows-person-shape）。
+
+下一候选移除窗口didUpdate的全树滚动条扫描，改各content挂载时配置其最近viewport；
+保留10pt gutter，并测试后创建dialog、嵌套滚动条和idle不重复配置。
+每个聊天重新建立自己的LazyVStack测量身份，原生viewport和composer继续保留；
+跟随末尾时，只在实际内容高度变化且目标尚未实现时继续请求该行ID，offset变化不重试。
+新增不等长聊天/长Markdown切换与末尾事件的原生测试。开聊观测查找fixture给出的实际
+消息ID，而不是假设最后一个timeline节点一定是消息（后面可以有quiet事件）。
+修复效果仍待下一轮CI；所有门槛和完整原生首尾断言保持不变。
+
 f829275 的 Native apps 41536223319 已通过：313 项 macOS 测试、两端构建及包、
 route/word-list 和元素合同测试全绿。新导航、后台预解析及挂载顺序测试均通过。
 21fcd57 已提供正式 v2 原生真实点击与六阶段支持，完整压力正在排队/运行。

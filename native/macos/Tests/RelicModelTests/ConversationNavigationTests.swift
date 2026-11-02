@@ -12,7 +12,7 @@ import RelicCore
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = Model(defaults: defaults)
         model.organization = "first"
-        let host = NSHostingView(rootView: ChatView().environmentObject(model))
+        let host = NSHostingView(rootView: NavigationFixture(model: model))
         host.sizingOptions = []; host.autoresizingMask = [.width, .height]
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
             styleMask: [.borderless], backing: .buffered, defer: false)
@@ -29,9 +29,11 @@ import RelicCore
             model.snapshot = Node(["org": ["id": selection.org, "name": selection.org],
                 "members": [["name": "secretary", "state": "idle"]]] as [String: Any])
             let tail = "Actual latest message for navigation \(index)"
-            model.messages = (1...1_063).map { number in
+            let count = [1_063, 24, 1_016, 1_063][index]
+            let longPredecessor = String(repeating: "Long **Markdown** paragraph while switching organizations.\n\n", count: 45)
+            model.messages = (1...count).map { number in
                 Node(["id": index * 10_000 + number, "type": "message", "from": "human", "to": ["all"],
-                    "text": number == 1_063 ? tail : "Message \(index)-\(number)",
+                    "text": number == count ? tail : number == count - 1 ? longPredecessor : "Message \(index)-\(number)",
                     "at": "2026-10-30T12:00:00Z"] as [String: Any])
             }
             let deadline = ProcessInfo.processInfo.systemUptime + 15
@@ -59,6 +61,12 @@ import RelicCore
                 XCTAssertTrue(editor === originalEditor, "Navigation must retain the native composer")
             } else { originalScroll = scroll; originalEditor = editor }
             XCTAssertEqual(ConversationKeyboardMount.bottomGap(in: window) ?? -1, 0, accuracy: 2)
+        }
+    }
+    private struct NavigationFixture: View {
+        let model: Model
+        var body: some View {
+            ChatView().environmentObject(model).disabled(model.snapshot["org"].isNull)
         }
     }
 }

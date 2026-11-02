@@ -7,45 +7,44 @@ import RelicAX
 // custom-width scroller, rather than covering content with an overlay scrollbar.
 struct ScrollAppearance: NSViewRepresentable {
     func makeNSView(context: Context) -> Probe { Probe() }
-    func updateNSView(_ view: Probe, context: Context) { view.needsLayout = true }
+    func updateNSView(_ view: Probe, context: Context) { view.resolveScroll(); view.needsLayout = true }
+
+    /// Configure the actual enclosing viewport when its content mounts. The
+    /// window's didUpdate notification also fires during an idle event loop;
+    /// scanning all native descendants there made idle work scale with the UI.
+    /// This same idempotent configuration serves directly constructed editors.
+    @discardableResult static func apply(to scroll: NSScrollView) -> Bool {
+        if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "native-scroll-mounted", once: true) }
+        let vertical = scroll.hasVerticalScroller && !(scroll.verticalScroller is ReferenceScroller)
+        let horizontal = scroll.hasHorizontalScroller && !(scroll.horizontalScroller is ReferenceScroller)
+        guard vertical || horizontal || scroll.scrollerStyle != .legacy || !scroll.autohidesScrollers else { return false }
+        let trace = UIWorkTrace.begin("scroll.style"); defer { UIWorkTrace.end(trace) }
+        if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "before-scroller-configuration") }
+        if vertical { scroll.verticalScroller = ReferenceScroller() }
+        if horizontal { scroll.horizontalScroller = ReferenceScroller() }
+        if scroll.scrollerStyle != .legacy { scroll.scrollerStyle = .legacy }
+        if !scroll.autohidesScrollers { scroll.autohidesScrollers = true }
+        if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "after-scroller-configuration") }
+        return true
+    }
     final class Probe: NSView {
         private var applying = false
+        private(set) weak var owner: NSScrollView?
+        private(set) var configurationChecks = 0
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func isAccessibilityElement() -> Bool { false }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            NotificationCenter.default.removeObserver(self, name: NSWindow.didUpdateNotification, object: nil)
-            if let window {
-                NotificationCenter.default.addObserver(self, selector: #selector(windowUpdated(_:)), name: NSWindow.didUpdateNotification, object: window)
-            }
-            needsLayout = true
+            resolveScroll()
         }
-        deinit { NotificationCenter.default.removeObserver(self) }
-        @objc private func windowUpdated(_ notification: Notification) { applyToWindow() }
-        override func layout() {
-            super.layout()
-            applyToWindow()
-        }
-        private func applyToWindow() {
-            guard !applying, let root = window?.contentView else { return }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); resolveScroll() }
+        override func layout() { super.layout(); resolveScroll() }
+        func resolveScroll() {
+            guard !applying else { return }
+            guard let scroll = enclosingScrollView else { owner = nil; return }
             applying = true; defer { applying = false }
-            func apply(_ view: NSView) {
-                if let scroll = view as? NSScrollView {
-                    if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "native-scroll-mounted", once: true) }
-                    let vertical = scroll.hasVerticalScroller && !(scroll.verticalScroller is ReferenceScroller)
-                    let horizontal = scroll.hasHorizontalScroller && !(scroll.horizontalScroller is ReferenceScroller)
-                    if vertical || horizontal || scroll.scrollerStyle != .legacy || !scroll.autohidesScrollers {
-                        if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "before-scroller-configuration") }
-                        if vertical { scroll.verticalScroller = ReferenceScroller() }
-                        if horizontal { scroll.horizontalScroller = ReferenceScroller() }
-                        if scroll.scrollerStyle != .legacy { scroll.scrollerStyle = .legacy }
-                        if !scroll.autohidesScrollers { scroll.autohidesScrollers = true }
-                        if VisualCapture.enabled { ScrollGeometryTrace.observe(scroll, phase: "after-scroller-configuration") }
-                    }
-                }
-                for child in view.subviews { apply(child) }
-            }
-            apply(root)
+            owner = scroll; configurationChecks += 1
+            ScrollAppearance.apply(to: scroll)
         }
     }
 }

@@ -107,7 +107,7 @@ struct FittingScroll<Content: View>: View {
                 .background {
                     if let accessibilityOwner {
                         NativeScrollOwner(identifier: accessibilityOwner, title: accessibilityTitle)
-                    }
+                    } else { ScrollAppearance() }
                 }
         }.frame(height: min(maxHeight, contentHeight > 0 ? contentHeight : maxHeight))
             .onPreferenceChange(DialogContentHeight.self) { contentHeight = $0 }

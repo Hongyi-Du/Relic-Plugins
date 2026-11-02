@@ -93,7 +93,6 @@ struct MainView: View {
         .tint(accent(m.preferences["accent"].text))
         .environment(\.locale, Locale(identifier: m.words.language))
         .coordinateSpace(name: "relic-window")
-        .background(ScrollAppearance())
         .background(InitialWindowFocus().frame(width: 0, height: 0))
         }
         .background(WindowChromeMount().frame(width: 0, height: 0))
@@ -254,7 +253,7 @@ struct RightPane: View {
                                 .environment(\.nativeElementParent, "relic-tab/" + pane.0)
                             }
                         }
-                    }
+                    }.background(ScrollAppearance())
                 }.scrollIndicators(.hidden).frame(height: 28)
                 IconButton(title: m.t("panel.hide_title"), icon: "x", size: 16) { m.panelOpen = false }.accessibilityLabel(m.t("panel.hide"))
             }.padding(.leading, 8).padding(.trailing, 6).frame(height: 44)
@@ -264,7 +263,7 @@ struct RightPane: View {
             case "workspace": WorkspaceView()
             case "files": FilePreview()
             case "thread": ThreadView()
-            default: ScrollView { if !m.snapshot["org"].isNull { Overview() } }.defaultScrollAnchor(.top)
+            default: ScrollView { if !m.snapshot["org"].isNull { Overview().background(ScrollAppearance()) } }.defaultScrollAnchor(.top)
             } } else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityHidden(true) }
         }.frame(maxHeight: .infinity, alignment: .top).padding(.leading, 1)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region", shadows: floating ? SurfaceShadow.dialog : [])).help(m.t("panel.resize"))
