@@ -86,6 +86,9 @@ def resolve(executable: Path, output: Path) -> dict:
     for index, module in enumerate(modules.values()):
         result = {"image": module["image"], "offsets": sorted(module["offsets"], key=lambda n: int(n, 16)),
                   "sources": sorted(module["sources"])}
+        # A launch/load/download failure can produce no symbol rows at all.
+        # Those requested offsets are unresolved, not an empty failure list.
+        result["unresolved_offsets"] = list(result["offsets"])
         results.append(result)
         try:
             name, identity = codeview_identity(Path(module["image"]).read_bytes())
@@ -101,9 +104,12 @@ def resolve(executable: Path, output: Path) -> dict:
             completed = subprocess.run(command, capture_output=True, text=True, timeout=60)
             result.update(returncode=completed.returncode, stderr=completed.stderr,
                           symbols=[json.loads(line) for line in completed.stdout.splitlines() if line.strip()])
-            result["unresolved_offsets"] = [item.get("module_offset") for item in result["symbols"]
-                                              if not item.get("resolved")]
-            if completed.returncode or len(result["symbols"]) != len(result["offsets"]):
+            resolved_offsets = {int(item["module_offset"], 16) for item in result["symbols"]
+                                if item.get("resolved") and item.get("pdb_matched")}
+            result["unresolved_offsets"] = [offset for offset in result["offsets"]
+                                              if int(offset, 16) not in resolved_offsets]
+            if (completed.returncode or result["unresolved_offsets"]
+                    or len(result["symbols"]) != len(result["offsets"])):
                 result["error"] = "Native resolver did not resolve every requested frame with a matched PDB"
         except Exception as error:
             result["error"] = str(error)

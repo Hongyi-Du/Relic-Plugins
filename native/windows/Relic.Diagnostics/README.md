@@ -57,18 +57,26 @@ path, base, size, timestamp, checksum and symbol/export type. A separate mode,
 `--resolve <image> <local-symbol-dir> <offsets...>`, requires `GITHUB_ACTIONS=true`
 but never opens or suspends the target process. It loads the supplied image and
 local PDB with `SYMOPT_EXACT_SYMBOLS`; unresolved or unmatched symbols remain
-explicit failures, with no export fallback. `scripts/performance/resolve_symbols.py`
+explicit failures, with no export fallback. The offline session holds the actual
+PE file open until `SymCleanup`, reads its x64 PE `SizeOfImage`, and registers it
+at an explicit synthetic base. Only module-relative offsets are resolved; no
+target image is assumed to be mapped in the resolver process. The same owned
+session handle is used for every DbgHelp call and is closed after cleanup.
+`scripts/performance/resolve_symbols.py`
 downloads the exact RSDS GUID/age PDB from Microsoft's public server after the
 measurement has ended, then invokes this local-only mode. The raw snapshots
 and the original responsiveness result are unchanged. Downloaded PDB caches
 are excluded from artifacts; their exact identity, source and resolved frames
 are retained in `resolved-symbols.json`.
+If downloading or loading fails before any symbol rows are emitted, all requested
+offsets remain listed in `unresolved_offsets`.
 
 SDK contracts used:
 
 - [GetThreadContext](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getthreadcontext)
 - [StackWalk64 and its callbacks](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nf-dbghelp-stackwalk64)
 - [SymInitializeW local search path](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nf-dbghelp-syminitializew)
+- [SymLoadModuleExW explicit image file, base and size](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nf-dbghelp-symloadmoduleexw)
 - [SymSetOptions](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nf-dbghelp-symsetoptions)
 - [CBA_READ_MEMORY callback](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nc-dbghelp-psymbol_registered_callback64)
 - [VirtualQueryEx page state and protection](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualqueryex)

@@ -178,9 +178,10 @@ public sealed partial class MainWindow
     }
     private void WireConversationScroll()
     {
-        void LeaveLatest()
+        void LeaveLatest(string source)
         {
             keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
+            PerformanceTrace.Count("conversation.leave_latest." + source, latestRequest);
             stream.StopFollowingLast();
         }
         var latestIntentQueued = false;
@@ -210,7 +211,7 @@ public sealed partial class MainWindow
             if (args.ScrollEventType is ScrollEventType.First or ScrollEventType.SmallDecrement or ScrollEventType.LargeDecrement
                 || (args.ScrollEventType is ScrollEventType.ThumbTrack or ScrollEventType.ThumbPosition
                     && args.NewValue < bar.Maximum - 1))
-                LeaveLatest();
+                LeaveLatest("scrollbar_" + args.ScrollEventType);
             else if (args.ScrollEventType == ScrollEventType.Last || args.NewValue >= bar.Maximum - 1)
                 FollowLatestIntent("scrollbar", explicitEnd: true);
         }
@@ -234,7 +235,7 @@ public sealed partial class MainWindow
             if (pointer.IsHorizontalMouseWheel) return;
             if (pointer.MouseWheelDelta > 0)
             {
-                LeaveLatest();
+                LeaveLatest("wheel_up");
                 // At the top, native scrolling cannot change the offset and
                 // therefore emits no ViewChanged. The real upward input must
                 // still be able to request the preceding page.
@@ -242,13 +243,13 @@ public sealed partial class MainWindow
             }
             else if (pointer.MouseWheelDelta < 0)
             {
-                if (stream.ReadingAnchorRestorePending) LeaveLatest();
+                if (stream.ReadingAnchorRestorePending) LeaveLatest("wheel_down_reading");
                 downwardRequest = latestRequest; downwardOrg = org; downwardMember = member;
                 if (chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1)
                     FollowLatestIntent("wheel_end");
             }
         }), true);
-        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest()), true);
+        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest("pointer_pressed")), true);
         chatScroll.PreviewKeyDown += (_, e) =>
         {
             // Handle the focused viewport's End before the native class
@@ -261,14 +262,14 @@ public sealed partial class MainWindow
         {
             // Observe upward navigation only on the viewport itself.
             if (!ReferenceEquals(e.OriginalSource, chatScroll)) return;
-            if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest();
+            if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest("key_" + e.Key);
         }), true);
         // Touchpad/touch panning is direct manipulation, not a wheel event.
         var panRequest = -1; var panStartOffset = 0d;
         var panOrg = ""; var panMember = "";
         chatScroll.DirectManipulationStarted += (_, _) =>
         {
-            LeaveLatest(); panRequest = latestRequest; panStartOffset = chatScroll.VerticalOffset;
+            LeaveLatest("direct_manipulation"); panRequest = latestRequest; panStartOffset = chatScroll.VerticalOffset;
             panOrg = org; panMember = member;
         };
         chatScroll.DirectManipulationCompleted += (_, _) =>
@@ -325,36 +326,85 @@ public sealed partial class MainWindow
         };
         editor.TextChanged += (_, _) => { if (!pickingMention && !composing.Contains(editor)) DispatcherQueue.TryEnqueue(MentionMenu); };
     }
-    private IEnumerable<JsonNode?> ConversationItems()
+    private readonly SemaphoreSlim conversationPreparationGate = new(1, 1);
+    private CancellationTokenSource? conversationPreparation;
+    private Task<bool>? latestConversationPreparation;
+    private int pendingConversationPreparation;
+    private int PendingConversationPreparation => Volatile.Read(ref pendingConversationPreparation);
+    // Event/capture callers still use this entry point; their usual readiness
+    // check includes the preparation until its UI commit has completed.
+    private void DrawConversation() => _ = Run(async () => { await DrawConversationAsync(); });
+    private Task<bool> DrawConversationAsync()
     {
-        if (member.Length == 0) return messages;
-        var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
-        var output = new List<JsonNode?>(); var busy = liveData["status"].Text("state") is "running" or "starting" or "waiting";
-        var cut = busy ? liveData.Rows("items").LastOrDefault(x => x.Flag("start")).Text("at") : "";
-        JsonObject? actions = null;
-        void Flush() { if (actions != null) { output.Add(actions); actions = null; } }
-        foreach (var step in conversation.Rows("steps"))
+        var selectedOrg = org; var selectedMember = member;
+        var requested = latestConversationPreparation = PrepareConversationAsync();
+        return AwaitCurrentCommit();
+        async Task<bool> AwaitCurrentCommit()
         {
-            if (cut.Length > 0 && string.CompareOrdinal(step.Text("at"), cut) >= 0) continue;
-            var role = step.Text("role"); var text = step.Text("text"); var at = step.Text("at");
-            if (role is "tool_call" or "tool_result") { actions ??= new JsonObject { ["type"] = "acts", ["at"] = at, ["member"] = member, ["steps"] = new JsonArray() }; actions.Rows("steps").Add(step?.DeepClone()); continue; }
-            Flush();
-            if (role is not ("user" or "assistant")) continue;
-            var from = role == "assistant" ? member : "human"; var type = "message";
-            if (role == "user")
+            while (true)
             {
-                if (text.StartsWith(Transcript.PersonPrefix)) text = Transcript.PersonText(text);
-                else if (text.StartsWith("[Relic auto-wake]")) { type = "notice"; text = T("msg.auto_woken"); }
-                else if (text.StartsWith("You now hold the seat")) { type = "notice"; text = T("msg.seat_briefing"); }
-                else if (m.Text("agent").Length > 0) from = m.Text("parent").Length > 0 ? m.Text("parent") : member;
+                var applied = await requested;
+                if (closing || org != selectedOrg || member != selectedMember) return false;
+                if (applied) return true;
+                var newer = latestConversationPreparation;
+                if (newer == null || ReferenceEquals(newer, requested)) return false;
+                // A plain/live refresh can supersede history preparation for
+                // the same chat. Await its real commit before the history caller
+                // restores its anchor; do not retry or create another render.
+                requested = newer;
             }
-            output.Add(new JsonObject { ["type"] = type, ["from"] = from, ["fromLabel"] = role == "user" && from != "human" ? T("msg.task_from", ("name", m.Text("parent").Length > 0 ? Display(m.Text("parent")) : T("msg.parent_session"))) : Display(from), ["to"] = new JsonArray(JsonValue.Create(role == "assistant" ? "human" : member)), ["body"] = text, ["text"] = text, ["at"] = at });
         }
-        Flush();
-        if (!m.Flag("embedded") || conversation.Rows("steps").Count == 0) output.AddRange(messages);
-        return output.OrderBy(x => x.Text("at"));
     }
-    private void DrawConversation()
+    private async Task<bool> PrepareConversationAsync()
+    {
+        conversationPreparation?.Cancel();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        conversationPreparation = cancellation;
+        var selectedOrg = org; var selectedMember = member;
+        var selectedLanguage = words.Language; var selectedPresentation = presentationVersion;
+        var sourceMessages = messages; var sourceSnapshot = snap;
+        var sourceTranscript = conversation; var sourceLive = liveData;
+        Interlocked.Increment(ref pendingConversationPreparation);
+        try
+        {
+            IReadOnlyList<ConversationPresentationRow> rows = [];
+            if (selectedOrg.Length > 0)
+            {
+                // Server response objects are replaced, never edited in place.
+                // Mutable local dictionaries/sets are copied on the dispatcher;
+                // the worker sees no window state, controls or translation store.
+                var labels = new ConversationPresentationWords(selectedLanguage, T("time.today"), T("time.yesterday"),
+                    Display("human"), T("msg.auto_woken"), T("msg.seat_briefing"), T("msg.parent_session"), T("msg.task_from"));
+                var input = new ConversationPresentationInput(selectedOrg, selectedMember, sourceMessages, sourceSnapshot,
+                    sourceTranscript, sourceLive, labels, ViewToday, plainMode,
+                    plainOne.ToHashSet(), new Dictionary<string, string>(plain), plainFailed.ToHashSet(), messagePresentationIdentities);
+                await conversationPreparationGate.WaitAsync(cancellation.Token);
+                try
+                {
+                    rows = await Task.Run(() =>
+                    {
+                        using var timing = PerformanceTrace.Measure("conversation.model.prepare.worker");
+                        return ConversationPresentation.Prepare(input, cancellation.Token);
+                    }, cancellation.Token);
+                }
+                finally { conversationPreparationGate.Release(); }
+            }
+            if (cancellation.IsCancellationRequested || closing || org != selectedOrg || member != selectedMember
+                || words.Language != selectedLanguage || presentationVersion != selectedPresentation
+                || !ReferenceEquals(messages, sourceMessages) || !ReferenceEquals(snap, sourceSnapshot)
+                || !ReferenceEquals(conversation, sourceTranscript) || !ReferenceEquals(liveData, sourceLive)) return false;
+            using (PerformanceTrace.Measure("DrawChat")) DrawPreparedConversation(rows);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return false; }
+        finally
+        {
+            if (ReferenceEquals(conversationPreparation, cancellation)) conversationPreparation = null;
+            Interlocked.Decrement(ref pendingConversationPreparation);
+            PresentationPreparation.NotifyCompletion();
+        }
+    }
+    private void DrawPreparedConversation(IReadOnlyList<ConversationPresentationRow> rows)
     {
         // Live data and presentation changes still redraw while browsing old
         // messages. Preserve the actual visible message, while an in-flight
@@ -478,29 +528,16 @@ public sealed partial class MainWindow
             stream.Children.Add(() => Button(T("trace.load_older"), LoadOlderMessages), key: "older");
             stream.SetPresentationIdentity("older", T("trace.load_older"));
         }
-        var items = ConversationItems().ToArray();
-        if (items.Length == 0)
+        if (rows.Count == 0)
         {
             var emptyText = T(member.Length == 0 ? "chat.empty_group" : "chat.empty_private");
             stream.Children.Add(() => Text(emptyText), key: "empty");
             stream.SetPresentationIdentity("empty", emptyText);
         }
-        string day = ""; JsonNode? previous = null;
-        var ordinal = 0;
-        foreach (var item in items)
+        foreach (var prepared in rows)
         {
-            var itemKey = item.Text("id").Length > 0
-                ? (item.Text("type") == "message" ? "message:" : "item:") + item.Text("id")
-                : "transcript:" + item.Text("at") + ":" + item.Text("type") + ":" + ordinal;
-            ordinal++;
-            var date = DateTimeOffset.TryParse(item.Text("at"), out var parsed) ? parsed.LocalDateTime.Date.ToString("yyyy-MM-dd") : "";
-            string? separatorText = null;
-            if (date != day && date.Length > 0) { separatorText = When(item.Text("at")); day = date; previous = null; }
-            else if (previous != null && DateTimeOffset.TryParse(previous.Text("at"), out var prior) && parsed - prior > TimeSpan.FromMinutes(20))
-            { separatorText = parsed.ToLocalTime().ToString("HH:mm"); previous = null; }
-            if (separatorText != null)
+            if (prepared.Separator is { } label)
             {
-                var label = separatorText;
                 stream.Children.Add(() =>
                 {
                     var separator = OverviewText(label, 11.5, true); separator.TextAlignment = TextAlignment.Center;
@@ -509,20 +546,13 @@ public sealed partial class MainWindow
                     separator.TextWrapping = TextWrapping.WrapWholeWords;
                     separator.Margin = new Thickness(0, 18, 0, 8);
                     return separator;
-                }, 45, "separator:" + itemKey);
-                stream.SetPresentationIdentity("separator:" + itemKey, label);
+                }, 45, "separator:" + prepared.Key);
+                stream.SetPresentationIdentity("separator:" + prepared.Key, label);
             }
-            var continued = Transcript.SameMessageGroup(previous, item!);
-            var bodyLength = Math.Max(item.Text("body").Length, item.Text("text").Length);
-            var estimate = item.Text("type") == "message" ? Math.Clamp(64 + bodyLength / 70d * 23, 64, 2100) : 40;
             // Notices are also real chronological chat items. Give them stable
             // identities for reading anchors and accessibility, just as messages.
-            stream.Children.Add(() => Message(item!, false, continued), estimate, itemKey);
-            var plainKey = PlainKey(item.Text("id"));
-            var bodyIdentity = messagePresentationIdentities.GetValueOrDefault(item.Text("id")) ?? item!.ToJsonString();
-            stream.SetPresentationIdentity(itemKey, bodyIdentity + "/" + continued + "/" + plainMode + "/"
-                + plainOne.Contains(plainKey) + "/" + plain.GetValueOrDefault(plainKey) + "/" + plainFailed.Contains(plainKey));
-            if (item.Text("type") != "acts") previous = item;
+            stream.Children.Add(() => Message(prepared.Item, false, prepared.Continued), prepared.Estimate, prepared.Key);
+            stream.SetPresentationIdentity(prepared.Key, prepared.Identity);
         }
         var liveState = liveData["status"].Text("state");
         var hasLiveRows = liveState is "running" or "waiting" or "starting" ? liveData.Rows("items").Count > 0
@@ -545,12 +575,13 @@ public sealed partial class MainWindow
     private Task LoadOlderAtTop() => !closing && org.Length > 0 && api != null
         && !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending && chatMore && chatScroll.VerticalOffset < 32
         ? Run(LoadOlderMessages) : Task.CompletedTask;
-    private bool ConversationContentReady() => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativeChatList.PendingBuilds == 0
+    private bool ConversationContentReady() => PendingConversationPreparation == 0 && PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativeChatList.PendingBuilds == 0
         && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0;
     private async Task LoadOlderMessages()
     {
         if (loadingOlder || !chatMore || org.Length == 0 || api == null) return;
         loadingOlder = true; keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
+        PerformanceTrace.Count("conversation.history.request", latestRequest);
         stream.StopFollowingLast();
         try
         {
@@ -577,7 +608,7 @@ public sealed partial class MainWindow
         // boundary, before it can be displaced by the prepended page.
         void CaptureReadingAnchor() => readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         stream.ItemsReplacing += CaptureReadingAnchor;
-        try { DrawConversation(); }
+        try { if (!await DrawConversationAsync()) return; }
         finally { stream.ItemsReplacing -= CaptureReadingAnchor; }
         if (readingAnchor != null)
             await stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
@@ -689,7 +720,7 @@ public sealed partial class MainWindow
             button.PointerEntered += (_, _) => InkState(true); button.PointerExited += (_, _) => InkState(false);
             button.Content = row; ToolTipService.SetToolTip(button, tip); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label.Length > 0 ? label : tip); actions.Children.Add(button); return button;
         }
-        if (explainable && !(plainMode && member.Length == 0 && !inThread)) Action("lang", T(plainOne.Contains(key) ? "msg.original" : "msg.plain"), T(plainOne.Contains(key) ? "msg.hide_plain" : "common.plain_words"), async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } DrawConversation(); });
+        if (explainable && !(plainMode && member.Length == 0 && !inThread)) Action("lang", T(plainOne.Contains(key) ? "msg.original" : "msg.plain"), T(plainOne.Contains(key) ? "msg.hide_plain" : "common.plain_words"), async () => { if (!plainOne.Remove(key)) { plainOne.Add(key); await RequestPlain([item.Text("id")]); } await DrawConversationAsync(); });
         Action("quote", T("common.quote"), T("common.quote"), () => { Quote(item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from), body); return Task.CompletedTask; });
         if (!inThread && long.TryParse(item.Text("id"), out _)) Action("thread", T("common.reply"), T("msg.reply_in_thread"), () => OpenThread(item.Text("id")));
         var copy = Action("copy", "", T("common.copy"), () => { Copy(body); return Task.CompletedTask; });
@@ -786,7 +817,7 @@ public sealed partial class MainWindow
         if (speaker != null) portrait.Tapped += async (_, e) => { e.Handled = true; await Run(() => MemberCard(who, portrait)); };
         target.Children.Add(ConversationRow(column, portrait));
     }
-    private Task TogglePlain() { plainMode = !plainMode; DrawConversation(); if (plainMode) Note(T("plain.on_hint")); SaveViewState(); return Task.CompletedTask; }
+    private async Task TogglePlain() { plainMode = !plainMode; await DrawConversationAsync(); if (plainMode) Note(T("plain.on_hint")); SaveViewState(); }
     private async Task RequestPlain(string[] ids)
     {
         var selectedOrg = org;
@@ -814,14 +845,14 @@ public sealed partial class MainWindow
         foreach (var pair in results) { var key = targetOrg + "/" + pair.Key; plain[key] = pair.Value.Text(); plainPending.Remove(key); plainFailed.Remove(key); }
         if (targetOrg == org) DrawConversation();
     }
-    private async Task ToggleDigest() { digestOpen = !digestOpen; SaveViewState(); if (digestOpen && digest.Text("text").Length == 0 && !digestPending) await LoadDigest(false); DrawConversation(); }
+    private async Task ToggleDigest() { digestOpen = !digestOpen; SaveViewState(); if (digestOpen && digest.Text("text").Length == 0 && !digestPending) await LoadDigest(false); await DrawConversationAsync(); }
     private async Task LoadDigest(bool refresh)
     {
         var selectedOrg = org;
-        digestPending = true; DrawConversation();
+        digestPending = true; await DrawConversationAsync();
         try { var result = await api!.Post(Client.Org(selectedOrg, "/digest"), new { refresh }); if (org != selectedOrg) return; if (result["digest"] != null) digest = result["digest"]!.DeepClone(); digestPending = result.Flag("pending"); if (refresh && !digestPending) Note(T("digest.up_to_date")); }
         catch (Exception ex) { if (org != selectedOrg) return; digestPending = false; Note(T("digest.failed", ("error", ex.Message))); }
-        DrawConversation();
+        await DrawConversationAsync();
     }
     private UIElement DigestCard()
     {

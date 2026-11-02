@@ -328,7 +328,7 @@ public sealed partial class MainWindow : Window
             }
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-            using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || viewChanged || presentationChanged) DrawChat();
+            if ((changes.Chat || viewChanged || presentationChanged) && !await DrawConversationAsync()) { pending = true; return; }
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             // Overview is organization data. A private-chat selection changes
@@ -343,6 +343,7 @@ public sealed partial class MainWindow : Window
     }
     private async Task Select(string id, string who = "", bool fromHistory = false)
     {
+        conversationPreparation?.Cancel();
         transientFlyout?.Hide();
         await StopVoice();
         RememberChat(); var different = org != id; org = id; member = who; conversation = new JsonObject(); liveData = new JsonObject(); messages = new JsonArray();
@@ -374,6 +375,7 @@ public sealed partial class MainWindow : Window
     }
     private async Task LoadPreferences()
     {
+        conversationPreparation?.Cancel();
         preferences = await api!.Get("/api/prefs");
         var language = Words.Normalize(preferences.Text("lang"));
         if (language != words.Language) { plain.Clear(); plainPending.Clear(); plainFailed.Clear(); digest = new JsonObject(); }
@@ -387,7 +389,6 @@ public sealed partial class MainWindow : Window
         ApplyAppearance(); DrawMenu();
     }
     private void DrawSide() => DrawSidebar();
-    private void DrawChat() => DrawConversation();
     private void ScrollToLatest()
     {
         // Retain the actual final-row anchor through deferred Markdown/font
@@ -396,11 +397,11 @@ public sealed partial class MainWindow : Window
         keepLatest = true;
         chatScroll.VerticalAnchorRatio = 1;
         var request = ++latestRequest;
+        PerformanceTrace.Count("conversation.latest.request", request);
         var selectedOrg = org; var selectedMember = member;
         bool IsCurrent() => !closing && keepLatest && request == latestRequest
             && org == selectedOrg && member == selectedMember;
-        bool IsContentReady() => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativeChatList.PendingBuilds == 0
-            && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0;
+        bool IsContentReady() => ConversationContentReady();
         stream.FollowLastIntoView(chatScroll, IsCurrent, IsContentReady);
     }
     private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
