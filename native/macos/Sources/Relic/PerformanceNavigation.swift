@@ -31,9 +31,13 @@ enum PerformancePhase: String {
         var observation: LatestObservation?
         var before = model.selection
         let target = ChatSelection(action["org"].text, action["kind"].text == "private" ? action["member"].text : "")
-        let truth = action["latest_message_id"].text, expectedEmpty = action["expected_empty"].flag
-        let independentTruth = !action["expected_empty"].isNull && (expectedEmpty || !truth.isEmpty && truth != "0")
-        result["expected_latest_id"] = truth
+        let messageID = action["latest_message_id"].text, expectedEmpty = action["expected_empty"].flag
+        let itemID = action["latest_item_id"].text, itemKind = action["latest_item_kind"].text
+        let independentTruth = hasIndependentLatestTruth(action)
+        result["expected_latest_id"] = itemID
+        result["expected_latest_message_id"] = messageID
+        result["expected_latest_item_id"] = itemID
+        result["expected_latest_item_kind"] = itemKind
         result["expected_latest_source"] = independentTruth ? "fixture_manifest" : "missing_fixture_truth"
         result["amendment9_eligible"] = independentTruth
         do {
@@ -106,7 +110,8 @@ enum PerformancePhase: String {
             repeat {
                 if model.selection == target, model.selectedChatLoadVersion > loadVersion,
                    !model.isLoadingSelectedChat, !model.isPreparingConversation,
-                   let latest = observeLatest(model: model, window: window, expected: truth, expectedEmpty: expectedEmpty) {
+                   let latest = observeLatest(model: model, window: window, expectedMessageID: messageID,
+                       expectedItemID: itemID, expectedItemKind: itemKind, expectedEmpty: expectedEmpty) {
                     observation = latest
                     if latest.ready {
                         let elapsed = (ProcessInfo.processInfo.systemUptime - click.uptime) * 1000
@@ -118,16 +123,21 @@ enum PerformancePhase: String {
                 try await Task.sleep(for: .milliseconds(10))
             } while ProcessInfo.processInfo.systemUptime < deadline
             if observation?.ready != true { throw RelicError.message("The requested chat's actual latest content did not become visible within 1000 ms") }
-            if !independentTruth { errors.append("Missing independent fixture latest_message_id/expected_empty; projection alone cannot prove Amendment 9 acceptance") }
+            if !independentTruth { errors.append("Missing independent fixture latest_message_id/latest_item_id/latest_item_kind/expected_empty; projection alone cannot prove Amendment 9 acceptance") }
         } catch { errors.append(String(describing: error)) }
         if let observation {
-            result["visible_latest_id"] = observation.messageID
+            result["visible_latest_id"] = observation.itemID
+            result["visible_latest_item_id"] = observation.itemID
+            result["visible_latest_item_kind"] = observation.itemKind
             result["visible_latest_row_id"] = observation.rowID
             result["visible_latest_markdown"] = observation.markdown
             result["visible_latest_text_views"] = observation.textViews
+            result["visible_latest_notice_labels"] = observation.noticeLabels
             if let gap = observation.bottomGap { result["visible_latest_bottom_gap_pt"] = Double(gap) }
             else { result["visible_latest_bottom_gap_pt"] = NSNull() }
         }
+        result["latest_message_loaded"] = observation?.messageLoaded == true
+        result["latest_item_loaded"] = observation?.itemLoaded == true
         result["latest_visible"] = observation?.ready == true
         if handled == nil { result["click_events"] = 0 }
         result["preparation_clicks"] = setup
@@ -140,27 +150,42 @@ enum PerformancePhase: String {
     }
 
     struct LatestObservation {
-        let messageID: String, rowID: String
-        let markdown: Int, textViews: Int
+        let messageID: String, itemID: String, itemKind: String, rowID: String
+        let messageLoaded: Bool, itemLoaded: Bool
+        let markdown: Int, textViews: Int, noticeLabels: Int
         let bottomGap: CGFloat?
         let ready: Bool
     }
-    static func observeLatest(model: Model, window: NSWindow, expected: String, expectedEmpty: Bool = false) -> LatestObservation? {
+    static func hasIndependentLatestTruth(_ action: Node) -> Bool {
+        let fields = ["latest_message_id", "latest_item_id", "latest_item_kind", "expected_empty"]
+        guard fields.allSatisfy({ action.object.keys.contains($0) }), !action["expected_empty"].isNull else { return false }
+        if action["expected_empty"].flag {
+            return action["latest_message_id"].isNull && action["latest_item_id"].isNull && action["latest_item_kind"].isNull
+        }
+        return !action["latest_item_id"].text.isEmpty && !action["latest_item_kind"].text.isEmpty
+            && (action["latest_message_id"].isNull || (Int(action["latest_message_id"].text) ?? 0) > 0)
+    }
+    static func observeLatest(model: Model, window: NSWindow, expectedMessageID: String,
+        expectedItemID: String, expectedItemKind: String, expectedEmpty: Bool = false) -> LatestObservation? {
         guard let root = window.contentView else { return nil }
         if expectedEmpty {
-            guard model.messages.isEmpty, model.streamRows.isEmpty, model.displayLiveItems.isEmpty else { return nil }
+            guard expectedMessageID.isEmpty, expectedItemID.isEmpty, expectedItemKind.isEmpty,
+                  model.messages.isEmpty, model.streamRows.isEmpty, model.displayLiveItems.isEmpty else { return nil }
             let label = model.t(model.member.isEmpty ? "chat.empty_group" : "chat.empty_private")
             let actual = descendants(root).compactMap { $0 as? ReferenceLabelView }.filter {
                 $0.productionRegion == "conversation" && !label.isEmpty && $0.string == label && visible($0)
             }
-            return LatestObservation(messageID: "", rowID: "", markdown: 0, textViews: actual.count, bottomGap: nil, ready: !actual.isEmpty)
+            return LatestObservation(messageID: "", itemID: "", itemKind: "", rowID: "", messageLoaded: true, itemLoaded: true,
+                markdown: 0, textViews: actual.count, noticeLabels: 0, bottomGap: nil, ready: !actual.isEmpty)
         }
-        // Quiet organization events can follow the latest message. The fixture
-        // identifies that message independently, not the final timeline event.
-        guard let row = expected.isEmpty ? model.streamRows.last
-            : model.streamRows.first(where: { $0.item["id"].text == expected }) else { return nil }
-        let messageID = row.item["id"].text
-        guard !messageID.isEmpty, expected.isEmpty || expected == messageID else { return nil }
+        // The independent fixture distinguishes the last numeric message from
+        // the displayed tail: a later notice must be visibly rendered too.
+        guard !expectedItemID.isEmpty, !expectedItemKind.isEmpty, let row = model.streamRows.last,
+              row.item["id"].text == expectedItemID, row.item["type"].text == expectedItemKind else { return nil }
+        let messageLoaded = expectedMessageID.isEmpty
+            ? !model.messages.contains(where: { Int($0["id"].text) != nil })
+            : (Int(expectedMessageID) ?? 0) > 0 && model.messages.contains(where: { $0["id"].text == expectedMessageID })
+        let itemLoaded = model.messages.contains { $0["id"].text == expectedItemID && $0["type"].text == expectedItemKind }
         let native = descendants(root)
         guard let probe = native.compactMap({ $0 as? RenderReadiness.Probe }).first(where: {
             $0.kind == "conversation-row" && $0.identity == row.id && $0.visibleInViewport
@@ -172,10 +197,14 @@ enum PerformancePhase: String {
         let text = native.compactMap { $0 as? NSTextView }.filter {
             !$0.isEditable && !$0.string.isEmpty && visible($0) && intersects($0, row: rowBounds, root: root)
         }
+        let notice = text.compactMap { $0 as? ReferenceLabelView }.filter {
+            !$0.string.isEmpty && $0.string == row.item["text"].text && $0.enclosingScrollView === probe.enclosingScrollView
+        }
         let body = row.item["body"].text.isEmpty ? row.item["text"].text : row.item["body"].text
         let requiresMarkdown = !body.isEmpty && !["notice", "acts", "receipt"].contains(row.item["type"].text)
         // A header or an admitted row placeholder is not message content.
-        let actualBody = requiresMarkdown ? !markdown.isEmpty && text.contains(where: { $0 is QuoteTextView }) : !text.isEmpty
+        let actualBody = expectedItemKind == "notice" ? !notice.isEmpty
+            : requiresMarkdown ? !markdown.isEmpty && text.contains(where: { $0 is QuoteTextView }) : !text.isEmpty
         var bottomGap: CGFloat?
         if let scroll = probe.enclosingScrollView, let document = scroll.documentView {
             let clip = scroll.contentView.bounds
@@ -185,8 +214,10 @@ enum PerformancePhase: String {
         // A few pixels of a ready text view can intersect the viewport while
         // its readable body remains behind the composer. Require the actual
         // native end as well as the independent ID and native content checks.
-        return LatestObservation(messageID: messageID, rowID: row.id, markdown: markdown.count, textViews: text.count,
-            bottomGap: bottomGap, ready: actualBody && markdown.allSatisfy(\.ready) && bottomGap.map { $0 <= 2 } == true)
+        return LatestObservation(messageID: expectedMessageID, itemID: expectedItemID, itemKind: expectedItemKind, rowID: row.id,
+            messageLoaded: messageLoaded, itemLoaded: itemLoaded, markdown: markdown.count, textViews: text.count,
+            noticeLabels: expectedItemKind == "notice" ? notice.count : 0, bottomGap: bottomGap,
+            ready: messageLoaded && itemLoaded && actualBody && markdown.allSatisfy(\.ready) && bottomGap.map { $0 <= 2 } == true)
     }
     private static func intersects(_ view: NSView, row: CGRect, root: NSView) -> Bool {
         let overlap = view.convert(view.bounds, to: root).intersection(row)
