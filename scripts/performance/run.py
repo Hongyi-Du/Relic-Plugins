@@ -320,14 +320,87 @@ def resource_summary(samples):
             "steady_windows": windows, "errors": errors}
 
 
+def sample_idle_threads(native, client, phase, process_sample, ui_thread_id=None):
+    """External numeric-only diagnostics; never change the process CPU sample."""
+    if client != "windows" or phase != "idle":
+        return None
+    row = {"elapsed_seconds": process_sample["elapsed_seconds"], "action": process_sample["action"],
+           "ui_thread_id": ui_thread_id or None}
+    try:
+        row["threads"] = [{"thread_id": thread.id, "user_seconds": thread.user_time,
+                           "system_seconds": thread.system_time, "cpu_seconds": thread.user_time + thread.system_time}
+                          for thread in native.threads()]
+    except Exception as error:
+        # psutil can lose a thread/process or access while enumerating. This
+        # optional observation is not a replacement for the mandatory gate.
+        row["error"] = f"{type(error).__name__}: {error}"
+    return row
+
+
+def idle_thread_report(observations, ui_thread_id=None):
+    """Rank observed thread deltas in the same first ten-second idle window."""
+    result = {"source": "External psutil.Process.threads at the existing one-second process sampling cadence",
+              "ui_thread_id": ui_thread_id or None,
+              "ui_thread_source": "GetWindowThreadProcessId of the owned visible native window" if ui_thread_id else "not observed",
+              "cpu_time_not_subtracted": True,
+              "limitations": "Observed deltas are a lower bound: work before first/after last observation, terminated threads and reused IDs may be absent. They never replace whole-process CPU.",
+              "samples": observations, "intervals": [], "ranking": [], "errors": []}
+    rows = [row for row in observations if row["action"] == "idle-measure"]
+    if not rows or rows[-1]["elapsed_seconds"] - rows[0]["elapsed_seconds"] < 10:
+        result["errors"].append("No complete ten-second idle thread observation window")
+        return result
+    end = next(index for index, row in enumerate(rows) if row["elapsed_seconds"] - rows[0]["elapsed_seconds"] >= 10)
+    rows = rows[:end + 1]
+    result.update(start_seconds=rows[0]["elapsed_seconds"], end_seconds=rows[-1]["elapsed_seconds"],
+                  window_seconds=rows[-1]["elapsed_seconds"] - rows[0]["elapsed_seconds"])
+    totals = {}
+    for previous, current in zip(rows, rows[1:]):
+        interval = {"from_seconds": previous["elapsed_seconds"], "to_seconds": current["elapsed_seconds"],
+                    "threads": [], "observed_cpu_seconds": 0}
+        result["intervals"].append(interval)
+        if "error" in previous or "error" in current:
+            interval["error"] = "A boundary thread snapshot is unavailable; no delta inferred"
+            continue
+        before = {thread["thread_id"]: thread for thread in previous["threads"]}
+        after = {thread["thread_id"]: thread for thread in current["threads"]}
+        interval["appeared_thread_ids"] = sorted(after.keys() - before.keys())
+        interval["disappeared_thread_ids"] = sorted(before.keys() - after.keys())
+        interval["counter_reset_thread_ids"] = []
+        for tid in sorted(before.keys() & after.keys()):
+            user = after[tid]["user_seconds"] - before[tid]["user_seconds"]
+            system = after[tid]["system_seconds"] - before[tid]["system_seconds"]
+            if user < 0 or system < 0:
+                interval["counter_reset_thread_ids"].append(tid)
+                continue
+            total = totals.setdefault(tid, {"thread_id": tid, "is_ui_thread": tid == ui_thread_id,
+                                            "observed_cpu_seconds": 0, "user_seconds": 0, "system_seconds": 0,
+                                            "observed_intervals": 0})
+            total["observed_cpu_seconds"] += user + system
+            total["user_seconds"] += user
+            total["system_seconds"] += system
+            total["observed_intervals"] += 1
+            interval["observed_cpu_seconds"] += user + system
+            if user + system > 0:
+                interval["threads"].append({"thread_id": tid, "is_ui_thread": tid == ui_thread_id,
+                                            "cpu_seconds": user + system, "user_seconds": user, "system_seconds": system})
+    result["errors"] = [f"{row['elapsed_seconds']}: {row['error']}" for row in rows if "error" in row]
+    for total in totals.values():
+        total["observed_one_core_percent"] = total["observed_cpu_seconds"] / result["window_seconds"] * 100
+    result["ranking"] = sorted(totals.values(), key=lambda row: (-row["observed_cpu_seconds"], row["thread_id"]))
+    result["observed_thread_cpu_seconds"] = sum(row["observed_cpu_seconds"] for row in totals.values())
+    return result
+
+
 class WindowsProbe:
     def __init__(self, pid):
         self.pid, self.handle = pid, 0
+        self.thread_id = 0
         self.user = ctypes.WinDLL("user32", use_last_error=True)
         self.callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
         self.user.IsWindowVisible.argtypes = [ctypes.c_void_p]
         self.user.IsHungAppWindow.argtypes = [ctypes.c_void_p]
         self.user.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        self.user.GetWindowThreadProcessId.restype = ctypes.c_ulong
         self.user.SendMessageTimeoutW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t,
                                                  ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_size_t)]
         self.user.SendMessageTimeoutW.restype = ctypes.c_size_t
@@ -336,9 +409,10 @@ class WindowsProbe:
         if not self.handle:
             def visit(handle, _):
                 pid = ctypes.c_ulong()
-                self.user.GetWindowThreadProcessId(handle, ctypes.byref(pid))
+                thread_id = self.user.GetWindowThreadProcessId(handle, ctypes.byref(pid))
                 if pid.value == self.pid and self.user.IsWindowVisible(handle):
                     self.handle = handle
+                    self.thread_id = thread_id
                     return False
                 return True
             self.user.EnumWindows(self.callback_type(visit), 0)
@@ -347,7 +421,7 @@ class WindowsProbe:
         started = time.monotonic()
         result = ctypes.c_size_t()
         responded = bool(self.user.SendMessageTimeoutW(self.handle, 0, 0, 0, 0x0002 | 0x0020, UI_LIMIT_MS, ctypes.byref(result)))
-        return {"window_found": True, "hwnd": int(self.handle), "not_responding": bool(self.user.IsHungAppWindow(self.handle)),
+        return {"window_found": True, "hwnd": int(self.handle), "ui_thread_id": int(self.thread_id), "not_responding": bool(self.user.IsHungAppWindow(self.handle)),
                 "wm_null_responded": responded, "wm_null_ms": (time.monotonic() - started) * 1000}
 
 
@@ -422,6 +496,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                CODEX_HOME=str(output / "codex"), RELIC_LANG="zh-CN", TZ="UTC")
     env.pop("RELIC_VISUAL_MANIFEST", None)
     errors, samples, windows, heartbeats = [], [], [], []
+    idle_threads = []
     native_receipt = None
     with (output / "native.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(exe)], env=env, stdout=log, stderr=log, creationflags=creation_flags())
@@ -470,6 +545,9 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                                "threads": native.num_threads(), "cpu_seconds": cpu.user + cpu.system,
                                "action": (heartbeat or {}).get("action", "startup")}
                     row["phase"] = "monkey" if row["action"].lower().startswith(("random", "monkey")) else "exhaustive"
+                    thread_sample = sample_idle_threads(native, client, phase, row, window_probe.thread_id if window_probe else None)
+                    if thread_sample is not None:
+                        idle_threads.append(thread_sample)
                     children = []
                     for child in native.children(recursive=True):
                         try:
@@ -550,6 +628,13 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
         "history": [{k: a.get(k) for k in ("id", "passed", "pages_loaded", "oldest_message_id", "history_complete")}
                     for a in completed_actions if a.get("kind") == "scroll-history"],
     }
+    if client == "windows" and phase == "idle":
+        thread_report = idle_thread_report(idle_threads, window_probe.thread_id)
+        thread_report["process_idle_one_core_percent"] = phase_measurements.get("idle_one_core_percent")
+        atomic_json(output / "idle-thread-cpu.json", thread_report)
+        report["thread_cpu_diagnostics"] = {"file": "idle-thread-cpu.json", "ui_thread_id": window_probe.thread_id or None,
+                                            "observed_thread_cpu_seconds": thread_report.get("observed_thread_cpu_seconds"),
+                                            "errors": thread_report["errors"], "cpu_time_not_subtracted": True}
     atomic_json(output / "responsiveness-report.json", report)
     print(json.dumps({k: report[k] for k in ("client", "mode", "diagnostic", "acceptance_eligible", "passed", "worst_ui_stall_ms", "resources", "errors")}, ensure_ascii=False), flush=True)
     return report

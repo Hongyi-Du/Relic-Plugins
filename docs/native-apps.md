@@ -1,5 +1,15 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Offline symbol replay41547913947 passes exact DLL/PDB identity and all-offset
+verification. The retained actual UI stack resolves to TrueType glyph raster:
+fsg_ExecuteGlyph/GlyphLookupCache -> D2D DrawGlyphRun -> native CTextBlock
+HWBuildGlyphRunTextures. This identifies first-paint work, not a repaired gate.
+Conversation date/grouping/row-identity preparation now runs on one bounded
+background worker, with canceled/stale navigation rejected before UI commit.
+History and latest waits also include that actual model preparation. Page size
+remains1000. Shared idle diagnostics now retain external per-thread CPU samples
+over the unchanged first ten-second interval; no CPU is subtracted or waived.
+
 Changes for the clients: integrated Mac03f2590 via2dfd2bf, moving native table
 configuration outside delegate callbacks. REQUESTS retains the existing strict
 gates and reports Mac331 tests/package passing on2426050; pressure still fails.

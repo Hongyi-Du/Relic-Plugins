@@ -470,9 +470,17 @@ internal sealed class NativeChatList : Grid
     {
         var host = TryGetRealizedRow(entries.Count - 1);
         var bounds = host is { IsLoaded: true } ? Bounds(host, viewport) : (Windows.Foundation.Rect?)null;
+        var targetIndex = position == null ? -1 : position.Kind == PositionKind.Latest ? entries.Count - 1
+            : position.Kind == PositionKind.First ? 0 : entries.ToList().FindIndex(entry => entry.Row.Key == position.Key);
+        var target = TryGetRealizedRow(targetIndex);
         return new { implementation = "ListView/ItemsStackPanel", revision, committed, realized = Realized,
             pending_builds = PendingBuilds, offset = viewport.VerticalOffset, maximum = viewport.ScrollableHeight,
             intent = position?.Kind.ToString(), corrections = position?.Corrections, settled = position?.Settled ?? false,
+            requested_key = position?.RequestedEntry?.Row.Key, target_index = targetIndex,
+            target_loaded = target?.IsLoaded ?? false, target_prepared = target != null && ReadyHost(target),
+            correction_pending = position?.CorrectionPending ?? false,
+            correction_completed = position?.CorrectionCompleted ?? false,
+            content_ready = position?.IsReady(),
             last_row = new { loaded = host?.IsLoaded ?? false, child_ready = host?.Child != null, top = bounds?.Top, bottom = bounds?.Bottom } };
     }
 }

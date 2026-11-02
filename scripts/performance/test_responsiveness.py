@@ -313,6 +313,84 @@ class SyntheticStore(unittest.TestCase):
         self.assertEqual(len(largest["protocols"]), 12)
 
 
+class IdleThreadObservation(unittest.TestCase):
+    def snapshot(self, second, counters):
+        native = Mock()
+        native.threads.return_value = [SimpleNamespace(id=tid, user_time=user, system_time=system)
+                                      for tid, user, system in counters]
+        process = {"elapsed_seconds": second, "action": "idle-measure", "cpu_seconds": 100 + second * .03,
+                   "rss_bytes": 100 * 1048576, "threads": len(counters)}
+        original = dict(process)
+        observed = driver.sample_idle_threads(native, "windows", "idle", process, 1)
+        self.assertEqual(process, original)
+        native.threads.assert_called_once_with()
+        return observed, process
+
+    def test_no_thread_query_outside_windows_idle(self):
+        native = Mock()
+        for client, phase in (("macos", "idle"), ("windows", "history"), ("windows", None)):
+            self.assertIsNone(driver.sample_idle_threads(native, client, phase, {}))
+        native.threads.assert_not_called()
+
+    def test_ranks_external_deltas_and_keeps_the_original_whole_process_gate(self):
+        observed, process = zip(*(self.snapshot(second, [(1, second * .01, 0), (2, 0, second * .02)])
+                                  for second in range(12)))
+        original_gate = driver.phase_resources("idle", process)
+        report = driver.idle_thread_report(observed, 1)
+        self.assertEqual(report["window_seconds"], 10)
+        self.assertEqual([row["thread_id"] for row in report["ranking"]], [2, 1])
+        self.assertAlmostEqual(report["ranking"][0]["observed_cpu_seconds"], .2)
+        self.assertAlmostEqual(report["ranking"][1]["observed_cpu_seconds"], .1)
+        self.assertTrue(report["ranking"][1]["is_ui_thread"])
+        self.assertAlmostEqual(report["observed_thread_cpu_seconds"], .3)
+        self.assertEqual(driver.phase_resources("idle", process), original_gate)
+        self.assertAlmostEqual(original_gate["idle_one_core_percent"], 3)
+        self.assertTrue(original_gate["errors"])
+        self.assertTrue(report["cpu_time_not_subtracted"])
+
+    def test_new_exited_and_reset_threads_are_not_fabricated_as_complete_cpu(self):
+        observed = [self.snapshot(0, [(1, 5, 0), (2, 1, 0)])[0],
+                    self.snapshot(1, [(1, 5.1, 0), (3, 4, 0)])[0],
+                    self.snapshot(10, [(1, .1, 0), (3, 4.2, 0)])[0]]
+        report = driver.idle_thread_report(observed, 1)
+        self.assertEqual(report["intervals"][0]["appeared_thread_ids"], [3])
+        self.assertEqual(report["intervals"][0]["disappeared_thread_ids"], [2])
+        self.assertEqual(report["intervals"][1]["counter_reset_thread_ids"], [1])
+        self.assertAlmostEqual(report["observed_thread_cpu_seconds"], .3)
+
+    def test_failed_thread_snapshot_is_retained_as_unavailable_not_zero_work(self):
+        native = Mock()
+        native.threads.side_effect = PermissionError("synthetic access failure")
+        failed = driver.sample_idle_threads(native, "windows", "idle",
+                                             {"elapsed_seconds": 1, "action": "idle-measure"}, 1)
+        self.assertNotIn("threads", failed)
+        self.assertIn("PermissionError", failed["error"])
+        observations = [self.snapshot(0, [(1, 0, 0)])[0], failed, self.snapshot(10, [(1, 1, 0)])[0]]
+        report = driver.idle_thread_report(observations, 1)
+        self.assertTrue(report["errors"])
+        self.assertTrue(all("error" in row for row in report["intervals"]))
+        self.assertEqual(report["ranking"], [])
+
+    def test_visible_owned_window_identifies_its_actual_thread_without_launch(self):
+        probe = object.__new__(driver.WindowsProbe)
+        probe.pid, probe.handle, probe.thread_id = 123, 0, 0
+        probe.user = Mock()
+        probe.callback_type = lambda callback: callback
+        def owner(handle, pid):
+            pid._obj.value = 123
+            return 321
+        probe.user.GetWindowThreadProcessId.side_effect = owner
+        probe.user.EnumWindows.side_effect = lambda callback, parameter: callback(777, parameter)
+        probe.user.IsWindowVisible.return_value = True
+        probe.user.IsHungAppWindow.return_value = False
+        probe.user.SendMessageTimeoutW.return_value = 1
+        with patch.object(driver.time, "monotonic", side_effect=[1, 1.001]):
+            row = probe.sample()
+        self.assertEqual(row["ui_thread_id"], 321)
+        self.assertEqual(probe.thread_id, 321)
+        self.assertEqual(row["hwnd"], 777)
+
+
 class WatchdogPolicy(unittest.TestCase):
     def sample(self, second, rss=100 * 1048576, threads=30):
         return {"elapsed_seconds": second, "rss_bytes": rss, "threads": threads,
