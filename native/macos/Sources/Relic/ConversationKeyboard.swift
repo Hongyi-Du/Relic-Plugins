@@ -11,9 +11,60 @@ import SwiftUI
     var scrollToEdge: ((Bool) -> Void)?
     var didUserScroll: ((Bool) -> Void)?
     var positionObservation: (() -> [String: Any])?
+    struct Geometry: Equatable {
+        let height: CGFloat, viewportHeight: CGFloat, width: CGFloat, topGap: CGFloat
+    }
+    var geometryChanged: ((Geometry) -> Void)?
+    var observedHeight: CGFloat = 0
+    private var geometryQueued = false
+    private var lastGeometry: Geometry?
+    private var scrollObservers: [NSObjectProtocol] = []
+    private let mounts = NSHashTable<NSView>.weakObjects()
     private var disclosureOrigin: NSPoint?
     private var disclosureHeight: CGFloat = 0
     private var disclosureGeneration = 0
+
+    /// Each visible List cell can resolve its enclosing viewport. Its controller
+    /// owns one observer set, so recycling a cell never detaches the live list
+    /// and hundreds of history rows never create hundreds of scroll listeners.
+    func attach(_ current: NSScrollView, owner: NSView) {
+        if scroll === current, !scrollObservers.isEmpty { mounts.add(owner); return }
+        for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) }
+        mounts.removeAllObjects(); mounts.add(owner)
+        scrollObservers = []; scroll = current; lastGeometry = nil
+        current.contentView.postsBoundsChangedNotifications = true
+        current.documentView?.postsFrameChangedNotifications = true
+        for (name, object) in [(NSView.boundsDidChangeNotification, current.contentView as NSView?),
+                               (NSView.frameDidChangeNotification, current.documentView)] {
+            guard let object else { continue }
+            scrollObservers.append(NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.queueGeometry() }
+            })
+        }
+        scrollObservers.append(NotificationCenter.default.addObserver(forName: NSScrollView.didLiveScrollNotification, object: current, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.userScrolled() }
+        })
+        queueGeometry()
+    }
+    func detach(_ owner: NSView) {
+        mounts.remove(owner)
+        guard mounts.allObjects.isEmpty else { return }
+        for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) }
+        scrollObservers = []; scroll = nil; lastGeometry = nil
+    }
+    private func queueGeometry() {
+        guard !geometryQueued else { return }; geometryQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }; self.geometryQueued = false
+            guard let scroll = self.scroll, let document = scroll.documentView else { return }
+            let clip = scroll.contentView.bounds
+            let top = document.isFlipped ? clip.minY - document.bounds.minY : document.bounds.maxY - clip.maxY
+            let value = Geometry(height: document.bounds.height, viewportHeight: clip.height, width: clip.width, topGap: max(0, top))
+            guard value != self.lastGeometry else { return }
+            self.lastGeometry = value; self.geometryChanged?(value)
+        }
+    }
+    deinit { for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) } }
 
     func userScrolled() {
         guard enabled, let scroll, let document = scroll.documentView else { return }
@@ -140,7 +191,6 @@ struct ConversationKeyboardMount: NSViewRepresentable {
     final class Mount: NSView {
         fileprivate weak var keyboard: ConversationKeyboard?
         fileprivate weak var attachedScroll: NSScrollView?
-        private var liveScrollObserver: NSObjectProtocol?
         private var enabled = true, focused = false
         init(keyboard: ConversationKeyboard) { self.keyboard = keyboard; super.init(frame: .zero) }
         required init?(coder: NSCoder) { return nil }
@@ -169,25 +219,12 @@ struct ConversationKeyboardMount: NSViewRepresentable {
         }
         func resolveScroll() {
             guard window != nil, let current = enclosingScrollView else {
-                if let liveScrollObserver { NotificationCenter.default.removeObserver(liveScrollObserver) }
-                liveScrollObserver = nil
-                if keyboard?.scroll === attachedScroll { keyboard?.scroll = nil }
-                attachedScroll = nil; return
+                keyboard?.detach(self); attachedScroll = nil; return
             }
-            if attachedScroll !== current {
-                if let liveScrollObserver { NotificationCenter.default.removeObserver(liveScrollObserver) }
-                // Unlike generic clip bounds changes, AppKit posts this only
-                // for user input, including legacy wheels without start/end.
-                liveScrollObserver = NotificationCenter.default.addObserver(forName: NSScrollView.didLiveScrollNotification,
-                    object: current, queue: .main) { [weak self] _ in
-                        MainActor.assumeIsolated { self?.keyboard?.userScrolled() }
-                    }
-            }
-            attachedScroll = current; keyboard?.scroll = current
+            attachedScroll = current; keyboard?.attach(current, owner: self)
             keyboard?.enabled = enabled
-            current.setAccessibilityIdentifier(ConversationKeyboard.identifier)
-            current.setAccessibilityEnabled(enabled)
+            if current.accessibilityIdentifier() != ConversationKeyboard.identifier { current.setAccessibilityIdentifier(ConversationKeyboard.identifier) }
+            if current.isAccessibilityEnabled() != enabled { current.setAccessibilityEnabled(enabled) }
         }
-        deinit { if let liveScrollObserver { NotificationCenter.default.removeObserver(liveScrollObserver) } }
     }
 }

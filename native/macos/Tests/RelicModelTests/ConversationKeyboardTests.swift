@@ -305,4 +305,29 @@ import RelicCore
         XCTAssertEqual(scroll.contentView.bounds.origin, position)
         XCTAssertFalse(actual.isAccessibilityElement())
     }
+
+    func testRecyclingAListCellKeepsOneViewportObserverForRemainingCells() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
+        scroll.documentView = document; window.contentView = scroll; scroll.tile()
+        defer { window.contentView = nil; window.close() }
+        let keyboard = ConversationKeyboard()
+        let first = ConversationKeyboardMount.Mount(keyboard: keyboard)
+        let second = ConversationKeyboardMount.Mount(keyboard: keyboard)
+        document.addSubview(first); document.addSubview(second)
+        first.resolveScroll(); second.resolveScroll()
+        var count = 0; keyboard.didUserScroll = { _ in count += 1 }
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+        XCTAssertEqual(count, 1, "Visible cells share a single native input observer")
+        first.removeFromSuperview()
+        XCTAssertTrue(keyboard.scroll === scroll)
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+        XCTAssertEqual(count, 2, "Recycling one cell must leave the viewport usable")
+        second.removeFromSuperview()
+        XCTAssertNil(keyboard.scroll)
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+        XCTAssertEqual(count, 2, "The last detached cell must remove native observers")
+    }
 }

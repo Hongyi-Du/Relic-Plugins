@@ -1,5 +1,28 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+33965c1原生324项测试有6个断言失败：50行和1063行End未到末尾，跨聊天首次挂载正文缺失。
+原生scrollPosition绑定未修复问题，已移除。当前候选改用SwiftUI标准List管理行回收与
+可变高度，保留原生viewport/composer；真实clip范围通知驱动原有200条历史分页，
+Home/End仍通过ScrollViewReader的行身份定位，不维护虚拟偏移。
+每个可见cell只登记所属viewport，控制器共用一组通知，最后一个cell移除时清理；新增回收测试。
+聊天选择先并行请求并后台准备正文，再一次性发布selection/snapshot/messages/rows，
+避免先清空1000行再重建。请求失败保旧聊天，连续点击取消过时请求，同聊天刷新保历史/草稿。
+新增6项网络竞态及真实原生正文测试；原有全部首尾/阅读位置断言保留，效果待CI。
+33965c1的Python验证41541625632四组全部PASS。尚无最终Mac包。
+
+33965c1 / Native responsiveness 41541625578：macOS large 的 idle 阶段首次 PASS，
+完整12.05秒空闲、共享统计窗口10.269秒、单核CPU1.45438%、峰值160.797 MiB/7线程；
+末段内存168591360 bytes低于首段168607744，线程7→6。
+这只证明该阶段通过：open315.774 ms、switch618.812 ms仍超过250 ms；history339.694 ms
+在第二组织失败；workflows220.197 ms但action0056群聊的原生消息行=0；monkey147.234 ms
+但消息区未挂载完成，未跑满180秒。没有完整验收资格。
+证据：S:\Codex\Outputs\Relic-native-visual\responsiveness-33965c1\macos-large\。
+
+共享Windows已找到1e1fc14“点不开”的直接源码原因：SidebarCopies的ItemClick只接受
+ListViewItem，但实际ClickedItem是行的Content（Grid），因此真实点击直接返回。
+a966c05改为从Content解析所属行，再调用绑定动作；早期测试的同类类型假设也修正。
+这与此前已证实的全量重建/重复布局问题并存，仍需完整压力结果，不能推断2.5 GB唯一成因。
+
 761bfa9 Native apps41537608421 的318项测试、两端构建和包全部通过。
 a883d15 /41540453439 已编译，319项测试中2个断言失败，均来自新增“消息后接3条
 事件”的50行真实Home/End场景：尾部差2186 pt、最新正文未出现。其余317项测试通过，
