@@ -14,7 +14,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "plugins" / "relic"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from relic_core.process import creation_flags
+from phases import PHASES, phase_plan, phase_receipt_errors, phase_resources
 
 UI_LIMIT_MS = 250
 DIAGNOSTIC_PRESENTATION_SAMPLE_MS = 100
@@ -252,11 +254,14 @@ def coverage_errors(receipt, manifest):
         elif expected["kind"] == "scroll-history":
             if not observed.get("history_complete") or int(observed.get("oldest_message_id") or 0) != expected["first_message_id"]:
                 errors.append(f"History did not reach its actual first message: {expected['org']}")
-    if float(receipt.get("random_seconds") or 0) < manifest["seconds"]:
-        errors.append("The seeded monkey phase did not run for the full requested duration")
-    if int(receipt.get("random_actions") or 0) < 1:
-        errors.append("The seeded monkey phase did not execute an action")
-    errors.extend(monkey_click_errors(receipt))
+    if manifest.get("phase", "monkey") == "monkey":
+        if float(receipt.get("random_seconds") or 0) < manifest["seconds"]:
+            errors.append("The seeded monkey phase did not run for the full requested duration")
+        if int(receipt.get("random_actions") or 0) < 1:
+            errors.append("The seeded monkey phase did not execute an action")
+        errors.extend(monkey_click_errors(receipt))
+    if manifest.get("version", 1) >= 2:
+        errors.extend(phase_receipt_errors(receipt, manifest))
     if receipt.get("seed") != manifest["seed"]:
         errors.append("The native interaction seed does not match its manifest")
     return errors
@@ -386,17 +391,27 @@ def wait_json(path, process, seconds=90):
     raise TimeoutError(f"No {path.name} after {seconds} seconds")
 
 
-def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=False):
+def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=False, phase=None):
     import psutil
     policy = observation_policy(diagnostic)
     state = output / "native-state"
     state.mkdir()
-    plan = action_plan(fixture)
-    monkey = list(plan)
+    full_plan = action_plan(fixture)
+    plan = phase_plan(phase, full_plan) if phase else full_plan
+    expected_chats = {org["id"]: org for org in fixture["orgs"]}
+    for action in plan:
+        if action["kind"] in ("organization", "group", "private"):
+            expected = expected_chats[action["org"]]
+            member = action.get("member", "")
+            action["latest_message_id"] = expected.get("latest_private_message_ids", {}).get(member) if member else expected.get("latest_group_message_id")
+            action["expected_empty"] = expected.get("private_expected_empty", {}).get(member, False) if member else expected.get("group_expected_empty", False)
+    monkey = list(full_plan)
     random.Random(seed_value).shuffle(monkey)
-    manifest = {"version": 1, "client": client, "output": str(output), "fixture": fixture,
+    manifest = {"version": 2 if phase else 1, "client": client, "output": str(output), "fixture": fixture,
                 "seconds": seconds, "seed": seed_value, "max_ui_stall_ms": UI_LIMIT_MS,
                 "plan": plan, "monkey": monkey}
+    if phase:
+        manifest["phase"] = phase
     manifest_path = output / "manifest.json"
     atomic_json(manifest_path, manifest)
     env = dict(os.environ, RELIC_PERF_MANIFEST=str(manifest_path), RELIC_PERF_OUTPUT=str(output),
@@ -419,6 +434,8 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
             ready = wait_json(output / "performance-ready.json", process)
             if ready.get("pid") != process.pid:
                 raise RuntimeError("Native readiness identifies a different process")
+            if phase and ready.get("phases_version") != 2:
+                raise RuntimeError("Native client does not support acceptance manifest v2 phases")
             while time.monotonic() - started < seconds + 600:
                 elapsed = time.monotonic() - started
                 heartbeat = read_json(output / "heartbeat.json")
@@ -444,7 +461,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                 elif elapsed > 5:
                     if "No native heartbeat after readiness" not in errors:
                         errors.append("No native heartbeat after readiness")
-                if elapsed - last_sample >= 1 and process.poll() is None:
+                if elapsed - last_sample >= (.1 if phase == "switch-chats" else 1) and process.poll() is None:
                     with native.oneshot():
                         cpu = native.cpu_times()
                         row = {"elapsed_seconds": elapsed, "rss_bytes": native.memory_info().rss,
@@ -495,6 +512,8 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
             stop_owned(process)
     resources = resource_summary(samples)
     errors.extend(resources["errors"])
+    phase_measurements = phase_resources(phase, samples) if phase else {}
+    errors.extend(phase_measurements.get("errors", []))
     if native_receipt:
         errors.extend(str(e) for e in native_receipt.get("errors", []))
         errors.extend(coverage_errors(native_receipt, manifest))
@@ -507,6 +526,7 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
     worst = max([float(h.get("max_ui_stall_ms") or 0) for h in heartbeats]
                 + [float((native_receipt or {}).get("max_ui_stall_ms") or 0)], default=0)
     report = {"version": 1, "commit": os.environ.get("GITHUB_SHA"), "client": client, "mode": mode, **policy,
+              "phase": phase, "profile": fixture.get("profile", "large"), "phase_measurements": phase_measurements,
               "fixture_counts": fixture["counts"], "fixture_seed": seed_value, "duration_seconds": seconds,
               "passed": not errors, "errors": list(dict.fromkeys(errors)), "worst_ui_stall_ms": worst,
               "resources": resources, "native_receipt": native_receipt, "limits": {
@@ -514,6 +534,20 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
               "samples": samples, "heartbeats": heartbeats, "window_probes": windows,
               "diagnostic_stacks": stacks.summary(),
               "live_updates": read_json(fixture["live_report"])}
+    action_evidence = native_receipt or read_json(output / "performance-actions.json") or {}
+    completed_actions = action_evidence.get("actions", [])
+    open_times = [a["open_ms"] for a in completed_actions if isinstance(a.get("open_ms"), (int, float))]
+    report["action_summary"] = {
+        "source": "completion" if native_receipt else "partial observation; not completion",
+        "planned": len(plan), "observed": len(completed_actions),
+        "passed": sum(a.get("passed") is True for a in completed_actions),
+        "failed": sum(a.get("passed") is not True for a in completed_actions),
+        "open_max_ms": max(open_times, default=None),
+        "random_seconds": action_evidence.get("random_seconds"),
+        "random_actions": action_evidence.get("random_actions"),
+        "history": [{k: a.get(k) for k in ("id", "passed", "pages_loaded", "oldest_message_id", "history_complete")}
+                    for a in completed_actions if a.get("kind") == "scroll-history"],
+    }
     atomic_json(output / "responsiveness-report.json", report)
     print(json.dumps({k: report[k] for k in ("client", "mode", "diagnostic", "acceptance_eligible", "passed", "worst_ui_stall_ms", "resources", "errors")}, ensure_ascii=False), flush=True)
     return report
@@ -529,6 +563,8 @@ def main():
     parser.add_argument("--seconds", type=int, default=180)
     parser.add_argument("--seed", type=int, default=1729)
     parser.add_argument("--mode", choices=("baseline", "candidate"), default="candidate")
+    parser.add_argument("--profile", choices=("large", "person-shape"), default="large")
+    parser.add_argument("--phase", choices=PHASES, help="Run one phase; default runs all independently in priority order")
     parser.add_argument("--diagnostic", action="store_true",
                         help="Observe 30 seconds after a failure; always exit unsuccessfully and never count as acceptance")
     args = parser.parse_args()
@@ -539,11 +575,35 @@ def main():
     fixture_output = output / "fixture"
     with (output / "fixture.log").open("w", encoding="utf-8") as log:
         server = subprocess.Popen([sys.executable, "-X", "utf8", str(Path(__file__).with_name("fixture.py")),
-                                   "--output", str(fixture_output), "--seed", str(args.seed)],
+                                   "--output", str(fixture_output), "--seed", str(args.seed), "--profile", args.profile],
                                   stdout=log, stderr=log, creationflags=creation_flags())
         try:
             fixture = wait_json(fixture_output / "fixture.json", server, seconds=120)
-            report = measure(args.exe.resolve(), output, fixture, args.client, args.seconds, args.seed, args.mode, args.diagnostic)
+            reports = []
+            for phase in ([args.phase] if args.phase else PHASES):
+                phase_output = output / phase
+                phase_output.mkdir()
+                idle_trigger = Path(fixture["idle_trigger"])
+                if phase == "idle":
+                    idle_trigger.touch()
+                try:
+                    phase_report = measure(args.exe.resolve(), phase_output, fixture, args.client,
+                                           args.seconds, args.seed, args.mode, args.diagnostic, phase)
+                except Exception as error:
+                    # Observation/launch failures cannot erase independent phases.
+                    phase_report = {"phase": phase, "passed": False, "errors": [repr(error)],
+                                    **observation_policy(args.diagnostic)}
+                    atomic_json(phase_output / "responsiveness-report.json", phase_report)
+                finally:
+                    idle_trigger.unlink(missing_ok=True)
+                reports.append(phase_report)
+                report = {"version": 2, "commit": os.environ.get("GITHUB_SHA"), "client": args.client,
+                          "profile": args.profile, **observation_policy(args.diagnostic),
+                          "passed": len(reports) == (1 if args.phase else len(PHASES)) and all(r["passed"] for r in reports),
+                          "phases": [{k: v for k, v in r.items() if k not in ("samples", "heartbeats", "window_probes", "native_receipt")}
+                                     for r in reports], "fixture_counts": fixture["counts"],
+                          "errors": [f"{r['phase']}: {error}" for r in reports for error in r.get("errors", [])]}
+                atomic_json(output / "responsiveness-report.json", report)
         finally:
             stop_owned(server)
     if not report["passed"]:

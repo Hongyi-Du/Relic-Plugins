@@ -16,6 +16,22 @@ defaults locally. SDK generic.xaml does define DefaultScrollViewStyle;
 absence of that key from the SDK is not the diagnosed cause. A successful
 headless compile alone is insufficient; CI startup must verify the correction.
 
+d7de253 verifies that minimum startup correction: Windows whole-window chrome
+(41534448793) and adaptive windows (41534448691) both pass all four cases.
+The pressure run 41534448708 still FAILS, now after startup: 813.100 ms worst
+UI delay, 323.578 MiB /37 threads, with a non-responding probe during overview.
+The new ScrollView candidate therefore regresses core responsiveness relative
+to 4b55926. Restore the conversation product path to that known-running base
+while retaining the independent v2 input/phase observations. History remains
+unaccepted until its own unchanged gate passes; startup evidence is not used
+as a substitute for chat or resource acceptance.
+
+Changes for the clients: native-macos a4a4101's visible-target end-range fix
+was merged in d7de253; REQUESTS has no server dependency. The Amendment 9
+REQUESTS in 37a9d38 is addressed by manifest v2, separate processes, both
+fixture profiles and the contract in native-responsiveness.md. Chosen field
+names are documented there so both clients can consume the same manifest.
+
 11e6ec5 / 41253590421 still FAILS Windows, despite passing all 175 fixed
 interactions and the four complete history/top/End cases. Random history case
 monkey-51 now reaches the real initial last row, loads all 1,253 messages and

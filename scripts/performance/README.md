@@ -1,5 +1,13 @@
 # Native responsiveness contract
 
+The current Amendment 9 contract is
+[docs/native-responsiveness.md](../../docs/native-responsiveness.md).
+`--profile large|person-shape` selects either synthetic data set. With no
+`--phase`, all six independent phases run in priority order and produce an
+aggregate `responsiveness-report.json`, plus one full report per phase.
+A failed phase does not prevent later phases from running. `--phase` is useful
+for focused iteration, but a single-phase report is not full acceptance.
+
 This harness runs only in GitHub Actions. It creates its own synthetic store;
 it never reads or copies `~/.relic`, and never launches a provider/member session.
 Diagnostic runs additionally resolve retained DWrite/Direct2D/WinUI native
@@ -14,19 +22,22 @@ Use `python scripts/performance/run.py --client windows|macos --exe ... --output
 The driver exports `RELIC_PERF_MANIFEST`, `RELIC_PERF_OUTPUT`, `RELIC_HOME`,
 `RELIC_ENGINE_ROOT`, `RELIC_PYTHON`, and isolated native-state/config directories.
 
-The manifest is JSON, version 1:
+The manifest is JSON, version 2:
 
 ```
-{version:1, client:"windows", output:"...", seconds:180, seed:1729,
+{version:2, phase:"open-every-chat", client:"windows", output:"...", seconds:180, seed:1729,
  max_ui_stall_ms:250, fixture:{home,port,token,instance,pid,workspace,
  orgs:[{id,members:["secretary",...],group_messages:5500}],counts:{...}},
  plan:[{id,kind,...}], monkey:[{id,kind,...},...]}
 ```
 
-`plan` is the deterministic exhaustive phase. The client must execute every row
+`plan` is the selected phase's deterministic action list. The client must execute every row
 through the same production controls/commands as ordinary interaction, recording
 the actual result. `monkey` is a seeded repeating action deck; run it for at least
-`seconds` after the exhaustive phase, not for a fixed small number of actions.
+`seconds` in the `monkey` phase, not for a fixed small number of actions.
+Other phases do not run the monkey deck. `switch-chats` includes a complete
+warm-up tour followed by exactly 200 measured switches. `idle` pauses only the
+fixture's synthetic producer; real app background work remains measured.
 Kinds and fields:
 
 - `group`: `org`; select the organization's group conversation.
@@ -55,7 +66,7 @@ initial organization rendering. A single background worker posts at most one UI
 probe at a time, approximately every 50 ms. It must continue publishing even if
 the UI is stuck. Write files atomically into `output`:
 
-- `performance-ready.json`: `{pid,unix_ms}`; identifies the real process.
+- `performance-ready.json`: `{pid,unix_ms,phases_version:2}`; identifies the real process and phase support.
 - `heartbeat.json`: `{unix_ms,sequence,pings,max_ui_stall_ms,
   pending_since_unix_ms,action}`. Use epoch milliseconds; pending is 0 when no
   probe awaits dispatch. The max measures actual UI probe round-trip latency.

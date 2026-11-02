@@ -32,9 +32,13 @@ jobs:
         run: python -m unittest discover -s scripts/performance -p 'test_*.py' -v
   windows:
     runs-on: windows-2025
-    timeout-minutes: 25
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [large, person-shape]
     concurrency:
-      group: native-responsiveness-windows-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
+      group: native-responsiveness-windows-${{ matrix.profile }}-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -65,26 +69,33 @@ jobs:
         run: |
           $diagnosticArgs = @()
           if ($env:RELIC_PERF_DIAGNOSTIC -eq 'true') { $diagnosticArgs += '--diagnostic' }
-          python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --mode ${{ inputs.mode || 'candidate' }} @diagnosticArgs
+          python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --profile ${{ matrix.profile }} --mode ${{ inputs.mode || 'candidate' }} @diagnosticArgs
       - name: Resolve retained native frames with matching Microsoft symbols after measurement
         if: ${{ always() && inputs.diagnostic == true }}
         continue-on-error: true
         timeout-minutes: 6
-        run: python -X utf8 scripts/performance/resolve_symbols.py --exe native-build/diagnostics-native/Release/Relic.NativeStack.exe --output performance/windows
+        run: |
+          Get-ChildItem performance/windows -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'stacks') } | ForEach-Object {
+            python -X utf8 scripts/performance/resolve_symbols.py --exe native-build/diagnostics-native/Release/Relic.NativeStack.exe --output $_.FullName
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Relic-responsiveness-Windows-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
+          name: Relic-responsiveness-Windows-${{ matrix.profile }}-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
           path: |
             performance/windows
-            !performance/windows/symbol-cache/**
+            !performance/windows/**/symbol-cache/**
           # Symbol caches can be large; retain the exact identities, resolved
           # frames and original stacks, not downloaded Microsoft PDB binaries.
   macos:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [large, person-shape]
     concurrency:
-      group: native-responsiveness-macos-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
+      group: native-responsiveness-macos-${{ matrix.profile }}-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -102,10 +113,10 @@ jobs:
           diagnostic_args=()
           if [[ "$RELIC_PERF_DIAGNOSTIC" == "true" ]]; then diagnostic_args+=(--diagnostic); fi
           for binary in native-build/performance-macos/*/Relic.app/Contents/MacOS/Relic; do
-            python3 scripts/performance/run.py --client macos --exe "$binary" --output performance/macos --mode '${{ inputs.mode || 'candidate' }}' "${diagnostic_args[@]}"
+            python3 scripts/performance/run.py --client macos --exe "$binary" --output performance/macos --profile '${{ matrix.profile }}' --mode '${{ inputs.mode || 'candidate' }}' "${diagnostic_args[@]}"
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Relic-responsiveness-macOS-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
+          name: Relic-responsiveness-macOS-${{ matrix.profile }}-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
           path: performance/macos

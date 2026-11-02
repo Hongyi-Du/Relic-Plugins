@@ -38,7 +38,7 @@ public sealed partial class MainWindow : Window
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, Grid> fieldSurfaces = new();
 
     private readonly InfoBar error = new() { Severity = InfoBarSeverity.Error, IsClosable = true };
-    private readonly ScrollView chatScroll;
+    private readonly ScrollViewer chatScroll;
     private readonly Grid chatHead = new() { Height = 56, Padding = new Thickness(20, 0, 14, 0), ColumnSpacing = 12, BorderThickness = new Thickness(0, 0, 0, 1) };
     private readonly StackPanel menu = new() { Orientation = Orientation.Horizontal };
     private readonly TextBlock appTitle = new() { FontSize = 12.5, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
@@ -108,12 +108,8 @@ public sealed partial class MainWindow : Window
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.Children.Add(chatHead);
         Grid.SetRow(conversationBanner, 1); chat.Children.Add(conversationBanner);
-        chatScroll = new ScrollView { Content = stream,
-            Style = (Style)Application.Current.Resources["RelicChatScrollViewStyle"],
-            VerticalScrollBarVisibility = ScrollingScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollingScrollBarVisibility.Hidden,
-            HorizontalScrollMode = ScrollingScrollMode.Disabled, ZoomMode = ScrollingZoomMode.Disabled };
-        // DefaultScrollViewStyle sets IsTabStop=false, which redirects Focus
+        chatScroll = Scroll(stream);
+        // DefaultScrollViewerStyle sets IsTabStop=false, which redirects Focus
         // to a selectable descendant. The conversation itself owns Home/End;
         // child text keeps its independent caret/selection keyboard behavior.
         chatScroll.IsTabStop = true;
@@ -365,7 +361,7 @@ public sealed partial class MainWindow : Window
             && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0;
         stream.FollowLastIntoView(chatScroll, IsCurrent, IsContentReady);
     }
-    private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; ScrollToLatest(); }
+    private void ToBottom(object sender, RoutedEventArgs e) { stream.Loaded -= ToBottom; chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null); }
     private async Task Send()
     {
         if (sending || api == null || org.Length == 0 || composing.Contains(editor) || (string.IsNullOrWhiteSpace(editor.Text) && quoteText.Length == 0)) return;
@@ -377,7 +373,7 @@ public sealed partial class MainWindow : Window
         var payload = Composer.Message(Quoted(body.Trim()), member, recipientNames.ToArray(), snap.Rows("members"));
         try { await api.Post(destination, payload); } catch (Exception ex) { Note(T("composer.send_failed", ("error", ex.Message))); return; }
         drafts[key] = ""; if (key == org + "/" + member && editor.Text == body) { editor.Text = ""; ClearQuote(); recipientNames.Clear(); recipientNames.Add("all"); SaveViewState(); }
-        await Refresh(); ScrollToLatest();
+        await Refresh(); chatScroll.ChangeView(null, chatScroll.ScrollableHeight, null);
         }
         finally { sending = false; }
     }
