@@ -31,7 +31,7 @@ import RelicCore
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let scroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 240))
-        let document = FlippedDocument(frame: CGRect(x: 0, y: 0, width: 400, height: 1200))
+        let document = FlippedDocument(frame: CGRect(x: 0, y: 0, width: 400, height: 240))
         scroll.documentView = document; window.contentView = scroll; window.orderFront(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
         let row = RenderReadiness.Probe(frame: CGRect(x: 0, y: 30, width: 350, height: 170))
@@ -50,6 +50,19 @@ import RelicCore
         markdown.ready = true
         let ready = try XCTUnwrap(PerformanceNavigation.observeLatest(model: model, window: window, expected: "81"))
         XCTAssertTrue(ready.ready); XCTAssertEqual(ready.messageID, "81"); XCTAssertEqual(ready.rowID, "id:81#0")
+        XCTAssertEqual(try XCTUnwrap(ready.bottomGap), 0, accuracy: 0.01)
+        document.setFrameSize(CGSize(width: 400, height: 313))
+        row.frame = CGRect(x: 0, y: 197, width: 350, height: 99)
+        markdown.frame = CGRect(x: 30, y: 232, width: 290, height: 47)
+        body.frame = markdown.frame
+        scroll.contentView.scroll(to: .zero); scroll.reflectScrolledClipView(scroll.contentView)
+        let clipped = try XCTUnwrap(PerformanceNavigation.observeLatest(model: model, window: window, expected: "81"))
+        XCTAssertEqual(clipped.markdown, 1); XCTAssertGreaterThan(clipped.textViews, 0)
+        XCTAssertEqual(try XCTUnwrap(clipped.bottomGap), 73, accuracy: 0.01)
+        XCTAssertFalse(clipped.ready, "A thin intersection with ready Markdown must not pass while the latest body is clipped below the viewport")
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 73)); scroll.reflectScrolledClipView(scroll.contentView)
+        XCTAssertTrue(try XCTUnwrap(PerformanceNavigation.observeLatest(model: model, window: window, expected: "81")).ready)
+        document.setFrameSize(CGSize(width: 400, height: 1200))
         scroll.contentView.scroll(to: CGPoint(x: 0, y: 700)); scroll.reflectScrolledClipView(scroll.contentView)
         XCTAssertNil(PerformanceNavigation.observeLatest(model: model, window: window, expected: "81"),
             "An offscreen latest row must not pass just because its native view still exists")
