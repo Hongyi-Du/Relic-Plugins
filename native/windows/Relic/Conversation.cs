@@ -170,9 +170,8 @@ public sealed partial class MainWindow
     private void WireComposer()
     {
         plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
-        void LeaveLatest(string source)
+        void LeaveLatest()
         {
-            PerformanceTrace.Count("conversation.latest.leave." + source, latestRequest);
             keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
             stream.StopFollowingLast();
         }
@@ -203,14 +202,14 @@ public sealed partial class MainWindow
             if (args.ScrollEventType is ScrollEventType.First or ScrollEventType.SmallDecrement or ScrollEventType.LargeDecrement
                 || (args.ScrollEventType is ScrollEventType.ThumbTrack or ScrollEventType.ThumbPosition
                     && args.NewValue < bar.Maximum - 1))
-                LeaveLatest("scrollbar");
+                LeaveLatest();
             else if (args.ScrollEventType == ScrollEventType.Last || args.NewValue >= bar.Maximum - 1)
                 FollowLatestIntent("scrollbar", explicitEnd: true);
         }
         chatScroll.Loaded += (_, _) =>
         {
             if (verticalBar != null) verticalBar.Scroll -= VerticalBarScrolled;
-            verticalBar = DialogPart<ScrollBar>(chatScroll, "PART_VerticalScrollBar");
+            verticalBar = DialogPart<ScrollBar>(chatScroll, "VerticalScrollBar");
             if (verticalBar != null) verticalBar.Scroll += VerticalBarScrolled;
         };
         chatScroll.Unloaded += (_, _) =>
@@ -218,7 +217,7 @@ public sealed partial class MainWindow
             if (verticalBar != null) verticalBar.Scroll -= VerticalBarScrolled;
             verticalBar = null;
         };
-        // ScrollView and selectable message children can handle these routed
+        // ScrollViewer and selectable message children can handle these routed
         // events before application handlers. Still observe the user's intent
         // without consuming the event or replacing native scrolling/selection.
         chatScroll.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(async (_, e) =>
@@ -227,7 +226,7 @@ public sealed partial class MainWindow
             if (pointer.IsHorizontalMouseWheel) return;
             if (pointer.MouseWheelDelta > 0)
             {
-                LeaveLatest("wheel_up");
+                LeaveLatest();
                 // At the top, native scrolling cannot change the offset and
                 // therefore emits no ViewChanged. The real upward input must
                 // still be able to request the preceding page.
@@ -235,65 +234,60 @@ public sealed partial class MainWindow
             }
             else if (pointer.MouseWheelDelta < 0)
             {
-                if (stream.ReadingAnchorRestorePending) LeaveLatest("wheel_down");
+                if (stream.ReadingAnchorRestorePending) LeaveLatest();
                 downwardRequest = latestRequest; downwardOrg = org; downwardMember = member;
                 if (chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1)
                     FollowLatestIntent("wheel_end");
             }
         }), true);
-        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest("pointer")), true);
-        chatScroll.PreviewKeyDown += (_, e) =>
-        {
-            // Intercept before ScrollView's class KeyDown handler submits
-            // its own numeric End/inertia command. One key must have one
-            // scroll owner: the content-ready actual final-row request.
-            // Editable/selectable descendants retain their own caret End.
-            if (!ReferenceEquals(e.OriginalSource, chatScroll) || e.Key != VirtualKey.End) return;
-            e.Handled = true; FollowLatestIntent("end_key", explicitEnd: true);
-        };
+        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest()), true);
         chatScroll.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
         {
-            // Observe upward navigation on the conversation itself, leaving
-            // selectable/editable descendants to their own caret navigation.
+            // A focused conversation can navigate to its real end. Leave End
+            // on selectable/editable child text to that control's own caret.
             if (!ReferenceEquals(e.OriginalSource, chatScroll)) return;
-            if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest("key_up");
+            if (e.Key == VirtualKey.End)
+            { e.Handled = true; FollowLatestIntent("end_key", explicitEnd: true); }
+            else if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest();
         }), true);
-        // Interaction is real touch/touchpad input. A programmatic animation
-        // has a different state and must not cancel our correlated row bring.
+        // Touchpad/touch panning is direct manipulation, not a wheel event.
         var panRequest = -1; var panStartOffset = 0d;
         var panOrg = ""; var panMember = "";
-        async Task ViewSettled()
+        chatScroll.DirectManipulationStarted += (_, _) =>
         {
-            if (chatScroll.State != ScrollingInteractionState.Idle) return;
-            // Layout/extent changes alone are not user intent. Only a real
-            // downward input can resume following when it reaches the end.
-            if (HasDownwardIntent() && chatScroll.ScrollableHeight > 0
-                && chatScroll.VerticalOffset >= chatScroll.ScrollableHeight - 1)
-                FollowLatestIntent("settled_view");
-            downwardRequest = -1;
-            await LoadOlderAtTop();
-        }
-        chatScroll.StateChanged += async (_, _) =>
-        {
-            if (chatScroll.State == ScrollingInteractionState.Interaction)
-            {
-                LeaveLatest("pan"); panRequest = latestRequest; panStartOffset = chatScroll.VerticalOffset;
-                panOrg = org; panMember = member;
-            }
-            else if (chatScroll.State == ScrollingInteractionState.Idle)
-            {
-                if (panRequest == latestRequest && panOrg == org && panMember == member
-                    && chatScroll.VerticalOffset > panStartOffset + 1
-                    && chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1)
-                    FollowLatestIntent("pan_end");
-                panRequest = -1;
-                await ViewSettled();
-            }
+            LeaveLatest(); panRequest = latestRequest; panStartOffset = chatScroll.VerticalOffset;
+            panOrg = org; panMember = member;
         };
-        chatScroll.ViewChanged += async (_, _) =>
+        chatScroll.DirectManipulationCompleted += (_, _) =>
+        {
+            if (panRequest == latestRequest && panOrg == org && panMember == member
+                && chatScroll.VerticalOffset > panStartOffset + 1
+                && chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1)
+                FollowLatestIntent("pan_end");
+            panRequest = -1;
+        };
+        chatScroll.ViewChanging += (_, e) =>
+        {
+            // FinalView also changes during virtual extent/anchor corrections.
+            // It is not user intent without a real downward input for this
+            // conversation. In particular, prepending history must never turn
+            // follow-latest back on just because the estimated maximum shrank.
+            var maximum = chatScroll.ScrollableHeight;
+            if (HasDownwardIntent() && maximum > 0 && e.FinalView.VerticalOffset >= maximum - 1
+                && e.FinalView.VerticalOffset > chatScroll.VerticalOffset + 1)
+                FollowLatestIntent("final_view");
+        };
+        chatScroll.ViewChanged += async (_, e) =>
         {
             if (plainMode && !plainTimer.IsEnabled) plainTimer.Start();
-            await ViewSettled();
+            if (!e.IsIntermediate)
+            {
+                if (HasDownwardIntent() && chatScroll.ScrollableHeight > 0
+                    && chatScroll.VerticalOffset >= chatScroll.ScrollableHeight - 1)
+                    FollowLatestIntent("settled_view");
+                downwardRequest = -1;
+                await LoadOlderAtTop();
+            }
         };
         foreach (var text in new[] { editor, threadEditor })
         {
@@ -557,6 +551,7 @@ public sealed partial class MainWindow
         var from = item.Text("from"); var body = item.Text("body"); if (body.Length == 0) body = item.Text("text");
         var mine = from == "human";
         var box = new StackPanel { Spacing = 0 }; UIElement? originalAfter = null; UIElement? pendingAfter = null;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(box, "message-body/" + item.Text("id"));
         var column = new StackPanel { Spacing = 4, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
         if (!continued)
         {

@@ -45,7 +45,7 @@ public sealed partial class MainWindow
                     }
                 }
             }
-            await Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+            await Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), phases_version = 2 });
             long sequence = 0, pings = 0;
             while (!token.IsCancellationRequested)
             {
@@ -209,8 +209,9 @@ public sealed partial class MainWindow
                 ["source_type"] = args.OriginalSource?.GetType().FullName,
                 ["source_is_chat_scroll"] = ReferenceEquals(args.OriginalSource, chatScroll) };
         };
-        Windows.Foundation.TypedEventHandler<ScrollView, object> changed = (_, _) =>
+        EventHandler<ScrollViewerViewChangedEventArgs> changed = (_, args) =>
         {
+            if (args.IsIntermediate) return;
             viewEvents++;
             if (chatScroll.VerticalOffset < 32) topEvents++;
             ObserveReadingAnchor();
@@ -271,8 +272,7 @@ public sealed partial class MainWindow
                 {
                     if (waiting.Elapsed > TimeSpan.FromSeconds(15))
                         throw new TimeoutException(bottom ? "Real history scroll did not reach the bottom" : "Real history scroll did not reach the top");
-                    if (!bottom) chatScroll.ScrollTo(chatScroll.HorizontalOffset, 0,
-                        new ScrollingScrollOptions(ScrollingAnimationMode.Disabled, ScrollingSnapPointsMode.Ignore));
+                    if (!bottom) chatScroll.ChangeView(null, 0, null, true);
                     await PerformanceYield(); await WaitForMarkdown();
                     var gap = bottom ? chatScroll.ScrollableHeight - chatScroll.VerticalOffset : chatScroll.VerticalOffset;
                     var repeater = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater
@@ -299,7 +299,7 @@ public sealed partial class MainWindow
             }
 
             // A real upward wheel cancels the production follow-latest state.
-            // ScrollTo and real wheel input only drive the visible ScrollView;
+            // ChangeView and real wheel input only drive the visible ScrollViewer;
             // its production handlers must perform every page request without a business-method
             // fallback or a test-written keepLatest/loadingOlder state.
             capturePointerReceipts.Clear();
@@ -353,10 +353,9 @@ public sealed partial class MainWindow
                     await CaptureHover(chatScroll);
                     SendCaptureMouse(new CaptureMouseInput { Data = 120, Flags = 0x0800 });
                 }
-                else chatScroll.ScrollTo(chatScroll.HorizontalOffset, 0,
-                    new ScrollingScrollOptions(ScrollingAnimationMode.Disabled, ScrollingSnapPointsMode.Ignore));
+                else chatScroll.ChangeView(null, 0, null, true);
                 await Until(() => chatPages > beforePages && !loadingOlder,
-                    "History did not page through the production ScrollView input handlers");
+                    "History did not page through the production ScrollViewer input handlers");
                 await WaitForMarkdown(); await PerformanceYield();
                 if (keepLatest) throw new InvalidOperationException("History layout reactivated follow-latest without user end input");
                 await Until(() => !stream.ReadingAnchorRestorePending,
@@ -387,7 +386,7 @@ public sealed partial class MainWindow
                     ["messages_added"] = afterIds.Length - beforeIds.Length, ["view_changed_events"] = viewEvents - beforeViews,
                     ["upward_wheel_events"] = wheelEvents - beforeWheels,
                     ["reading_anchor"] = anchorObservation,
-                    ["input"] = alreadyAtTop ? "Actual upward pointer wheel at the top boundary" : "ScrollView.ScrollTo to the top" });
+                    ["input"] = alreadyAtTop ? "Actual upward pointer wheel at the top boundary" : "ScrollViewer.ChangeView to the top" });
             }
             record["history_top"] = await Boundary(false);
             record["observed_reading_anchor_cases"] = observedAnchorCases;
@@ -412,7 +411,7 @@ public sealed partial class MainWindow
             record["top_upward_wheel_events"] = topWheelEvents;
             record["history_bottom"] = await Boundary(true);
             record["end_key_events"] = endKeyEvents;
-            record["history_scroll_source"] = "Actual upward pointer wheel, ScrollView top input and actual End key; no direct page load or bottom repair";
+            record["history_scroll_source"] = "Actual upward pointer wheel, ScrollViewer top input and actual End key; no direct page load or bottom repair";
         }
         catch (Exception error)
         {
@@ -459,18 +458,37 @@ public sealed partial class MainWindow
     {
         var actions = new List<JsonObject>(); var errors = new List<string>();
         var randomActions = 0; double randomSeconds = 0;
+        var phase = performanceManifest!.Text("phase");
         var pointerRandom = new Random(int.Parse(performanceManifest!.Text("seed")));
         async Task Execute(JsonNode step, bool random)
         {
             var kind = step.Text("kind");
             var target = step.Text("org") + step.Text("member") + step.Text("pane") + step.Text("name");
-            Volatile.Write(ref performanceAction, (random ? "monkey " : "") + kind + ": " + target);
+            var actionLabel = phase == "switch-chats" ? step.Flag("warmup") ? "switch-warmup:" + step.Text("id") : "switch:" + step.Text("switch_index")
+                : phase == "open-every-chat" ? "open-every-chat:" + step.Text("id")
+                : (random ? "monkey " : "") + kind + ": " + target;
+            Volatile.Write(ref performanceAction, actionLabel);
             var clock = Stopwatch.StartNew(); var record = new JsonObject {
-                ["id"] = random ? "monkey-" + randomActions : step.Text("id"), ["kind"] = kind, ["target"] = target };
+                ["id"] = random ? "monkey-" + randomActions : step.Text("id"), ["kind"] = kind, ["target"] = target,
+                ["warmup"] = step.Flag("warmup"), ["switch_index"] = step["switch_index"]?.DeepClone(),
+                ["started_unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+            try
+            {
             switch (kind)
             {
-                case "group": await Select(step.Text("org")); break;
-                case "private": await Select(step.Text("org"), step.Text("member")); break;
+                case "organization":
+                    if (!MeasuresChatOpening) throw new InvalidOperationException("Organization-row action belongs to the real-click phases");
+                    await ExerciseOpenChat(step, record);
+                    break;
+                case "group":
+                    if (MeasuresChatOpening) await ExerciseOpenChat(step, record);
+                    else await Select(step.Text("org"));
+                    break;
+                case "private":
+                    if (MeasuresChatOpening) await ExerciseOpenChat(step, record);
+                    else await Select(step.Text("org"), step.Text("member"));
+                    break;
+                case "idle": await ExerciseIdle(step, record); break;
                 case "pane": await SetPane(step.Text("pane")); break;
                 case "resize":
                     var monitor = CurrentWindowMonitor();
@@ -541,14 +559,41 @@ public sealed partial class MainWindow
                 record["pointer_events"] = capturePointerReceipts.DeepClone();
             }
             if (error.IsOpen) throw new InvalidOperationException(error.Message);
-            record["elapsed_ms"] = clock.Elapsed.TotalMilliseconds; record["passed"] = true;
-            record["realized_chat_rows"] = stream.Realized;
-            actions.Add(record);
+            record["passed"] = true;
+            }
+            catch (Exception failure)
+            {
+                record["passed"] = false; record["error"] = failure.ToString();
+                throw;
+            }
+            finally
+            {
+                record["elapsed_ms"] = clock.Elapsed.TotalMilliseconds;
+                record["finished_unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                record["realized_chat_rows"] = stream.Realized;
+                actions.Add(record);
+                // Preserve completed and failed action evidence even if the
+                // external watchdog stops a later action in this phase.
+                await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(PerformanceOutput, "performance-actions.json"),
+                    JsonSerializer.Serialize(new { phase, actions, errors, random_seconds = randomSeconds, random_actions = randomActions }));
+            }
         }
         try
         {
             await WaitForMarkdown();
-            foreach (var step in performanceManifest!.Rows("plan")) await Execute(step!, false);
+            foreach (var step in performanceManifest!.Rows("plan"))
+            {
+                try { await Execute(step!, false); }
+                catch (Exception failure)
+                {
+                    errors.Add(step.Text("id") + ": " + failure);
+                    // Separate phases run in separate owned processes. Within
+                    // chat opening, retain every reachable click's result too.
+                    if (!MeasuresChatOpening) throw;
+                }
+            }
+            if (phase.Length == 0 || phase == "monkey")
+            {
             var deck = performanceManifest.Rows("monkey");
             var timer = Stopwatch.StartNew();
             while (timer.Elapsed.TotalSeconds < int.Parse(performanceManifest.Text("seconds")))
@@ -557,6 +602,7 @@ public sealed partial class MainWindow
                 randomActions++; await Task.Delay(100);
             }
             randomSeconds = timer.Elapsed.TotalSeconds;
+            }
         }
         catch (Exception ex) { errors.Add(ex.ToString()); }
         finally
@@ -564,7 +610,7 @@ public sealed partial class MainWindow
             performanceCancellation!.Cancel();
             try { await performanceProbe!; } catch (OperationCanceledException) { }
             await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(PerformanceOutput, "performance-complete.json"),
-                JsonSerializer.Serialize(new { actions, errors, max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,
+                JsonSerializer.Serialize(new { phase, actions, errors, max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,
                     titlebar_layout_notifications = titlebarLayoutNotifications, titlebar_layout_measurements = titlebarLayoutMeasurements,
                     random_seconds = randomSeconds, random_actions = randomActions, seed = int.Parse(performanceManifest!.Text("seed")) }));
         }

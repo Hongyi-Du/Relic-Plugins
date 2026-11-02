@@ -35,8 +35,17 @@ def message_body(index: int, org: int) -> str:
     return f"{heading}。检查页面、任务和协议，保留可核查的记录。"
 
 
-def seed(folder: Path, seed_value: int = 1729):
+def seed(folder: Path, seed_value: int = 1729, profile: str = "large"):
     """Bulk insert historical rows, while creating valid org/seat records via Store."""
+    if profile == "person-shape":
+        # The sibling also works when this module is loaded by filename in CI.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("relic_performance_shape", Path(__file__).with_name("fixture_shape.py"))
+        shape = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shape)
+        return shape.seed_person_shape(folder, seed_value)
+    if profile != "large":
+        raise ValueError("Unknown synthetic fixture profile: " + profile)
     from app import prefs
     from relic_core import store as stores
     from relic_core.store import Store
@@ -118,7 +127,12 @@ def seed(folder: Path, seed_value: int = 1729):
                            json.dumps({"id": f"T{index % task_count + 1}", "status": "blocked" if index % 2 else "done"}),
                            timestamp(100 + int(index * group_count / event_count))) for index in range(event_count)]
                 db.executemany("INSERT INTO events(org_id,member,kind,body,at) VALUES(?,?,?,?,?)", events)
-            orgs.append({"id": oid, "members": members, "group_messages": group_count, "first_group_message_id": first_id})
+            orgs.append({"id": oid, "members": members, "group_messages": group_count, "first_group_message_id": first_id,
+                         "latest_group_message_id": first_id + group_count - 1,
+                         "latest_private_message_ids": {member: first_id + group_count + index * 24 + 23
+                                                        for index, member in enumerate(members)},
+                         "group_expected_empty": False,
+                         "private_expected_empty": {member: False for member in members}})
             totals["members"] += count
             totals["group_messages"] += group_count
             totals["private_messages"] += len(private_rows)
@@ -130,7 +144,7 @@ def seed(folder: Path, seed_value: int = 1729):
             totals["messages"] = db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         prefs.save({"lang": "zh-CN", "theme": "light", "name": "Synthetic Person", "voice": "browser",
                     "notify": False, "font": "medium", "density": "comfortable"})
-        return store, {"orgs": orgs, "workspace": str(workspace), "counts": totals, "seed": seed_value}
+        return store, {"profile": "large", "orgs": orgs, "workspace": str(workspace), "counts": totals, "seed": seed_value}
     finally:
         stores.short_id, stores.now = original_id, original_now
 
@@ -141,16 +155,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=1729)
+    parser.add_argument("--profile", choices=("large", "person-shape"), default="large")
     args = parser.parse_args()
     folder = args.output.resolve()
     folder.mkdir(parents=True, exist_ok=True)
     os.environ.update(RELIC_HOME=str(folder / "relic"), RELIC_LANG="zh-CN", CLAUDE_CONFIG_DIR=str(folder / "claude"),
                       CODEX_HOME=str(folder / "codex"))
     from app import web
-    store, fixture = seed(folder, args.seed)
+    store, fixture = seed(folder, args.seed, args.profile)
     app, server = web.serve(0, store)
     fixture.update(port=app.port, token=app.token, instance=app.instance, pid=os.getpid(), home=os.environ["RELIC_HOME"],
-                   monkey_trigger=str(folder / "monkey-enabled"), live_report=str(folder / "live-updates.json"))
+                   monkey_trigger=str(folder / "monkey-enabled"), idle_trigger=str(folder / "idle-enabled"),
+                   live_report=str(folder / "live-updates.json"))
     (folder / "fixture.json").write_text(json.dumps(fixture, ensure_ascii=False, indent=2), encoding="utf-8")
     # Fixed producer count and bounded rate: stress event coalescing without
     # starting providers or creating one task/thread per update.
@@ -159,8 +175,12 @@ def main():
         monkey_ordinal = 0
         events_published = stored_messages = 0
         while not app.stopping.wait(.1):
+            # Idle CPU measures the real client with stationary data. Pause
+            # this owned load producer only; the product's SSE connection,
+            # timers, polling and other background logic still run normally.
+            idle_active = (folder / "idle-enabled").exists()
             monkey_active = (folder / "monkey-enabled").exists()
-            if monkey_active:
+            if monkey_active and not idle_active:
                 target = fixture["orgs"][(monkey_ordinal // 20) % len(fixture["orgs"])]
                 if monkey_ordinal % 20 == 0:
                     # Genuine stored messages plus ordinary app event delivery;
@@ -174,11 +194,11 @@ def main():
                 app.bus.publish({"type": "org", "org": target["id"]})
                 events_published += 1
                 monkey_ordinal += 1
-            elif ordinal % 50 < 10:
-                app.bus.publish({"type": "org", "org": fixture["orgs"][ordinal % 13]["id"]})
+            elif not idle_active and ordinal % 50 < 10:
+                app.bus.publish({"type": "org", "org": fixture["orgs"][ordinal % len(fixture["orgs"])]["id"]})
             if ordinal % 10 == 0:
                 data = {"events_published": events_published, "stored_messages": stored_messages,
-                        "worker_threads": 1, "monkey_active": monkey_active,
+                        "worker_threads": 1, "monkey_active": monkey_active, "idle_active": idle_active,
                         "source": "Real app.bus SSE hints and synthetic rows in the isolated real store"}
                 temporary = folder / "live-updates.tmp"
                 temporary.write_text(json.dumps(data), encoding="utf-8")
