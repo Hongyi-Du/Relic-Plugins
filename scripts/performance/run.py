@@ -599,11 +599,23 @@ def main():
                 reports.append(phase_report)
                 report = {"version": 2, "commit": os.environ.get("GITHUB_SHA"), "client": args.client,
                           "profile": args.profile, **observation_policy(args.diagnostic),
+                          "acceptance_eligible": not args.diagnostic and args.phase is None,
+                          "complete_matrix": args.phase is None and len(reports) == len(PHASES),
                           "passed": len(reports) == (1 if args.phase else len(PHASES)) and all(r["passed"] for r in reports),
                           "phases": [{k: v for k, v in r.items() if k not in ("samples", "heartbeats", "window_probes", "native_receipt")}
                                      for r in reports], "fixture_counts": fixture["counts"],
                           "errors": [f"{r['phase']}: {error}" for r in reports for error in r.get("errors", [])]}
                 atomic_json(output / "responsiveness-report.json", report)
+                # Surface completed phases immediately even while a later
+                # independent phase is still running. These CI annotations
+                # contain aggregate observations only; full evidence is JSON.
+                summary = {"passed": phase_report["passed"], "phase": phase,
+                           "worst_ui_stall_ms": phase_report.get("worst_ui_stall_ms"),
+                           "actions": phase_report.get("action_summary"),
+                           "resources": phase_report.get("phase_measurements"),
+                           "errors": phase_report.get("errors", [])[:3]}
+                message = json.dumps(summary, ensure_ascii=True).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                print(f"::notice title=Relic phase {phase}::{message}", flush=True)
         finally:
             stop_owned(server)
     if not report["passed"]:

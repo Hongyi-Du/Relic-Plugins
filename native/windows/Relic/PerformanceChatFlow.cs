@@ -167,7 +167,11 @@ public sealed partial class MainWindow
             try { await Task.Delay(40); } finally { CapturePointerButton(false); }
             long readyFrame = -1;
             JsonObject observation = new();
-            while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(15))
+            // Opening has a hard one-second acceptance deadline. Retain the
+            // failed observation then test the next real click, rather than
+            // spending fifteen seconds on an already-failed opening and
+            // delaying every remaining core-flow result.
+            while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(1))
             {
                 observation = ObserveOpenedChat(organization, who, expected.Id, expected.Empty);
                 if (clicks > 0 && observation.Flag("latest_visible"))
