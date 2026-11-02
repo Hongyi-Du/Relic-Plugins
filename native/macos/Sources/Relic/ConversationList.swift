@@ -73,7 +73,9 @@ struct ConversationStream: View {
                         }
                     }
                     .listStyle(.plain)
-                    .environment(\.defaultMinListRowHeight, 0)
+                    // AppKit rejects a zero rowHeight. Eight is the smallest
+                    // real row here (the leading space), not a content cap.
+                    .environment(\.defaultMinListRowHeight, 8)
                     .scrollContentBackground(.hidden)
                     .contentMargins(.all, 0, for: .scrollContent)
                     .modifier(RecordedSurface(background: .clear, kind: "region"))
@@ -163,7 +165,6 @@ struct ConversationStream: View {
     }
     private var mount: some View {
         ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused)
-            .background(ScrollAppearance())
     }
     private func seekLatest(_ proxy: ScrollViewProxy) {
         if let id = latestID { proxy.scrollTo(id, anchor: .bottom) }
