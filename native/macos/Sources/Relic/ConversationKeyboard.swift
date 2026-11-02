@@ -16,6 +16,7 @@ import SwiftUI
     }
     var geometryChanged: ((Geometry) -> Void)?
     var observedHeight: CGFloat = 0
+    var observedViewportHeight: CGFloat = 0
     private var geometryQueued = false
     private var lastGeometry: Geometry?
     private var scrollObservers: [NSObjectProtocol] = []
@@ -32,6 +33,7 @@ import SwiftUI
         for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) }
         mounts.removeAllObjects(); mounts.add(owner)
         scrollObservers = []; scroll = current; lastGeometry = nil
+        if let table = current.documentView as? NSTableView { table.intercellSpacing = .zero }
         current.contentView.postsBoundsChangedNotifications = true
         current.documentView?.postsFrameChangedNotifications = true
         for (name, object) in [(NSView.boundsDidChangeNotification, current.contentView as NSView?),
@@ -184,7 +186,10 @@ struct ConversationKeyboardMount: NSViewRepresentable {
     func updateNSView(_ view: Mount, context: Context) { view.update(enabled: enabled, focused: focused) }
     static func observation(for scroll: NSScrollView) -> [String: Any]? {
         let owners = live.allObjects.filter { $0.attachedScroll === scroll && $0.window === scroll.window && $0.keyboard?.scroll === scroll }
-        guard owners.count == 1, let view = owners.first, view.window != nil else { return nil }
+        // Standard List cells each expose their actual enclosing viewport.
+        // Multiple mounts are valid only when they share this one controller.
+        let controllers = Set(owners.compactMap { $0.keyboard.map(ObjectIdentifier.init) })
+        guard controllers.count == 1, let view = owners.first, view.window != nil else { return nil }
         return view.observation()
     }
 

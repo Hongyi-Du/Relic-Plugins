@@ -141,6 +141,18 @@ import RelicCore
         let bottom = try XCTUnwrap(scroll.documentView).bounds.maxY - scroll.contentView.bounds.height
         XCTAssertEqual(scroll.contentView.bounds.minY, bottom, accuracy: 2, "End must reach the real last row including its trailing space")
         XCTAssertTrue(visibleText("Arrived while reading history", in: host), "End must restore the actual latest text, not an empty offset")
+        if messageCount == 50 {
+            window.setContentSize(NSSize(width: 600, height: 300))
+            try await settled("height-only resize at latest")
+            XCTAssertEqual(ConversationKeyboardMount.bottomGap(in: window) ?? -1, 0, accuracy: 2)
+            XCTAssertTrue(visibleText("Arrived while reading history", in: host), "Shrinking height must keep the real latest content visible")
+            XCTAssertEqual(keyboard.handle(.home, modifiers: []), .handled)
+            try await settled("Home before height-only resize")
+            window.setContentSize(NSSize(width: 600, height: 360))
+            try await settled("height-only resize while reading history")
+            XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2)
+            XCTAssertTrue(visibleText("Message 1", in: host), "Resizing while reading history must not jump to latest")
+        }
     }
     private final class Document: NSView {
         var documentCoordinatesFlipped = true

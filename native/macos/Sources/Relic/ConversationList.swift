@@ -67,7 +67,7 @@ struct ConversationStream: View {
                                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
                         }
                     }
-                    .listStyle(.plain).listRowSpacing(0)
+                    .listStyle(.plain)
                     .environment(\.defaultMinListRowHeight, 0)
                     .scrollContentBackground(.hidden)
                     .contentMargins(.all, 0, for: .scrollContent)
@@ -131,7 +131,9 @@ struct ConversationStream: View {
                 }
                 keyboard.geometryChanged = { geometry in
                     let changed = abs(keyboard.observedHeight - geometry.height) > 1
-                    if changed { keyboard.observedHeight = geometry.height }
+                        || abs(keyboard.observedViewportHeight - geometry.viewportHeight) > 1
+                    keyboard.observedHeight = geometry.height
+                    keyboard.observedViewportHeight = geometry.viewportHeight
                     keyboard.finishDisclosureLayout()
                     if changed, followsLatest, !preservingDisclosure, !m.isPreparingConversation {
                         seekLatest(proxy)
