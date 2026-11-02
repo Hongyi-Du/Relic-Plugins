@@ -146,7 +146,7 @@ final class ModelTransport: URLProtocol {
         model.stop()
     }
 
-    func testSelectWaitsForAnInFlightRefreshAndThenLoadsItsOwnOrganization() async throws {
+    func testSelectCompletesItsOwnChatWhileAnOlderGlobalRefreshIsInFlight() async throws {
         let model = try model(); model.setSelection(ChatSelection("a"))
         let firstSnapshot = expectation(description: "first organization request is in flight")
         ModelTransport.handler = { request in
@@ -165,6 +165,63 @@ final class ModelTransport: URLProtocol {
         XCTAssertEqual(model.organization, "b")
         XCTAssertEqual(model.snapshot["org"]["id"].text, "b", "select must finish after the selected snapshot, not after an unrelated in-flight call")
         try await first.value; model.stop()
+    }
+    func testChatClickRequestsOnlySelectedChatResourcesAndPreservesTheOrganizationList() async throws {
+        let model = try model(); defer { model.stop() }
+        model.organizations = [Node(["id": "a"]), Node(["id": "b"])]
+        model.setSelection(ChatSelection("a"))
+        let snapshot = expectation(description: "selected snapshot"), chat = expectation(description: "selected latest page")
+        ModelTransport.handler = { request in
+            switch request.url!.path {
+            case "/api/org/b": snapshot.fulfill(); return (200, #"{"org":{"id":"b"},"members":[]}"#)
+            case "/api/org/b/chat":
+                XCTAssertEqual(request.url!.query, "kind=group&limit=1000")
+                chat.fulfill(); return (200, #"{"items":[{"id":42,"body":"**Latest** message"}],"more":true}"#)
+            default: XCTFail("Chat navigation must not wait for global refresh: " + request.url!.path); return (500, "{}")
+            }
+        }
+        try await model.select("b")
+        await fulfillment(of: [snapshot, chat], timeout: 1)
+        while model.isPreparingConversation { await Task.yield() }
+        XCTAssertEqual(model.organizations.map { $0["id"].text }, ["a", "b"])
+        XCTAssertEqual(model.snapshot["org"]["id"].text, "b")
+        XCTAssertEqual(model.streamRows.last?.item["id"].integer, 42)
+        XCTAssertEqual(model.streamRows.last?.preparedBody?.source, "**Latest** message")
+        XCTAssertTrue(model.moreChat)
+    }
+    func testPrivateChatClickLoadsItsLiveAndTranscriptResources() async throws {
+        let model = try model(); defer { model.stop() }
+        let live = expectation(description: "private live"), transcript = expectation(description: "private transcript")
+        ModelTransport.handler = { request in
+            switch request.url!.path {
+            case "/api/org/a": return (200, #"{"members":[{"name":"analyst","embedded":true,"has_transcript":true}]}"#)
+            case "/api/org/a/chat":
+                XCTAssertEqual(request.url!.query, "kind=private&member=analyst&limit=1000")
+                return (200, #"{"items":[{"id":8,"body":"Private latest"}],"more":false}"#)
+            case "/api/org/a/live": live.fulfill(); return (200, #"{"items":[{"seq":1,"text":"live"}],"status":{"state":"running"}}"#)
+            case "/api/org/a/convo": transcript.fulfill(); return (200, #"{"steps":[{"id":"step-1","text":"transcript"}]}"#)
+            default: XCTFail("Unexpected private navigation request: " + request.url!.path); return (500, "{}")
+            }
+        }
+        try await model.select("a", "analyst")
+        await fulfillment(of: [live, transcript], timeout: 1)
+        XCTAssertEqual(model.messages.last?["id"].integer, 8)
+        XCTAssertEqual(model.liveItems.first?["seq"].integer, 1)
+        XCTAssertEqual(model.conversation["steps"].rows.first?["id"].text, "step-1")
+    }
+    func testConversationPreparationSeedsOnlyTheInitialViewportWithoutDroppingHistory() async {
+        let items = (1...1000).map { Node(["id": $0, "type": "message", "body": "Message \($0)\n\n- **First**\n- Second"]) }
+        let rows = await ConversationRow.prepare(messages: items, steps: [], member: Node(), live: [], status: Node(),
+            decisions: [], words: Words(), now: Date(), privateChat: false)
+        XCTAssertEqual(rows.count, 1000)
+        XCTAssertEqual(rows.first?.id, "id:1#0")
+        XCTAssertEqual(rows.last?.id, "id:1000#0")
+        XCTAssertTrue(rows.dropLast(16).allSatisfy { $0.preparedBody == nil })
+        XCTAssertTrue(rows.suffix(16).allSatisfy { $0.preparedBody?.source == $0.item["body"].text })
+        XCTAssertGreaterThan(rows.last?.preparedBody?.blocks.count ?? 0, 1)
+        let replies = await ConversationRow.prepareReplies(items, words: Words(), now: Date())
+        XCTAssertTrue(replies.prefix(16).allSatisfy { $0.preparedBody != nil })
+        XCTAssertTrue(replies.dropFirst(16).allSatisfy { $0.preparedBody == nil })
     }
     func testUnrelatedEventsDoNotReloadTheOrganizationList() async throws {
         let model = try model(); model.setSelection(ChatSelection())

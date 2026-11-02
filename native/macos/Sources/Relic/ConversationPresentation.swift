@@ -7,9 +7,10 @@ struct ConversationRow: Identifiable {
     let item: Node
     let separator: String?
     let continued: Bool
+    var preparedBody: PreparedMarkdown? = nil
 
     static func prepareReplies(_ items: [Node], words: Words, now: Date) async -> [ConversationRow] {
-        build(items, words: words, now: now, separators: false)
+        await prepareBodies(build(items, words: words, now: now, separators: false), fromEnd: false)
     }
 
     // This async nonisolated entry runs CPU work on the cooperative executor,
@@ -18,7 +19,21 @@ struct ConversationRow: Identifiable {
                         decisions: [Node], words: Words, now: Date, privateChat: Bool) async -> [ConversationRow] {
         let active = Timeline.activeLive(live, status: status, decisions: decisions)
         let items = privateChat ? Timeline.conversation(steps: steps, chat: messages, member: member, live: active, words: words) : messages
-        return build(items, words: words, now: now)
+        return await prepareBodies(build(items, words: words, now: now), fromEnd: true)
+    }
+    private static func prepareBodies(_ input: [ConversationRow], fromEnd: Bool) async -> [ConversationRow] {
+        var rows = input
+        let indices = fromEnd ? Array(rows.indices.suffix(16)) : Array(rows.indices.prefix(16))
+        // Prepare a bounded initial viewport on the background actor. The
+        // latest row then paints its complete body on its first native mount.
+        for index in indices {
+            guard !Task.isCancelled else { return rows }
+            let item = rows[index].item
+            guard !["notice", "acts", "receipt"].contains(item["type"].text) else { continue }
+            let text = item["body"].text.isEmpty ? item["text"].text : item["body"].text
+            rows[index].preparedBody = await MarkdownPreparation.shared.prepare(text)
+        }
+        return rows
     }
     static func build(_ items: [Node], words: Words, now: Date, separators: Bool = true, calendar: Calendar = .current) -> [ConversationRow] {
         var previous: Node?, previousDate: Date?, lastDay: Date?
