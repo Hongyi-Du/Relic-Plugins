@@ -1,0 +1,469 @@
+using System.Collections.ObjectModel;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+
+namespace Relic;
+
+// The ListView owns both virtualization and its one native scrolling viewport.
+// Row factories remain data until a real ListView container enters that viewport.
+internal sealed class NativeChatList : Grid
+{
+    private sealed class Entry(VirtualRows.Row row, string? identity)
+    {
+        internal VirtualRows.Row Row = row;
+        internal string? Identity = identity;
+        internal int Version;
+    }
+    private sealed record Mounted(Entry Entry, int Version);
+    private sealed record BuildWork(Border Host, Entry Entry, int Version);
+    private enum PositionKind { Latest, Reading, First }
+    private sealed class Position(PositionKind kind, string? key, double top,
+        Func<bool> isCurrent, Func<bool> isReady, string view)
+    {
+        internal readonly PositionKind Kind = kind;
+        internal readonly string? Key = key;
+        internal readonly double Top = top;
+        internal readonly Func<bool> IsCurrent = isCurrent, IsReady = isReady;
+        internal readonly string View = view;
+        internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal Entry? RequestedEntry;
+        internal int Corrections;
+        internal bool Settled;
+        internal bool CorrectionPending, CorrectionCompleted;
+        internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
+    }
+
+    private readonly ListView list = new()
+    {
+        SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = false,
+        HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch,
+        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        Padding = new Thickness(0), BorderThickness = new Thickness(0), UseLayoutRounding = false,
+        IsTabStop = false
+    };
+    private readonly ObservableCollection<Entry> entries = [];
+    private readonly Dictionary<Border, Mounted> mounted = [];
+    private readonly Dictionary<string, string> identities = [];
+    private readonly Queue<BuildWork> builds = [];
+    private readonly DispatcherTimer pump = new() { Interval = TimeSpan.FromMilliseconds(16) };
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue dispatcher;
+    private Position? position;
+    private int revision, committed = -1, completionQueued;
+    private bool commitQueued, checkQueued, listening;
+    private string committedView = "";
+    private string committedPresentationContext = "";
+    private double spacing;
+    private Thickness contentPadding;
+    private double contentMaxWidth = 920;
+    private static int pendingBuilds;
+
+    internal new VirtualRows.RowCollection Children { get; }
+    internal event Action? ItemsReplacing;
+    internal event Action<ScrollViewer>? ViewportReady;
+    internal ScrollViewer? Viewport { get; private set; }
+    internal string ViewIdentity { get; set; } = "";
+    internal string PresentationContext { get; set; } = "";
+    internal string TraceName { get; set; } = "conversation";
+    internal int Realized => mounted.Count;
+    internal static int PendingBuilds => Volatile.Read(ref pendingBuilds);
+    internal bool ReadingAnchorRestorePending => position is { Kind: PositionKind.Reading or PositionKind.First };
+    internal Thickness ContentPadding
+    {
+        get => contentPadding;
+        set { contentPadding = value; ConfigurePresenter(); }
+    }
+    internal double ContentMaxWidth
+    {
+        get => contentMaxWidth;
+        set { contentMaxWidth = value; ConfigurePresenter(); }
+    }
+    internal double Spacing
+    {
+        get => spacing;
+        set
+        {
+            spacing = value;
+            foreach (var host in mounted.Keys) host.Margin = new Thickness(0, 0, 0, spacing);
+        }
+    }
+
+    internal NativeChatList()
+    {
+        dispatcher = DispatcherQueue;
+        Children = new(() =>
+        {
+            revision++;
+            if (commitQueued) return;
+            commitQueued = true;
+            dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            { commitQueued = false; Commit(); });
+        });
+        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+            "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
+            "<Border HorizontalAlignment='Stretch' UseLayoutRounding='False'/></DataTemplate>");
+        list.ItemsPanel = (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+            "<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
+            "<ItemsStackPanel ItemsUpdatingScrollMode='KeepItemsInView'/></ItemsPanelTemplate>");
+        var itemStyle = new Style(typeof(ListViewItem));
+        itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+        itemStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0d));
+        itemStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+        itemStyle.Setters.Add(new Setter(Control.VerticalContentAlignmentProperty, VerticalAlignment.Top));
+        itemStyle.Setters.Add(new Setter(UIElement.IsTabStopProperty, false));
+        list.ItemContainerStyle = itemStyle;
+        foreach (var key in new[] { "ListViewItemBackground", "ListViewItemBackgroundPointerOver", "ListViewItemBackgroundPressed" })
+            list.Resources[key] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        ScrollViewer.SetHorizontalScrollMode(list, ScrollMode.Disabled);
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+        ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Auto);
+        list.ItemsSource = entries;
+        list.ContainerContentChanging += ContainerChanging;
+        list.Loaded += (_, _) => BindViewport();
+        list.LayoutUpdated += (_, _) => { if (position != null) QueuePositionCheck(); };
+        base.Children.Add(list);
+        pump.Tick += (_, _) => BuildNext();
+        Loaded += (_, _) =>
+        {
+            if (!listening) { PresentationPreparation.Completed += PreparationCompleted; listening = true; }
+            BindViewport();
+        };
+        Unloaded += (_, _) =>
+        {
+            StopFollowingLast();
+            if (listening) { PresentationPreparation.Completed -= PreparationCompleted; listening = false; }
+            pump.Stop();
+            while (builds.TryDequeue(out _)) Interlocked.Decrement(ref pendingBuilds);
+            foreach (var host in mounted.Keys.ToArray()) Release(host);
+        };
+    }
+
+    private static T? Find<T>(DependencyObject root) where T : DependencyObject
+    {
+        if (root is T match) return match;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+            if (Find<T>(VisualTreeHelper.GetChild(root, index)) is { } child) return child;
+        return null;
+    }
+
+    private void BindViewport()
+    {
+        ConfigurePresenter();
+        var viewport = Find<ScrollViewer>(list);
+        if (viewport == null || ReferenceEquals(viewport, Viewport)) return;
+        if (Viewport != null)
+        {
+            Viewport.ViewChanged -= ViewChanged;
+            Viewport.SizeChanged -= ViewSizeChanged;
+        }
+        Viewport = viewport; viewport.IsTabStop = true;
+        viewport.ViewChanged += ViewChanged; viewport.SizeChanged += ViewSizeChanged;
+        ViewportReady?.Invoke(viewport);
+        QueuePositionCheck();
+    }
+
+    private void ConfigurePresenter()
+    {
+        if (Find<ItemsPresenter>(list) is not { } presenter) return;
+        presenter.Padding = contentPadding; presenter.MaxWidth = contentMaxWidth;
+        presenter.HorizontalAlignment = HorizontalAlignment.Center;
+    }
+
+    // Optional per-draw identity: unchanged content can keep its actual subtree.
+    // The caller owns semantic versions; factory delegate identity is not a diff.
+    internal void SetPresentationIdentity(string key, string identity) => identities[key] = identity;
+
+    internal void Commit()
+    {
+        if (committed == revision && committedView == ViewIdentity && committedPresentationContext == PresentationContext) return;
+        using var timing = PerformanceTrace.Measure("conversation.list.commit");
+        ItemsReplacing?.Invoke();
+        var sameView = committedView == ViewIdentity;
+        var samePresentation = committedPresentationContext == PresentationContext;
+        if (!sameView) StopFollowingLast();
+        Dictionary<string, Entry> previous = sameView ? entries.Where(entry => entry.Row.Key != null)
+            .GroupBy(entry => entry.Row.Key!).ToDictionary(group => group.Key, group => group.First()) : [];
+        var next = new List<Entry>(Children.Count);
+        var changed = new HashSet<Entry>();
+        foreach (var row in Children)
+        {
+            var identity = row.Key != null && identities.TryGetValue(row.Key, out var value) ? value : null;
+            if (row.Key != null && previous.Remove(row.Key, out var retained))
+            {
+                var unchanged = samePresentation && identity != null && retained.Identity == identity;
+                retained.Row = row; retained.Identity = identity;
+                if (!unchanged) { retained.Version++; changed.Add(retained); }
+                next.Add(retained);
+            }
+            else next.Add(new Entry(row, identity));
+        }
+        identities.Clear();
+        committed = revision; committedView = ViewIdentity; committedPresentationContext = PresentationContext;
+        if (!sameView) entries.Clear();
+        var wanted = next.ToHashSet();
+        for (var index = entries.Count - 1; index >= 0; index--)
+            if (!wanted.Contains(entries[index])) entries.RemoveAt(index);
+        var existing = entries.ToHashSet();
+        for (var index = 0; index < next.Count; index++)
+        {
+            var entry = next[index];
+            if (index < entries.Count && ReferenceEquals(entries[index], entry)) continue;
+            if (existing.Contains(entry)) entries.Move(entries.IndexOf(entry), index);
+            else { entries.Insert(index, entry); existing.Add(entry); }
+        }
+        foreach (var (host, binding) in mounted.ToArray())
+        {
+            if (!wanted.Contains(binding.Entry)) { Release(host); continue; }
+            host.Tag = binding.Entry.Row;
+            if (changed.Contains(binding.Entry)) QueueBuild(host, binding.Entry);
+        }
+        ConfigurePresenter(); QueuePositionCheck();
+    }
+
+    private void ContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.ItemContainer.ContentTemplateRoot is not Border host)
+        {
+            if (!args.InRecycleQueue && args.Phase == 0) args.RegisterUpdateCallback(ContainerChanging);
+            return;
+        }
+        args.Handled = true;
+        if (args.InRecycleQueue) { Release(host); return; }
+        if (args.Item is not Entry entry) return;
+        QueueBuild(host, entry);
+    }
+
+    private void QueueBuild(Border host, Entry entry)
+    {
+        if (mounted.TryGetValue(host, out var old) && ReferenceEquals(old.Entry, entry) && old.Version == entry.Version) return;
+        if (!mounted.ContainsKey(host)) host.SizeChanged += HostSizeChanged;
+        mounted[host] = new(entry, entry.Version);
+        host.Child = null; host.Tag = entry.Row; host.MinHeight = entry.Row.Estimate;
+        host.Margin = new Thickness(0, 0, 0, spacing);
+        builds.Enqueue(new(host, entry, entry.Version)); Interlocked.Increment(ref pendingBuilds);
+        if (!pump.IsEnabled) pump.Start();
+    }
+
+    private void Release(Border host)
+    {
+        mounted.Remove(host); host.SizeChanged -= HostSizeChanged;
+        host.Tag = null; host.Child = null;
+    }
+
+    private void BuildNext()
+    {
+        while (builds.TryDequeue(out var work))
+        {
+            var valid = mounted.TryGetValue(work.Host, out var binding)
+                && ReferenceEquals(binding.Entry, work.Entry) && binding.Version == work.Version;
+            try
+            {
+                if (!valid) continue;
+                using var timing = PerformanceTrace.Measure("conversation.list.row.build");
+                work.Host.Child = work.Entry.Row.Build(); work.Host.MinHeight = 0;
+            }
+            finally { Interlocked.Decrement(ref pendingBuilds); PresentationPreparation.NotifyCompletion(); }
+            // At most one actual XAML subtree per dispatcher turn.
+            break;
+        }
+        if (builds.Count == 0) pump.Stop();
+        QueuePositionCheck();
+    }
+
+    internal Border? TryGetRealizedRow(int index)
+    {
+        if (index < 0 || index >= entries.Count) return null;
+        return (list.ContainerFromIndex(index) as ListViewItem)?.ContentTemplateRoot as Border;
+    }
+
+    internal VirtualRows.ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport)
+    {
+        VirtualRows.ReadingAnchor? first = null;
+        foreach (var (host, binding) in mounted)
+        {
+            if (binding.Entry.Row.Key is not { } key || !ReadyHost(host)) continue;
+            var bounds = Bounds(host, viewport);
+            if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight) continue;
+            if (first == null || bounds.Top < first.ViewportTop) first = new(key, bounds.Top);
+        }
+        return first;
+    }
+
+    internal VirtualRows.ReadingAnchor? ReadAnchor(ScrollViewer viewport, string key)
+    {
+        var index = entries.ToList().FindIndex(entry => entry.Row.Key == key);
+        var host = TryGetRealizedRow(index);
+        if (host == null || !ReadyHost(host)) return null;
+        var bounds = Bounds(host, viewport);
+        return bounds.Bottom > 0 && bounds.Top < viewport.ViewportHeight ? new(key, bounds.Top) : null;
+    }
+
+    private static bool ReadyHost(Border host) => host is { IsLoaded: true, Child: not null, ActualHeight: > 0, ActualWidth: > 0 };
+    private static Windows.Foundation.Rect Bounds(FrameworkElement host, ScrollViewer viewport) =>
+        host.TransformToVisual(viewport).TransformBounds(new(0, 0, host.ActualWidth, host.ActualHeight));
+
+    internal void FollowLastIntoView(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+        => StartPosition(PositionKind.Latest, null, 0, isCurrent, isContentReady);
+
+    internal Task<bool> RestoreReadingAnchorAsync(VirtualRows.ReadingAnchor anchor, ScrollViewer viewport,
+        Func<bool> isCurrent, Func<bool> isContentReady)
+        => StartPosition(PositionKind.Reading, anchor.Key, anchor.ViewportTop, isCurrent, isContentReady);
+
+    internal Task<bool> RestoreFirstIntoViewAsync(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+        => StartPosition(PositionKind.First, null, contentPadding.Top, isCurrent, isContentReady);
+
+    private Task<bool> StartPosition(PositionKind kind, string? key, double top, Func<bool> isCurrent, Func<bool> isReady)
+    {
+        Commit(); StopFollowingLast();
+        if (entries.Count == 0 || !isCurrent()) return Task.FromResult(false);
+        position = new(kind, key, top, isCurrent, isReady, ViewIdentity);
+        if (list.ItemsPanelRoot is ItemsStackPanel panel)
+            panel.ItemsUpdatingScrollMode = kind == PositionKind.Latest ? ItemsUpdatingScrollMode.KeepLastItemInView : ItemsUpdatingScrollMode.KeepItemsInView;
+        QueuePositionCheck();
+        return position.Completion.Task;
+    }
+
+    internal void StopFollowingLast()
+    {
+        position?.Completion.TrySetResult(false); position = null;
+        if (list.ItemsPanelRoot is ItemsStackPanel panel) panel.ItemsUpdatingScrollMode = ItemsUpdatingScrollMode.KeepItemsInView;
+    }
+
+    private void HostSizeChanged(object sender, SizeChangedEventArgs args) => QueuePositionCheck();
+    private void ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    {
+        if (args.IsIntermediate) return;
+        if (position is { CorrectionPending: true } intent)
+        {
+            intent.CorrectionPending = false;
+            intent.CorrectionCompleted = true;
+        }
+        QueuePositionCheck();
+    }
+    private void ViewSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (position is { Kind: PositionKind.Latest } follow) { follow.Corrections = 0; follow.LastGeometry = null; follow.Settled = false; }
+        QueuePositionCheck();
+    }
+    private void PreparationCompleted()
+    {
+        if (Interlocked.Exchange(ref completionQueued, 1) != 0) return;
+        if (!dispatcher.TryEnqueue(() => { Interlocked.Exchange(ref completionQueued, 0); QueuePositionCheck(); }))
+            Interlocked.Exchange(ref completionQueued, 0);
+    }
+    private void QueuePositionCheck()
+    {
+        if (position == null || checkQueued) return;
+        checkQueued = true;
+        if (!dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            { checkQueued = false; CheckPosition(); })) checkQueued = false;
+    }
+
+    private void CheckPosition()
+    {
+        if (position is not { } intent || Viewport is not { } viewport) return;
+        if (!intent.IsCurrent() || intent.View != ViewIdentity) { StopFollowingLast(); return; }
+        var index = intent.Kind == PositionKind.Latest ? entries.Count - 1
+            : intent.Kind == PositionKind.First ? 0 : entries.ToList().FindIndex(entry => entry.Row.Key == intent.Key);
+        if (index < 0 || index >= entries.Count) { StopFollowingLast(); return; }
+        var entry = entries[index];
+        if (!ReferenceEquals(intent.RequestedEntry, entry))
+        {
+            intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
+            intent.CorrectionPending = false; intent.CorrectionCompleted = false;
+            // The platform realizes the target; this does not construct or
+            // manually position an off-viewport item in an ItemsRepeater.
+            var existing = TryGetRealizedRow(index);
+            var existingBounds = existing is { IsLoaded: true } ? Bounds(existing, viewport) : default;
+            if (existing == null || existingBounds.Bottom <= 0 || existingBounds.Top >= viewport.ViewportHeight)
+            {
+                list.ScrollIntoView(entry, intent.Kind == PositionKind.Latest ? ScrollIntoViewAlignment.Default : ScrollIntoViewAlignment.Leading);
+                return;
+            }
+        }
+        // LayoutUpdated can repeat while ChangeView is still in flight. Only
+        // its final ViewChanged permits evaluating that correction's result.
+        if (intent.CorrectionPending) return;
+        var host = TryGetRealizedRow(index);
+        if (host == null || !ReadyHost(host) || !intent.IsReady()) return;
+        var bounds = Bounds(host, viewport);
+        var visible = bounds.Bottom > 0 && bounds.Top < viewport.ViewportHeight;
+        var settled = intent.Kind == PositionKind.Latest
+            ? visible && Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1
+            : visible && Math.Abs(bounds.Top - intent.Top) <= 1 && (intent.Kind != PositionKind.First || viewport.VerticalOffset <= 1);
+        if (settled)
+        {
+            intent.Settled = true; intent.Completion.TrySetResult(true);
+            if (intent.Kind != PositionKind.Latest) position = null;
+            return;
+        }
+        intent.Settled = false;
+        var geometry = (viewport.ViewportWidth, viewport.ViewportHeight, host.ActualWidth, host.ActualHeight,
+            Math.Round((bounds.Top + viewport.VerticalOffset) * 64) / 64);
+        if (intent.LastGeometry == geometry)
+        {
+            // The actual view change finished but this prepared geometry still
+            // cannot restore the reading position. Release the pending page;
+            // waiting for a geometry change that never comes is not a retry.
+            if (intent.CorrectionCompleted && intent.Kind != PositionKind.Latest)
+            { intent.Completion.TrySetResult(false); position = null; }
+            return;
+        }
+        if (intent.Corrections >= 3)
+        {
+            // A failed reading restoration must release the in-flight page,
+            // so the person can still navigate and request another page. The
+            // caller and CI retain the actual anchor evidence; false is not
+            // a successful restore. Follow-latest remains visibly unsettled.
+            if (intent.Kind != PositionKind.Latest)
+            { intent.Completion.TrySetResult(false); position = null; }
+            return;
+        }
+        intent.LastGeometry = geometry; intent.Corrections++;
+        // Deferred text can change a realized row's height. Correct only after
+        // that actual content has prepared, and at most three times per intent.
+        // A failure remains observable; no idle retry loop conceals it.
+        var offset = intent.Kind == PositionKind.Latest ? viewport.ScrollableHeight
+            : intent.Kind == PositionKind.First ? 0 : viewport.VerticalOffset + bounds.Top - intent.Top;
+        var clamped = Math.Clamp(offset, 0, viewport.ScrollableHeight);
+        if (intent.Kind == PositionKind.Reading && Math.Abs(offset - clamped) > 1)
+        {
+            // No legal viewport offset can preserve this prepared anchor to
+            // the existing one-DIP tolerance. Do not await an impossible move.
+            intent.Completion.TrySetResult(false); position = null; return;
+        }
+        intent.CorrectionPending = true; intent.CorrectionCompleted = false;
+        if (!viewport.ChangeView(null, clamped, null, true))
+        {
+            intent.CorrectionPending = false; intent.CorrectionCompleted = true;
+            // No final ViewChanged is required when the view did not change.
+            // Latest remains unsettled; a failed history restore must finish.
+            if (intent.Kind != PositionKind.Latest)
+            { intent.Completion.TrySetResult(false); position = null; }
+        }
+    }
+
+    internal bool IsLastPositionSettled
+    {
+        get
+        {
+            if (position is not { Kind: PositionKind.Latest, Settled: true } follow || Viewport is not { } viewport
+                || !follow.IsCurrent() || !follow.IsReady() || follow.View != ViewIdentity) return false;
+            var host = TryGetRealizedRow(entries.Count - 1);
+            if (host == null || !ReadyHost(host)) return false;
+            var bounds = Bounds(host, viewport);
+            return bounds.Bottom > 0 && bounds.Top < viewport.ViewportHeight
+                && Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1;
+        }
+    }
+
+    internal object ReadScrollState(ScrollViewer viewport)
+    {
+        var host = TryGetRealizedRow(entries.Count - 1);
+        var bounds = host is { IsLoaded: true } ? Bounds(host, viewport) : (Windows.Foundation.Rect?)null;
+        return new { implementation = "ListView/ItemsStackPanel", revision, committed, realized = Realized,
+            pending_builds = PendingBuilds, offset = viewport.VerticalOffset, maximum = viewport.ScrollableHeight,
+            intent = position?.Kind.ToString(), corrections = position?.Corrections, settled = position?.Settled ?? false,
+            last_row = new { loaded = host?.IsLoaded ?? false, child_ready = host?.Child != null, top = bounds?.Top, bottom = bounds?.Bottom } };
+    }
+}

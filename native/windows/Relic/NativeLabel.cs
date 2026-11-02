@@ -23,8 +23,7 @@ public sealed class NativeLabel : Panel
     private readonly Image image;
     private readonly string text, familyList, locale;
     private readonly float baseFontSize, baseLineHeight;
-    private readonly bool scaleText;
-    private readonly Windows.UI.ViewManagement.UISettings textSettings = CreateTextSettings();
+    private readonly Windows.UI.ViewManagement.UISettings? textSettings;
     private double textScale;
     private float fontSize => (float)(baseFontSize * textScale);
     private float lineHeight => (float)(baseLineHeight * textScale);
@@ -86,7 +85,11 @@ public sealed class NativeLabel : Panel
         using var timing = PerformanceTrace.Measure("NativeLabel.construct");
         this.text = text; this.familyList = familyList; baseFontSize = checked((float)fontSize);
         weight = fontWeight; this.locale = locale; baseLineHeight = checked((float)lineHeight);
-        this.scaleText = scaleText; textScale = scaleText ? textSettings.TextScaleFactor : 1;
+        // Selectable path text already scales its whole layout. Its per-line
+        // paint labels use scaleText:false and never need an OS settings
+        // object or subscription of their own.
+        if (scaleText) textSettings = CreateTextSettings();
+        textScale = textSettings?.TextScaleFactor ?? 1;
         resolvedLineHeight = this.lineHeight;
         this.characterEllipsis = characterEllipsis; this.accessibleText = accessibleText;
         this.wrapWholeWords = wrapWholeWords;
@@ -302,7 +305,7 @@ public sealed class NativeLabel : Panel
         attachCount++;
         preparationRetired = false;
         DetachSubscriptions();
-        if (scaleText) { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); }
+        if (textSettings != null) { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); }
         observedRoot = XamlRoot; if (observedRoot != null) observedRoot.Changed += RootChanged;
         DependencyObject? parent = VisualTreeHelper.GetParent(this);
         while (parent != null && parent is not ContentPresenter) parent = VisualTreeHelper.GetParent(parent);
@@ -315,7 +318,7 @@ public sealed class NativeLabel : Panel
         DispatcherQueue.TryEnqueue(RefreshTextScale);
     private void RefreshTextScale()
     {
-        var value = scaleText ? textSettings.TextScaleFactor : 1;
+        var value = textSettings?.TextScaleFactor ?? 1;
         if (value == textScale) return;
         textScale = value;
         preparation?.Cancel(); preparationError = null;
@@ -366,7 +369,7 @@ public sealed class NativeLabel : Panel
     }
     private void DetachSubscriptions()
     {
-        textSettings.TextScaleFactorChanged -= TextScaleChanged;
+        if (textSettings != null) textSettings.TextScaleFactorChanged -= TextScaleChanged;
         if (observedRoot != null) { observedRoot.Changed -= RootChanged; observedRoot = null; }
         if (presenter != null) { presenter.UnregisterPropertyChangedCallback(ContentPresenter.ForegroundProperty, foregroundToken); presenter = null; }
         if (foreground != null)

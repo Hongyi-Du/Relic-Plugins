@@ -27,25 +27,79 @@ public sealed partial class MainWindow
     {
         var index = side.Children.FindIndex(row => row.Key == key);
         if (index < 0) throw new InvalidOperationException("Production sidebar has no row: " + key);
-        // This is the same real virtual row navigation used by keyboard input.
-        // Preparing the click target is reported separately from opening time.
-        if (VisibleSidebarClickTarget(automationId) == null) side.BringIndexIntoView(index);
+        ScrollViewer? viewport = null;
+        for (DependencyObject? parent = side; parent != null; parent = VisualTreeHelper.GetParent(parent))
+            if (parent is ScrollViewer scroll) { viewport = scroll; break; }
+        if (viewport == null) throw new InvalidOperationException("Production sidebar has no actual scrolling viewport");
+        // Reach an offscreen target with real user input. Never call the
+        // product's offscreen GetOrCreate/bring helpers from this preparation.
+        // This remains separate from the one-second click-to-content deadline.
         var elapsed = Stopwatch.StartNew();
-        while (elapsed.Elapsed < TimeSpan.FromSeconds(15))
+        var scrolling = false;
+        EventHandler<ScrollViewerViewChangedEventArgs> changed = (_, args) => scrolling = args.IsIntermediate;
+        viewport.ViewChanged += changed;
+        try
         {
-            var row = VisibleSidebarClickTarget(automationId);
-            if (row != null)
+            while (elapsed.Elapsed < TimeSpan.FromSeconds(15))
             {
-                // Hover is real input. A pending activation refresh or virtual
-                // bring may replace/move this row while its input is queued.
-                // Locate it again before retaining the actual click observer.
-                await CaptureHover(row);
-                if (ReferenceEquals(row, VisibleSidebarClickTarget(automationId))
-                    && SidebarPointerHits(row).Flag("target_hit")) return row;
+                var row = VisibleSidebarClickTarget(automationId);
+                if (row != null)
+                {
+                    // A native scroll or activation refresh can move/recycle
+                    // the row while input is queued. Retain it only after the
+                    // real scroll ends and the actual pointer still hits it.
+                    await CaptureHover(row);
+                    if (!scrolling && ReferenceEquals(row, VisibleSidebarClickTarget(automationId))
+                        && SidebarPointerHits(row).Flag("target_hit")) return row;
+                    await Task.Delay(16);
+                    continue;
+                }
+                if (scrolling) { await Task.Delay(16); continue; }
+                index = side.Children.FindIndex(candidate => candidate.Key == key);
+                if (index < 0) throw new InvalidOperationException("Production sidebar removed its click target: " + key);
+                var direction = 0; var distance = 0;
+                var actualTarget = PerformanceElements(side).OfType<NativeSidebarRow>()
+                    .FirstOrDefault(candidate => AutomationProperties.GetAutomationId(candidate) == automationId);
+                if (actualTarget is { IsLoaded: true, ActualHeight: > 0 })
+                {
+                    var bounds = actualTarget.TransformToVisual(viewport).TransformBounds(new(0, 0, actualTarget.ActualWidth, actualTarget.ActualHeight));
+                    var center = bounds.Top + bounds.Height / 2;
+                    if (center < 0) direction = 1;
+                    else if (center >= viewport.ViewportHeight) direction = -1;
+                }
+                if (direction == 0)
+                {
+                    // Read only existing realized hosts, including placeholders.
+                    // Their real geometry and model order determine the wheel
+                    // direction; no estimated pixel offset selects a target.
+                    var visibleIndices = new List<int>();
+                    foreach (var host in PerformanceElements(side).OfType<Border>())
+                    {
+                        if (host is not { IsLoaded: true, ActualHeight: > 0, Tag: VirtualRows.Row model }) continue;
+                        var bounds = host.TransformToVisual(viewport).TransformBounds(new(0, 0, host.ActualWidth, host.ActualHeight));
+                        if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight) continue;
+                        var visibleIndex = side.Children.FindIndex(candidate => ReferenceEquals(candidate, model)
+                            || model.Key != null && candidate.Key == model.Key);
+                        if (visibleIndex >= 0) visibleIndices.Add(visibleIndex);
+                    }
+                    if (visibleIndices.Count > 0)
+                    {
+                        var first = visibleIndices.Min(); var last = visibleIndices.Max();
+                        if (index < first) { direction = 1; distance = first - index; }
+                        else if (index > last) { direction = -1; distance = index - last; }
+                    }
+                }
+                if (direction == 0) { await Task.Delay(16); continue; }
+                await CaptureHover(viewport);
+                var delta = direction * (distance > 8 ? 360 : 120);
+                capturePointerReceipts.Add(new JsonObject { ["operation"] = "SendInput sidebar pointer wheel",
+                    ["delta"] = delta, ["target_index"] = index, ["offset_before"] = viewport.VerticalOffset });
+                SendCaptureMouse(new CaptureMouseInput { Data = unchecked((uint)delta), Flags = 0x0800 });
+                await Task.Delay(80);
             }
-            await Task.Delay(16);
+            throw new TimeoutException("Production sidebar did not reveal its actual click target through real wheel input: " + automationId);
         }
-        throw new TimeoutException("Production sidebar did not reveal its actual click target: " + automationId);
+        finally { viewport.ViewChanged -= changed; }
     }
 
     private NativeSidebarRow? VisibleSidebarClickTarget(string automationId)
@@ -110,10 +164,9 @@ public sealed partial class MainWindow
             ["latest_message_loaded"] = messageLoaded, ["expected_empty"] = expectedEmpty,
             ["selected"] = selected, ["content_ready"] = ConversationContentReady(), ["latest_visible"] = false };
         if (!selected || !ConversationContentReady()) return result;
-        var repeater = VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater;
         var rowKey = (expected.ItemKind == "message" ? "message:" : "item:") + expectedId;
         var index = expectedEmpty ? stream.Children.Count - 1 : stream.Children.FindIndex(row => row.Key == rowKey);
-        var host = index >= 0 ? repeater?.TryGetElement(index) as Border : null;
+        var host = index >= 0 ? stream.TryGetRealizedRow(index) : null;
         if (host is not { IsLoaded: true, Child: not null, ActualHeight: > 0 }) return result;
         var bounds = host.TransformToVisual(chatScroll).TransformBounds(new(0, 0, host.ActualWidth, host.ActualHeight));
         var visible = bounds.Bottom > 0 && bounds.Top < chatScroll.ViewportHeight;

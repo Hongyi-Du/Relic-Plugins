@@ -30,7 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly NativeRegionGrid composerRegion = new() { Padding = new Thickness(0, 6, 0, 16) };
     private readonly VirtualRows side = new() { TraceName = "sidebar", Spacing = 2, Padding = new Thickness(8) };
     private readonly VirtualRows detail = new() { TraceName = "inspector", Spacing = 14, Padding = new Thickness(16) };
-    private readonly VirtualRows stream = new() { TraceName = "conversation", Padding = new Thickness(20, 8, 20, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly NativeChatList stream = new() { TraceName = "conversation", ContentPadding = new Thickness(20, 8, 20, 24), ContentMaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComposerInput editor = new();
     private readonly TextBox search = new();
     private readonly StackPanel sideTools = new() { Padding = new Thickness(8, 10, 8, 6) };
@@ -38,7 +38,8 @@ public sealed partial class MainWindow : Window
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, Grid> fieldSurfaces = new();
 
     private readonly InfoBar error = new() { Severity = InfoBarSeverity.Error, IsClosable = true };
-    private readonly ScrollViewer chatScroll;
+    private ScrollViewer chatScroll = null!;
+    private readonly TaskCompletionSource<ScrollViewer> chatViewportReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Grid chatHead = new() { Height = 56, Padding = new Thickness(20, 0, 14, 0), ColumnSpacing = 12, BorderThickness = new Thickness(0, 0, 0, 1) };
     private readonly StackPanel menu = new() { Orientation = Orientation.Horizontal };
     private readonly TextBlock appTitle = new() { FontSize = 12.5, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
@@ -47,6 +48,8 @@ public sealed partial class MainWindow : Window
     private bool refreshing, pending, closing, ready, sending, sendingThread;
     private TaskCompletionSource? refreshCompletion;
     private string renderedView = "";
+    private bool sidebarStructureChanged;
+    private long presentationVersion, renderedPresentationVersion;
     private readonly Dictionary<string, HashSet<string>> lastDecisions = new();
     private readonly Dictionary<string, string> lastMessages = new();
     private bool active = true;
@@ -100,7 +103,12 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         var top = titlebarRegion; top.Height = 40; top.BorderThickness = new Thickness(0, 0, 0, 1); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         void PaintToolbarSurface() { top.BorderBrush = Line; top.Background = Paint("F8F7F5", "191918"); }
-        top.Loaded += (_, _) => PaintToolbarSurface(); root.ActualThemeChanged += (_, _) => PaintToolbarSurface();
+        top.Loaded += (_, _) => PaintToolbarSurface();
+        root.ActualThemeChanged += (_, _) =>
+        {
+            PaintToolbarSurface(); presentationVersion++; toolbarState = null;
+            if (ready) { ThemeSurfaces(); Schedule(); }
+        };
         top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 3); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
         // Only the title gives up space as the window narrows. Navigation,
         // menus and commands stay outside the system caption-button inset.
@@ -120,12 +128,17 @@ public sealed partial class MainWindow : Window
         chat.RowDefinitions.Add(new() { Height = GridLength.Auto });
         chat.Children.Add(chatHead);
         Grid.SetRow(conversationBanner, 1); chat.Children.Add(conversationBanner);
-        chatScroll = Scroll(stream);
-        // DefaultScrollViewerStyle sets IsTabStop=false, which redirects Focus
-        // to a selectable descendant. The conversation itself owns Home/End;
-        // child text keeps its independent caret/selection keyboard behavior.
-        chatScroll.IsTabStop = true;
-        Grid.SetRow(chatScroll, 2); chat.Children.Add(chatScroll);
+        // The native ListView owns the only scrolling viewport. Nesting it in
+        // another ScrollViewer would give it infinite height and disable recycling.
+        stream.ViewportReady += viewport =>
+        {
+            chatScroll = viewport;
+            chatScroll.Style = (Style)Application.Current.Resources["RelicScrollViewerStyle"];
+            chatScroll.IsTabStop = true;
+            WireConversationScroll();
+            chatViewportReady.TrySetResult(viewport);
+        };
+        Grid.SetRow(stream, 2); chat.Children.Add(stream);
         Grid.SetRow(emptyConversation, 2); chat.Children.Add(emptyConversation);
         var compose = new StackPanel { Spacing = 6 };
         quoteRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); quoteRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); quoteRow.Children.Add(quoteLabel); quoteRow.Visibility = Visibility.Collapsed;
@@ -172,6 +185,7 @@ public sealed partial class MainWindow : Window
             if (api != null) return;
             await Run(async () =>
             {
+                await chatViewportReady.Task;
                 VisualStartup("starting engine host");
                 var engine = Environment.GetEnvironmentVariable("RELIC_ENGINE_ROOT") ?? AppContext.BaseDirectory;
                 api = await host.Start(engine, Environment.GetEnvironmentVariable("RELIC_PYTHON") ?? "python");
@@ -287,26 +301,41 @@ public sealed partial class MainWindow : Window
                 // names, avatars and header state), not other organizations'
                 // summaries. Keep those independent sidebar updates out of it.
                 var snapshotChanged = !JsonNode.DeepEquals(oldSnap, nextSnap);
+                var chatChanged = snapshotChanged || !JsonNode.DeepEquals(oldMessages, nextMessages)
+                    || !JsonNode.DeepEquals(oldConversation, nextConversation) || !JsonNode.DeepEquals(oldLive, nextLive);
                 return (
                     Side: !JsonNode.DeepEquals(oldOrgs, nextOrgs) || snapshotChanged,
-                    Chat: snapshotChanged || !JsonNode.DeepEquals(oldMessages, nextMessages)
-                        || !JsonNode.DeepEquals(oldConversation, nextConversation) || !JsonNode.DeepEquals(oldLive, nextLive),
-                    Detail: snapshotChanged || !JsonNode.DeepEquals(oldThread, nextThread));
+                    Chat: chatChanged,
+                    Detail: snapshotChanged || !JsonNode.DeepEquals(oldThread, nextThread),
+                    Identities: chatChanged ? MessagePresentationIdentities(nextMessages) : null,
+                    MemberIdentity: snapshotChanged ? nextSnap["members"]?.ToJsonString() ?? "" : null);
             }, lifetime.Token);
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
+            if (changes.Identities != null) messagePresentationIdentities = changes.Identities;
+            if (changes.MemberIdentity != null) memberPresentationIdentity = changes.MemberIdentity;
             var viewChanged = renderedView != org + "/" + member;
-            using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged) DrawMenu();
-            using (PerformanceTrace.Measure("DrawToolbar")) if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged) DrawToolbar();
+            var organizationChanged = !renderedView.StartsWith(org + "/", StringComparison.Ordinal);
+            var currentPresentation = presentationVersion;
+            var presentationChanged = currentPresentation != renderedPresentationVersion;
+            using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged || presentationChanged) DrawMenu();
+            using (PerformanceTrace.Measure("DrawToolbar")) if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged || presentationChanged) DrawToolbar();
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-            using (PerformanceTrace.Measure("DrawSide")) if (changes.Side || viewChanged) DrawSide();
+            using (PerformanceTrace.Measure("DrawSide"))
+            {
+                if (changes.Side || organizationChanged || sidebarStructureChanged || presentationChanged) { DrawSide(); sidebarStructureChanged = false; }
+                else if (viewChanged) UpdateSidebarSelection();
+            }
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-            using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || viewChanged) DrawChat();
+            using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || viewChanged || presentationChanged) DrawChat();
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-            using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || viewChanged) DrawDetail();
+            // Overview is organization data. A private-chat selection changes
+            // its sidebar highlight, not its member/task/protocol controls.
+            using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || organizationChanged || presentationChanged || (viewChanged && pane != "overview")) DrawDetail();
             renderedView = org + "/" + member;
+            renderedPresentationVersion = currentPresentation;
             if (pane == "workspace" && changes.Detail) await Workspace();
             if (refreshChart != null && changes.Detail) await refreshChart();
         }
@@ -321,7 +350,7 @@ public sealed partial class MainWindow : Window
         if (different) { digest = new JsonObject(); threadId = ""; if (pane == "thread") pane = previousPane; directory = ""; workspaceMember = ""; }
         RestoreChat(); if (!fromHistory) PushHistory();
         var reveal = id; var ancestors = new HashSet<string>();
-        while (reveal.Length > 0 && ancestors.Add(reveal)) { folded.Remove(reveal); reveal = orgs.FirstOrDefault(o => o.Text("id") == reveal).Text("parent"); }
+        while (reveal.Length > 0 && ancestors.Add(reveal)) { sidebarStructureChanged |= folded.Remove(reveal); reveal = orgs.FirstOrDefault(o => o.Text("id") == reveal).Text("parent"); }
         SaveViewState();
         LayoutColumns();
         await Refresh();
@@ -354,6 +383,7 @@ public sealed partial class MainWindow : Window
         // including an already-open settings dialog outside the main tree.
         root.Language = words.Language;
         if (visibleDialog != null) visibleDialog.Language = words.Language;
+        presentationVersion++; toolbarState = null;
         ApplyAppearance(); DrawMenu();
     }
     private void DrawSide() => DrawSidebar();
@@ -361,7 +391,7 @@ public sealed partial class MainWindow : Window
     private void ScrollToLatest()
     {
         // Retain the actual final-row anchor through deferred Markdown/font
-        // layout and virtual extent changes. VirtualRows reacts to real layout
+        // layout and virtual extent changes. NativeChatList reacts to real layout
         // changes, and a later user/history scroll cancels this single intent.
         keepLatest = true;
         chatScroll.VerticalAnchorRatio = 1;
@@ -369,7 +399,7 @@ public sealed partial class MainWindow : Window
         var selectedOrg = org; var selectedMember = member;
         bool IsCurrent() => !closing && keepLatest && request == latestRequest
             && org == selectedOrg && member == selectedMember;
-        bool IsContentReady() => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0
+        bool IsContentReady() => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativeChatList.PendingBuilds == 0
             && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0;
         stream.FollowLastIntoView(chatScroll, IsCurrent, IsContentReady);
     }
