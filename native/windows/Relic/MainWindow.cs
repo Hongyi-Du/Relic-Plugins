@@ -49,6 +49,7 @@ public sealed partial class MainWindow : Window
     private TaskCompletionSource? refreshCompletion;
     private string renderedView = "";
     private bool sidebarStructureChanged;
+    private long presentationVersion, renderedPresentationVersion;
     private readonly Dictionary<string, HashSet<string>> lastDecisions = new();
     private readonly Dictionary<string, string> lastMessages = new();
     private bool active = true;
@@ -102,7 +103,12 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         var top = titlebarRegion; top.Height = 40; top.BorderThickness = new Thickness(0, 0, 0, 1); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         void PaintToolbarSurface() { top.BorderBrush = Line; top.Background = Paint("F8F7F5", "191918"); }
-        top.Loaded += (_, _) => PaintToolbarSurface(); root.ActualThemeChanged += (_, _) => PaintToolbarSurface();
+        top.Loaded += (_, _) => PaintToolbarSurface();
+        root.ActualThemeChanged += (_, _) =>
+        {
+            PaintToolbarSurface(); presentationVersion++; toolbarState = null;
+            if (ready) { ThemeSurfaces(); Schedule(); }
+        };
         top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 3); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
         // Only the title gives up space as the window narrows. Navigation,
         // menus and commands stay outside the system caption-button inset.
@@ -309,24 +315,27 @@ public sealed partial class MainWindow : Window
             if (changes.MemberIdentity != null) memberPresentationIdentity = changes.MemberIdentity;
             var viewChanged = renderedView != org + "/" + member;
             var organizationChanged = !renderedView.StartsWith(org + "/", StringComparison.Ordinal);
-            using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged) DrawMenu();
-            using (PerformanceTrace.Measure("DrawToolbar")) if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged) DrawToolbar();
+            var currentPresentation = presentationVersion;
+            var presentationChanged = currentPresentation != renderedPresentationVersion;
+            using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged || presentationChanged) DrawMenu();
+            using (PerformanceTrace.Measure("DrawToolbar")) if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged || presentationChanged) DrawToolbar();
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             using (PerformanceTrace.Measure("DrawSide"))
             {
-                if (changes.Side || organizationChanged || sidebarStructureChanged) { DrawSide(); sidebarStructureChanged = false; }
+                if (changes.Side || organizationChanged || sidebarStructureChanged || presentationChanged) { DrawSide(); sidebarStructureChanged = false; }
                 else if (viewChanged) UpdateSidebarSelection();
             }
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-            using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || viewChanged) DrawChat();
+            using (PerformanceTrace.Measure("DrawChat")) if (changes.Chat || viewChanged || presentationChanged) DrawChat();
             await YieldPresentation();
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             // Overview is organization data. A private-chat selection changes
             // its sidebar highlight, not its member/task/protocol controls.
-            using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || organizationChanged || (viewChanged && pane != "overview")) DrawDetail();
+            using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || organizationChanged || presentationChanged || (viewChanged && pane != "overview")) DrawDetail();
             renderedView = org + "/" + member;
+            renderedPresentationVersion = currentPresentation;
             if (pane == "workspace" && changes.Detail) await Workspace();
             if (refreshChart != null && changes.Detail) await refreshChart();
         }
@@ -374,6 +383,7 @@ public sealed partial class MainWindow : Window
         // including an already-open settings dialog outside the main tree.
         root.Language = words.Language;
         if (visibleDialog != null) visibleDialog.Language = words.Language;
+        presentationVersion++; toolbarState = null;
         ApplyAppearance(); DrawMenu();
     }
     private void DrawSide() => DrawSidebar();

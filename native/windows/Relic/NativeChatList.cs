@@ -30,6 +30,7 @@ internal sealed class NativeChatList : Grid
         internal Entry? RequestedEntry;
         internal int Corrections;
         internal bool Settled;
+        internal bool CorrectionPending, CorrectionCompleted;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
 
@@ -330,7 +331,15 @@ internal sealed class NativeChatList : Grid
 
     private void HostSizeChanged(object sender, SizeChangedEventArgs args) => QueuePositionCheck();
     private void ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
-    { if (!args.IsIntermediate) QueuePositionCheck(); }
+    {
+        if (args.IsIntermediate) return;
+        if (position is { CorrectionPending: true } intent)
+        {
+            intent.CorrectionPending = false;
+            intent.CorrectionCompleted = true;
+        }
+        QueuePositionCheck();
+    }
     private void ViewSizeChanged(object sender, SizeChangedEventArgs args)
     {
         if (position is { Kind: PositionKind.Latest } follow) { follow.Corrections = 0; follow.LastGeometry = null; follow.Settled = false; }
@@ -361,6 +370,7 @@ internal sealed class NativeChatList : Grid
         if (!ReferenceEquals(intent.RequestedEntry, entry))
         {
             intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
+            intent.CorrectionPending = false; intent.CorrectionCompleted = false;
             // The platform realizes the target; this does not construct or
             // manually position an off-viewport item in an ItemsRepeater.
             var existing = TryGetRealizedRow(index);
@@ -371,6 +381,9 @@ internal sealed class NativeChatList : Grid
                 return;
             }
         }
+        // LayoutUpdated can repeat while ChangeView is still in flight. Only
+        // its final ViewChanged permits evaluating that correction's result.
+        if (intent.CorrectionPending) return;
         var host = TryGetRealizedRow(index);
         if (host == null || !ReadyHost(host) || !intent.IsReady()) return;
         var bounds = Bounds(host, viewport);
@@ -387,7 +400,15 @@ internal sealed class NativeChatList : Grid
         intent.Settled = false;
         var geometry = (viewport.ViewportWidth, viewport.ViewportHeight, host.ActualWidth, host.ActualHeight,
             Math.Round((bounds.Top + viewport.VerticalOffset) * 64) / 64);
-        if (intent.LastGeometry == geometry) return;
+        if (intent.LastGeometry == geometry)
+        {
+            // The actual view change finished but this prepared geometry still
+            // cannot restore the reading position. Release the pending page;
+            // waiting for a geometry change that never comes is not a retry.
+            if (intent.CorrectionCompleted && intent.Kind != PositionKind.Latest)
+            { intent.Completion.TrySetResult(false); position = null; }
+            return;
+        }
         if (intent.Corrections >= 3)
         {
             // A failed reading restoration must release the in-flight page,
@@ -404,7 +425,22 @@ internal sealed class NativeChatList : Grid
         // A failure remains observable; no idle retry loop conceals it.
         var offset = intent.Kind == PositionKind.Latest ? viewport.ScrollableHeight
             : intent.Kind == PositionKind.First ? 0 : viewport.VerticalOffset + bounds.Top - intent.Top;
-        viewport.ChangeView(null, Math.Clamp(offset, 0, viewport.ScrollableHeight), null, true);
+        var clamped = Math.Clamp(offset, 0, viewport.ScrollableHeight);
+        if (intent.Kind == PositionKind.Reading && Math.Abs(offset - clamped) > 1)
+        {
+            // No legal viewport offset can preserve this prepared anchor to
+            // the existing one-DIP tolerance. Do not await an impossible move.
+            intent.Completion.TrySetResult(false); position = null; return;
+        }
+        intent.CorrectionPending = true; intent.CorrectionCompleted = false;
+        if (!viewport.ChangeView(null, clamped, null, true))
+        {
+            intent.CorrectionPending = false; intent.CorrectionCompleted = true;
+            // No final ViewChanged is required when the view did not change.
+            // Latest remains unsettled; a failed history restore must finish.
+            if (intent.Kind != PositionKind.Latest)
+            { intent.Completion.TrySetResult(false); position = null; }
+        }
     }
 
     internal bool IsLastPositionSettled

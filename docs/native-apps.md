@@ -1,5 +1,23 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+The standard Windows list now terminates an unsuccessful reading-position
+restore after the real final ViewChanged (or a rejected/impossible ChangeView),
+instead of leaving the next history page permanently loading. Interim layout
+notifications cannot prematurely complete it. Per-line NativeLabel paint with
+scaleText:false no longer creates an unused UISettings instance; its owning
+selectable text still performs system text scaling. Presentation revisions
+invalidate retained regions when settings or the system theme change.
+
+94e4d53 adaptive Windows captures pass all four full-window cases in41543376105;
+1440x900 light reports a real realized/prepared final ListView row, zero end
+gap and zero pending text. Full pressure results are still pending. Changes
+for the clients: Mac33965c1 tests41541625612 still fail actual End/navigation
+assertions; adaptive41543376105 fails both1024x700 captures with "Native panes
+and visible Markdown did not finish preparing". These remain product failures,
+not accepted exceptions. Mac4abdca8 large open-every-chat and switch-chats passed
+in41541102972, but idle2.428%, history268.270ms and monkey End38pt failed;
+person-shape phases also remain incomplete. Both strict profiles remain required.
+
 Windows conversation now uses a standard ListView/ItemsStackPanel with its
 single native ScrollViewer, replacing the custom VirtualRows realization and
 manual positioning for messages. Stable row identities retain unchanged
