@@ -380,8 +380,50 @@ def route(request, config, folder, execute=None):
     return outcome
 
 
+# A request that no GUI Stop answers stops holding its Desktop session after this long. Its delivery stays unknown
+# (it may have been sent), so it is never sent again; a late Stop that quotes its nonce still answers it.
+PENDING_EXPIRY = 6 * 3600
 
 
+def address(store, org, member):
+    """The Desktop session title a seat's turns go to: '<organization> · <member>' of the seat whose GUI config the
+    seat uses (its own, else the one it inherits from another seat of the same session). Every seat of one session
+    reaches it at this one address, so the person names the Desktop session once."""
+    source = store.config_source(org["id"], member, org)
+    owner, name = source if source else (org, member)
+    return "%s · %s" % (owner["name"], name)
+
+
+def blocking(store, carrier, now=None):
+    """Unanswered requests that still hold this Desktop session: possibly delivered (the router neither refused
+    nor found no target) and younger than PENDING_EXPIRY. The session takes one Relic request at a time, whichever
+    of its seats the request is for."""
+    now = time.time() if now is None else now
+    return [(request, folder) for request, folder in gui_receipt.unresolved(store, carrier, now)
+            if now - request["created"] < PENDING_EXPIRY and
+            _read(folder / "delivery.json").get("outcome") not in ("refused", "unavailable")]
+
+
+def hold(store, carrier, now=None):
+    """Seconds until no unanswered request holds this Desktop session (0: it is free now)."""
+    now = time.time() if now is None else now
+    return max((PENDING_EXPIRY - (now - request["created"]) for request, _ in blocking(store, carrier, now)), default=0)
+
+
+def _expire(store, carrier, now):
+    """Mark the requests past PENDING_EXPIRY, without sending them again; record each once."""
+    for request, folder in gui_receipt.unresolved(store, carrier, now):
+        outcome = _read(folder / "delivery.json").get("outcome", "unknown")
+        if (outcome in ("refused", "unavailable") or now - request["created"] < PENDING_EXPIRY or
+                (folder / "expired.json").exists()):
+            continue
+        _write(folder / "expired.json", {"at": now, "outcome": outcome, "age": round(now - request["created"])})
+        try:
+            with store.db() as db:
+                store._event(db, request["org_id"], request["member"], "member.desktop_request_expired",
+                             {"nonce": request["nonce"], "outcome": outcome})
+        except Exception:  # the record is a courtesy; the marker file above is what matters
+            pass
 
 
 def run_turn(store, org, member, config, prompt, new, cwd, route_message=None, timeout=3600, sleep=time.sleep, clock=time.monotonic):
@@ -392,17 +434,19 @@ def run_turn(store, org, member, config, prompt, new, cwd, route_message=None, t
         raise TransportError("unavailable", "an existing main Claude Desktop seat is required; GUI bootstrap is unsupported")
     _require_mac_transport(carrier)
     path = request_path(org["id"], member)
-    request = _read(path, strict=True)
-    if request:
-        folder = runner.runs_dir() / ("claude-gui-" + request["nonce"])
-        old_receipt = _read(folder / "receipt.json")
-        outcome = _read(folder / "delivery.json").get("outcome", "unknown")
-        if not receipt_matches(old_receipt, request) and outcome not in ("refused", "unavailable"):
-            raise TransportError(outcome, "previous request has no matching GUI Stop; not sent again (nonce %s)" % request["nonce"], True)
+    _read(path, strict=True)  # an unreadable request file is never replaced by another send
+    now = time.time()
+    held = blocking(store, carrier, now)
+    if held:
+        old, old_folder = held[0]
+        raise TransportError("blocked", "%s %s (nonce %s, %s); nothing was sent" % (
+            carrier, gui_receipt.WAITING, old["nonce"], _read(old_folder / "delivery.json").get("outcome", "sending")))
+    _expire(store, carrier, now)
     request = {"org_id": org["id"], "member": member, "carrier": carrier, "nonce": uuid.uuid4().hex,
-               "expected": "%s · %s" % (org["name"], member), "prompt": prompt, "created": time.time()}
+               "expected": address(store, org, member), "prompt": prompt, "created": time.time()}
     folder = runner.runs_dir() / ("claude-gui-" + request["nonce"])
     folder.mkdir()
+    _write(folder / "request.json", request)
     _write(path, request)
     try:
         outcome = (route_message or route)(request, config, folder)

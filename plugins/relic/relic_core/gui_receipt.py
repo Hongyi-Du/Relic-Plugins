@@ -115,53 +115,105 @@ def receipt_matches(receipt, request):
             receipt.get("at", 0) >= request["created"])
 
 
+KEEP = 7 * 24 * 3600  # how long an unanswered request can still be answered by a late Stop that quotes its nonce
+# The text of a refused start while a Desktop session still owes an earlier request its Stop: wake.py waits quietly,
+# as for a busy chat (no failure, no receipt).
+WAITING = "has an unanswered Relic request in the Claude desktop app"
+
+
+def unresolved(store, carrier, now=None):
+    """Requests sent, or possibly sent, to this Desktop session that no GUI Stop has answered yet, newest first.
+
+    One session can hold seats in several organizations, and every one of them reaches it at one address, so it can
+    owe more than one. They are found from each seat's request file and from the request folders: a newer request of
+    the same seat replaces the seat's file, but a late Stop can still answer the older one.
+    """
+    now = time.time() if now is None else now
+    found = {}
+
+    def consider(request, folder):
+        nonce = request.get("nonce")
+        if (not isinstance(nonce, str) or nonce in found or request.get("carrier") != carrier or
+                folder.name != "claude-gui-" + nonce or not folder.is_dir() or (folder / "receipt.json").exists() or
+                not isinstance(request.get("created"), (int, float)) or request["created"] < now - KEEP):
+            return
+        found[nonce] = (request, folder)
+
+    for org, member, _ in store.seats_of(carrier):
+        request = _read(request_path(org["id"], member))
+        if request.get("org_id") == org["id"] and request.get("member") == member:
+            consider(request, runs_dir() / ("claude-gui-" + str(request.get("nonce"))))
+    for folder in runs_dir().glob("claude-gui-*"):
+        try:
+            if folder.stat().st_mtime < now - KEEP:
+                continue
+        except OSError:
+            continue
+        consider(_read(folder / "request.json"), folder)
+    return sorted(found.values(), key=lambda item: item[0]["created"], reverse=True)
+
+
 def capture(event, output, store, actor):
-    """Opt-in by a pending request; never parse transcripts or capture another turn's history."""
+    """Opt-in by an outstanding request; never parse transcripts or capture another turn's history.
+
+    Every event is matched by nonce: a router prompt binds the request it carries and no other, a Relic message or a
+    public final reply that quotes a nonce binds that request, and a human prompt invalidates every earlier binding.
+    A late Stop for an older request answers that request, never a newer one.
+    """
     observe_desktop_stop(event, output, store, actor)
-    if event.get("agent_id"):
+    if event.get("agent_id") or event.get("session_id") != actor:
         return
-    for org, member, _ in store.seats_of(actor):  # the seat whose GUI turn is pending, of every seat it holds
+    for org, member, _ in store.seats_of(actor):  # only a session holding a GUI-configured seat takes receipts
         seat = org["members"][member]
         config = store.seat_config(org["id"], member, org)
-        if (seat.get("carrier") != actor or event.get("session_id") != actor or
-                seat.get("harness") != "claude-code" or config.get("harness") != "claude-code" or config.get("surface") != "gui"):
-            continue
-        request = _read(request_path(org["id"], member))
-        if request and request.get("carrier") == actor and request.get("org_id") == org["id"] and request.get("member") == member:
+        if (seat.get("carrier") == actor and seat.get("harness") == "claude-code" and
+                config.get("harness") == "claude-code" and config.get("surface") == "gui"):
             break
     else:
         return
-    folder = runs_dir() / ("claude-gui-" + request["nonce"])
-    if not folder.is_dir() or (folder / "receipt.json").exists():
+    requests = unresolved(store, actor)
+    if not requests:
         return
     name = event.get("hook_event_name")
-    _write(folder / "hook-observed.json", {"event": name, "session_id": event.get("session_id"),
+    _write(requests[0][1] / "hook-observed.json", {"event": name, "session_id": event.get("session_id"),
         "entrypoint": os.getenv("CLAUDE_CODE_ENTRYPOINT"), "at": time.time(),
         "public_stop_field": isinstance(event.get("last_assistant_message"), str)})
     if os.getenv("CLAUDE_CODE_ENTRYPOINT") != "claude-desktop":
         return
-    binding_path = folder / "binding.json"
     if name == "UserPromptSubmit":
-        # Any later human prompt invalidates a previously observed prompt/tool binding.
         prompt_text = event.get("prompt")
-        exact = isinstance(prompt_text, str) and prompt_text.count(payload(request)) == 1
-        _write(binding_path, {"matched_by": "prompt" if exact else None, "human_prompt": not exact})
+        carried = next((r["nonce"] for r, _ in requests
+                        if isinstance(prompt_text, str) and prompt_text.count(payload(r)) == 1), None)
+        for request, folder in requests:
+            if request["nonce"] == carried:
+                binding = {"matched_by": "prompt"}
+            elif carried:
+                # Another request's router prompt: this turn answers that one; this request keeps only its nonce.
+                binding = {"matched_by": None}
+            else:
+                # Any later human prompt invalidates a previously observed prompt/tool binding.
+                binding = {"matched_by": None, "human_prompt": True}
+            _write(folder / "binding.json", binding)
     elif name == "PostToolUse" and is_relic_tool(event.get("tool_name", "")):
         data = event.get("tool_input") or {}
-        if event["tool_name"].endswith("__message") and isinstance(data, dict) and marker(request) in str(data.get("body", "")):
-            _write(binding_path, {"matched_by": "relic"})
+        if event["tool_name"].endswith("__message") and isinstance(data, dict):
+            for request, folder in requests:
+                if marker(request) in str(data.get("body", "")):
+                    _write(folder / "binding.json", {"matched_by": "relic"})
     elif name == "Stop" and output.get("decision") != "block" and not (output.get("hookSpecificOutput") or {}).get("additionalContext"):
         text = event.get("last_assistant_message")
         if not isinstance(text, str) or not text.strip():
             return
-        observed = _read(binding_path)
-        binding = observed.get("matched_by")
-        if marker(request) in text and not observed.get("human_prompt"):
-            binding = "public"
-        if binding not in ("prompt", "relic", "public"):
-            return
-        receipt = {k: request[k] for k in ("org_id", "member", "carrier", "nonce")}
-        receipt.update(session_id=event["session_id"], event="Stop", entrypoint="claude-desktop",
-                       matched_by=binding, last_assistant_message=text, at=time.time())
-        _write(folder / "receipt.json", receipt)
-        binding_path.unlink(missing_ok=True)
+        for request, folder in requests:
+            binding_path = folder / "binding.json"
+            observed = _read(binding_path)
+            binding = observed.get("matched_by")
+            if marker(request) in text and not observed.get("human_prompt"):
+                binding = "public"
+            if binding not in ("prompt", "relic", "public"):
+                continue
+            receipt = {k: request[k] for k in ("org_id", "member", "carrier", "nonce")}
+            receipt.update(session_id=event["session_id"], event="Stop", entrypoint="claude-desktop",
+                           matched_by=binding, last_assistant_message=text, at=time.time())
+            _write(folder / "receipt.json", receipt)
+            binding_path.unlink(missing_ok=True)

@@ -7,9 +7,29 @@
 - Runner and App receipts quote only the member's new replies in the triggering threads, separately for each
   sender. Unrelated session final text is never forwarded; a turn without a matching reply gets status only.
   Message-id boundaries exclude earlier replies even when they have the same timestamp.
+- A Claude Desktop session that holds seats in several organizations is reached at one address: the title
+  `<organization> · <member>` of the seat configured for the desktop app. Every seat keeps its own organization in
+  the prompt.
+- Such a session takes one Relic request at a time. A request without its GUI Stop holds the session's other seats
+  too; their wake-ups wait quietly, without failures or receipts.
+  - After 6 hours the request stops holding the session. Its delivery stays unknown, so it is never sent again, and a
+    late Stop that quotes its nonce still answers it.
+  - A late Stop no longer goes to a newer request of another seat.
+- A seat's reply can name members of an organization above or below (`<org id>/<member>`) who are not in the
+  thread. They get a copy, and the reply stays in the thread. Organizations out of reach are still refused, now with
+  the reason.
 
 自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
 没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。
+
+在多个组织坐席的 Claude 桌面版会话统一按一个地址投递：配成桌面版的那个席位的「组织名 · 成员名」。每个席位在提示里
+仍保留自己的组织。这样的会话一次只接一条 Relic 请求：
+- 一条请求没等到 GUI Stop 回执时，同一会话的其他席位也先排队，唤醒安静地等，不算失败，也不发回执。
+- 6 小时后它不再挡住后来的请求。它的投递结果仍记为不确定，所以不会重发；迟到的 Stop 只要引用了它的编号，仍然算它的回执。
+- 迟到的回执不会再记到别的席位的新请求上。
+
+席位回帖时，可以写给帖子以外的上下级组织成员（`<组织编号>/<成员>`）：对方收到一份副本，回帖仍留在原帖里。
+够不着的组织照样拒绝，并说明原因。
 
 ## v0.7.1-beta.1 — 2026-10-29
 
