@@ -4,6 +4,28 @@ All execution is CI-only, with synthetic stores. The existing large fixture is
 retained; `person-shape` adds the reported 14-organization store distribution.
 No human message content is read into a fixture or artifact.
 
+## Focused CI feedback
+
+`Native responsiveness` can be dispatched with `phase` set to `all` (default)
+or one of `open-every-chat`, `switch-chats`, `idle`, `workflows`, `history`,
+`monkey`; `client` can be `both` (default), `windows`, or `macos`. Both synthetic
+profiles remain in the selected platform's matrix. Contract tests always run.
+For example, to check the Windows history change on the branch:
+
+```powershell
+gh workflow run native-responsiveness.yml --ref native-apps -f phase=history -f client=windows
+```
+
+A selected phase passes the existing `--phase` option to `run.py`. Its aggregate
+report has `acceptance_eligible: false` and `complete_matrix: false`, even when
+that phase passes. `all` omits `--phase` and keeps the complete six-phase run.
+A platform-only dispatch proves only that platform, not cross-platform delivery.
+The concurrency key includes the phase, so focused feedback cannot replace a
+pending complete run. Pushes still run both platforms, both profiles and all
+six phases: four measurement jobs plus the unchanged contracts job. Final
+acceptance requires that complete matrix on the final commit. No measurement
+threshold, deadline, receipt or success condition changes for focused runs.
+
 ## Installed 1e1fc14 findings
 
 The sidebar's ItemClick handler wrongly required ClickedItem to be a
@@ -69,6 +91,9 @@ is subtracted, and no responsiveness or resource limit is adjusted.
 
 ## Changes for the clients
 
+- 2026-11-02: Optional manual CI `phase`/`client` selectors provide smaller
+  feedback runs. This is workflow routing only; both clients consume the same
+  existing v2 manifest and all complete push gates remain required.
 - 2026-11-02: `latest_item_id` / `latest_item_kind` identify the independent
   chronological tail from the actual server chat page, including a `notice`.
   `latest_message_id` still identifies the last numeric message and must be in

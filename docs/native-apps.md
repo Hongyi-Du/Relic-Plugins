@@ -1,5 +1,12 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: optional workflow_dispatch phase/client selectors now
+provide focused feedback using the existing manifest v2 and --phase behavior.
+Single-phase reports remain acceptance_eligible:false. Every push still runs
+both platforms, both fixture profiles and all six phases; final acceptance is
+unchanged. See docs/native-responsiveness.md. Opening receipts now expose the
+actual pending preparation counts without changing readiness or deadlines.
+
 94e4d53 person-shape41543376236 completes all83 opening attempts:56 pass;
 all27 remaining failures have one actual ItemClick, the correct selected chat,
 and unfinished content preparation. Its standard list realizes42–63 rows for

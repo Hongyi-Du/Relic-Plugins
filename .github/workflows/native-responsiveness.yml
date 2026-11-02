@@ -1,5 +1,5 @@
 name: Native responsiveness
-run-name: Native responsiveness - ${{ github.ref_name }} - ${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && ' - diagnostic only' || '' }}
+run-name: Native responsiveness - ${{ github.ref_name }} - ${{ inputs.mode || 'candidate' }} - ${{ inputs.client || 'both' }} - ${{ inputs.phase || 'all' }}${{ inputs.diagnostic && ' - diagnostic only' || '' }}
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +12,16 @@ on:
         description: Observe 30 seconds after the first failure; always fails and cannot count as acceptance
         type: boolean
         default: false
+      phase:
+        description: Focus one phase for feedback; only all can satisfy complete acceptance
+        type: choice
+        options: [all, open-every-chat, switch-chats, idle, workflows, history, monkey]
+        default: all
+      client:
+        description: Choose a client for feedback; final acceptance still requires both platforms
+        type: choice
+        options: [both, windows, macos]
+        default: both
   push:
     branches: [native-apps, native-macos]
     paths:
@@ -31,6 +41,7 @@ jobs:
       - name: Test synthetic scale, real paging, and fixed resource gates
         run: python -m unittest discover -s scripts/performance -p 'test_*.py' -v
   windows:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.client == 'both' || inputs.client == 'windows' }}
     runs-on: windows-2025
     timeout-minutes: 60
     strategy:
@@ -38,7 +49,7 @@ jobs:
       matrix:
         profile: [large, person-shape]
     concurrency:
-      group: native-responsiveness-windows-${{ matrix.profile }}-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
+      group: native-responsiveness-windows-${{ matrix.profile }}-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.phase || 'all' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -64,12 +75,15 @@ jobs:
       - name: Measure exhaustive and seeded interaction against synthetic large data
         env:
           RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
+          RELIC_PERF_PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'all' }}
           RELIC_DOTNET_STACK: ${{ github.workspace }}/native-build/diagnostics/dotnet-stack.exe
           RELIC_NATIVE_STACK: ${{ github.workspace }}/native-build/diagnostics-native/Release/Relic.NativeStack.exe
         run: |
           $diagnosticArgs = @()
           if ($env:RELIC_PERF_DIAGNOSTIC -eq 'true') { $diagnosticArgs += '--diagnostic' }
-          python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --profile ${{ matrix.profile }} --mode ${{ inputs.mode || 'candidate' }} @diagnosticArgs
+          $phaseArgs = @()
+          if ($env:RELIC_PERF_PHASE -ne 'all') { $phaseArgs += @('--phase', $env:RELIC_PERF_PHASE) }
+          python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --profile ${{ matrix.profile }} --mode ${{ inputs.mode || 'candidate' }} @diagnosticArgs @phaseArgs
       - name: Resolve retained native frames with matching Microsoft symbols after measurement
         if: ${{ always() && inputs.diagnostic == true }}
         continue-on-error: true
@@ -88,6 +102,7 @@ jobs:
           # Symbol caches can be large; retain the exact identities, resolved
           # frames and original stacks, not downloaded Microsoft PDB binaries.
   macos:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.client == 'both' || inputs.client == 'macos' }}
     runs-on: macos-15
     timeout-minutes: 60
     strategy:
@@ -95,7 +110,7 @@ jobs:
       matrix:
         profile: [large, person-shape]
     concurrency:
-      group: native-responsiveness-macos-${{ matrix.profile }}-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
+      group: native-responsiveness-macos-${{ matrix.profile }}-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.phase || 'all' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -109,11 +124,14 @@ jobs:
         shell: bash
         env:
           RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
+          RELIC_PERF_PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'all' }}
         run: |
           diagnostic_args=()
           if [[ "$RELIC_PERF_DIAGNOSTIC" == "true" ]]; then diagnostic_args+=(--diagnostic); fi
+          phase_args=()
+          if [[ "$RELIC_PERF_PHASE" != "all" ]]; then phase_args+=(--phase "$RELIC_PERF_PHASE"); fi
           for binary in native-build/performance-macos/*/Relic.app/Contents/MacOS/Relic; do
-            python3 scripts/performance/run.py --client macos --exe "$binary" --output performance/macos --profile '${{ matrix.profile }}' --mode '${{ inputs.mode || 'candidate' }}' "${diagnostic_args[@]}"
+            python3 scripts/performance/run.py --client macos --exe "$binary" --output performance/macos --profile '${{ matrix.profile }}' --mode '${{ inputs.mode || 'candidate' }}' "${diagnostic_args[@]}" "${phase_args[@]}"
           done
       - uses: actions/upload-artifact@v4
         if: always()
