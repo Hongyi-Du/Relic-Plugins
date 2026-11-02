@@ -205,6 +205,7 @@ public sealed partial class MainWindow
         var row = await PrepareSidebarClick(key, id);
         var list = PerformanceListFor(row); var clicks = 0;
         long handlerAt = 0;
+        var itemClicks = new JsonArray();
         var routed = new JsonArray();
         void RecordPointer(string kind, PointerRoutedEventArgs args) => routed.Add(new JsonObject {
             ["kind"] = kind, ["handled"] = args.Handled, ["target_loaded"] = row.IsLoaded,
@@ -215,7 +216,14 @@ public sealed partial class MainWindow
         var unloaded = 0; RoutedEventHandler rowUnloaded = (_, _) => unloaded++;
         ItemClickEventHandler clicked = (_, args) =>
         {
-            if (ReferenceEquals(args.ClickedItem, row)) { clicks++; handlerAt = Stopwatch.GetTimestamp(); }
+            // For an explicit ListViewItem, WinUI returns its Content in
+            // ClickedItem. Observe that actual event/object; never synthesize
+            // a click or treat pointer-down alone as successful navigation.
+            var sameContent = ReferenceEquals(args.ClickedItem, row.Content);
+            itemClicks.Add(new JsonObject { ["type"] = args.ClickedItem?.GetType().FullName,
+                ["same_row_content"] = sameContent, ["same_row"] = ReferenceEquals(args.ClickedItem, row),
+                ["content_automation_id"] = args.ClickedItem is DependencyObject content ? AutomationProperties.GetAutomationId(content) : "" });
+            if (sameContent) { clicks++; handlerAt = Stopwatch.GetTimestamp(); }
         };
         long frames = 0;
         EventHandler<object> rendered = (_, _) => frames++;
@@ -257,6 +265,7 @@ public sealed partial class MainWindow
             receipt["observation"] = observation;
             receipt["pointer_events"] = capturePointerReceipts.DeepClone();
             receipt["routed_pointer_events"] = routed; receipt["target_unloads"] = unloaded;
+            receipt["native_item_clicks"] = itemClicks;
             receipt["passed"] = clicks > 0 && receipt.Flag("latest_visible") && openMs <= 1000;
             return receipt;
         }

@@ -134,7 +134,15 @@ public sealed partial class MainWindow
             else if (popup.IsOpen && args.Key == VirtualKey.Enter) { args.Handled = true; Accept(); }
             else if (popup.IsOpen && args.Key == VirtualKey.Escape) { args.Handled = true; popup.IsOpen = false; }
         };
-        list.ItemClick += (_, args) => { list.SelectedItem = args.ClickedItem; Accept(); };
+        list.ItemClick += (_, args) =>
+        {
+            // Explicit item containers report their Content as ClickedItem.
+            // SelectedItem must remain the item actually held by this list.
+            var item = list.Items.OfType<ListViewItem>().FirstOrDefault(candidate =>
+                ReferenceEquals(candidate, args.ClickedItem) || ReferenceEquals(candidate.Content, args.ClickedItem));
+            if (item == null) return;
+            list.SelectedItem = item; Accept();
+        };
         list.KeyDown += (_, args) => { if (args.Key == VirtualKey.Enter) { args.Handled = true; Accept(); } else if (args.Key == VirtualKey.Escape) { args.Handled = true; popup.IsOpen = false; input.Focus(FocusState.Programmatic); } };
         input.TextChanged += (_, _) => { if (!picking && input.FocusState != FocusState.Unfocused) Open(); };
         input.Unloaded += (_, _) => popup.IsOpen = false;
