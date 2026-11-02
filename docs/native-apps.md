@@ -1,5 +1,11 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: Windows opening observation now ends at the actual
+one-second requirement, retaining its failed content/input observation before
+moving to the next chat. It no longer waits fifteen seconds after an opening
+has already failed the deadline. Sidebar target preparation is still reported
+separately. This tightens observation time; no acceptance limit is loosened.
+
 Changes for the clients: integrate native-macos 21fcd57's manifest v2 native
 pointer navigation/independent phase implementation and a4658ea's selected-chat
 request prioritization. REQUESTS asks for no additional server route. Both
