@@ -56,8 +56,25 @@ event producer during idle; the app's background behavior remains active.
 These are additional checks; they do not replace the complete history or
 monkey requirements. Missing native v2 support fails explicitly.
 
+The Windows probe still dispatches at 40 ms. Healthy heartbeat file writes
+are batched within 200 ms; pending requests, new maxima and action changes
+publish without that batching, and exit flushes the last record. `sequence`
+counts published records while `pings` counts actual UI replies. No CPU time
+is subtracted, and no responsiveness or resource limit is adjusted.
+
 ## Changes for the clients
 
+- 2026-11-02: `latest_item_id` / `latest_item_kind` identify the independent
+  chronological tail from the actual server chat page, including a `notice`.
+  `latest_message_id` still identifies the last numeric message and must be in
+  the loaded page; it must not be mistaken for the page tail when a later event
+  follows it. Opening requires the actual tail's visible drawn body, the correct
+  selected chat and native input receipt. Fixture organization metadata adds
+  `latest_group_item_id`, `latest_group_item_kind`, `latest_private_item_ids`
+  and `latest_private_item_kinds`. Both clients must consume these fields.
+  This corrects an expectation error; no events, timestamps, page sizes or
+  acceptance deadlines are changed. Tests derive both identities independently
+  through `app.views.chat` and verify the event rows are untouched.
 - 2026-11-02: Both clients must consume `phase`, echo it in their completion,
   implement the real-click open/switch phase and idle marker/receipt above.
   The Windows/shared session owns the manifest, aggregation and external

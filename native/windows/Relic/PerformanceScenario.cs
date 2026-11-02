@@ -29,7 +29,7 @@ public sealed partial class MainWindow
         var token = performanceCancellation.Token;
         performanceProbe = Task.Run(async () =>
         {
-            async Task Write(string name, object value)
+            async Task Write(string name, object value, CancellationToken writeToken)
             {
                 var path = System.IO.Path.Combine(PerformanceOutput, name);
                 System.IO.File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(value));
@@ -41,40 +41,67 @@ public sealed partial class MainWindow
                         // The external reader may momentarily hold the old
                         // Windows file without FILE_SHARE_DELETE. Retry this
                         // atomic replacement, never discard the measured max.
-                        await Task.Delay(2, token);
+                        await Task.Delay(2, writeToken);
                     }
                 }
             }
-            await Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), phases_version = 2 });
+            await Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), phases_version = 2 }, token);
             long sequence = 0, pings = 0;
-            while (!token.IsCancellationRequested)
+            long lastPublished = 0, publishedWorst = -1, pendingSince = 0;
+            string? publishedAction = null;
+            var publishedPending = false;
+            Task<long>? activeProbe = null;
+            async Task Publish(bool force, CancellationToken writeToken)
             {
-                var sent = Stopwatch.GetTimestamp();
-                var pendingSince = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                var completed = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
-                if (!DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Normal, () => completed.TrySetResult(Stopwatch.GetTimestamp()))) break;
+                var worst = Interlocked.Read(ref performanceWorstTicks);
+                var action = Volatile.Read(ref performanceAction);
+                var pending = activeProbe is { IsCompletedSuccessfully: false } ? pendingSince : 0;
+                // Probe the UI at the original 40 ms cadence. Only healthy
+                // file publication is batched: 160 ms leaves one probe turn
+                // of headroom within a 200 ms healthy heartbeat interval.
+                // A pending probe, its recovery, a new maximum or an action
+                // change is published on the very next observation.
+                if (!force && pending == 0 && !publishedPending && worst <= publishedWorst
+                    && action == publishedAction && Stopwatch.GetElapsedTime(lastPublished).TotalMilliseconds < 160) return;
+                await Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
+                    max_ui_stall_ms = worst * 1000d / Stopwatch.Frequency,
+                    pending_since_unix_ms = pending,
+                    titlebar_layout_notifications = Interlocked.Read(ref titlebarLayoutNotifications),
+                    titlebar_layout_measurements = Interlocked.Read(ref titlebarLayoutMeasurements),
+                    action }, writeToken);
+                var batch = PerformanceTrace.Drain();
+                if (batch.Length > 0)
+                    System.IO.File.AppendAllText(System.IO.Path.Combine(PerformanceOutput, "timings.jsonl"),
+                        string.Join("\n", batch.Select(timing => JsonSerializer.Serialize(timing))) + "\n");
+                lastPublished = Stopwatch.GetTimestamp(); publishedWorst = worst;
+                publishedAction = action; publishedPending = pending != 0;
+            }
+            try
+            {
                 while (!token.IsCancellationRequested)
                 {
-                    await Task.WhenAny(completed.Task, Task.Delay(40, token));
-                    var ticks = (completed.Task.IsCompletedSuccessfully ? completed.Task.Result : Stopwatch.GetTimestamp()) - sent;
-                    var old = Interlocked.Read(ref performanceWorstTicks);
-                    if (ticks > old) Interlocked.Exchange(ref performanceWorstTicks, ticks);
-                    if (completed.Task.IsCompletedSuccessfully && ticks * 1000d / Stopwatch.Frequency > 5)
-                        PerformanceTrace.Count("ui.dispatch", ticks * 1000d / Stopwatch.Frequency);
-                    if (completed.Task.IsCompletedSuccessfully) pings++;
-                    PerformanceTrace.RecordCollection();
-                    await Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
-                        max_ui_stall_ms = Interlocked.Read(ref performanceWorstTicks) * 1000d / Stopwatch.Frequency,
-                        pending_since_unix_ms = completed.Task.IsCompletedSuccessfully ? 0 : pendingSince,
-                        titlebar_layout_notifications = Interlocked.Read(ref titlebarLayoutNotifications),
-                        titlebar_layout_measurements = Interlocked.Read(ref titlebarLayoutMeasurements),
-                        action = Volatile.Read(ref performanceAction) });
-                    foreach (var timing in PerformanceTrace.Drain())
-                        System.IO.File.AppendAllText(System.IO.Path.Combine(PerformanceOutput, "timings.jsonl"), JsonSerializer.Serialize(timing) + "\n");
-                    if (completed.Task.IsCompletedSuccessfully) break;
+                    var sent = Stopwatch.GetTimestamp();
+                    pendingSince = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    var completed = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    if (!DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Normal, () => completed.TrySetResult(Stopwatch.GetTimestamp()))) break;
+                    activeProbe = completed.Task;
+                    while (!token.IsCancellationRequested)
+                    {
+                        await Task.WhenAny(completed.Task, Task.Delay(40, token));
+                        var ticks = (completed.Task.IsCompletedSuccessfully ? completed.Task.Result : Stopwatch.GetTimestamp()) - sent;
+                        var old = Interlocked.Read(ref performanceWorstTicks);
+                        if (ticks > old) Interlocked.Exchange(ref performanceWorstTicks, ticks);
+                        if (completed.Task.IsCompletedSuccessfully && ticks * 1000d / Stopwatch.Frequency > 5)
+                            PerformanceTrace.Count("ui.dispatch", ticks * 1000d / Stopwatch.Frequency);
+                        if (completed.Task.IsCompletedSuccessfully) pings++;
+                        PerformanceTrace.RecordCollection();
+                        await Publish(false, token);
+                        if (completed.Task.IsCompletedSuccessfully) break;
+                    }
+                    await Task.Delay(40, token);
                 }
-                await Task.Delay(40, token);
             }
+            finally { await Publish(true, CancellationToken.None); }
         }, token);
         _ = performanceProbe.ContinueWith(task => System.IO.File.WriteAllText(
             System.IO.Path.Combine(PerformanceOutput, "probe-error.txt"), task.Exception!.ToString()),

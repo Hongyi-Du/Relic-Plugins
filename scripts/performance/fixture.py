@@ -35,6 +35,38 @@ def message_body(index: int, org: int) -> str:
     return f"{heading}。检查页面、任务和协议，保留可核查的记录。"
 
 
+def add_chat_expectations(store, orgs):
+    """Measure initial page tails independently through the real server view.
+
+    A later notice may be the displayed tail, while the latest numeric message
+    must still be loaded in that page. Keep both identities; do not move or
+    filter events to make a message become the last displayed item.
+    """
+    from app import views
+
+    def expected(oid, member=None):
+        page = views.chat(store, oid, kind="private" if member else "group", member=member,
+                          limit=1000, lang="zh-CN")
+        items = page["items"]
+        last = items[-1] if items else None
+        message = next((item for item in reversed(items) if isinstance(item["id"], int)), None)
+        return (last["id"] if last else None, last["type"] if last else None,
+                message["id"] if message else None, not items)
+
+    for org in orgs:
+        item_id, kind, message_id, empty = expected(org["id"])
+        org.update(latest_group_item_id=item_id, latest_group_item_kind=kind,
+                   latest_group_message_id=message_id, group_expected_empty=empty)
+        org["latest_private_item_ids"] = {}
+        org["latest_private_item_kinds"] = {}
+        for member in org["members"]:
+            item_id, kind, message_id, empty = expected(org["id"], member)
+            org["latest_private_item_ids"][member] = item_id
+            org["latest_private_item_kinds"][member] = kind
+            org["latest_private_message_ids"][member] = message_id
+            org["private_expected_empty"][member] = empty
+
+
 def seed(folder: Path, seed_value: int = 1729, profile: str = "large"):
     """Bulk insert historical rows, while creating valid org/seat records via Store."""
     if profile == "person-shape":
@@ -43,7 +75,9 @@ def seed(folder: Path, seed_value: int = 1729, profile: str = "large"):
         spec = importlib.util.spec_from_file_location("relic_performance_shape", Path(__file__).with_name("fixture_shape.py"))
         shape = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(shape)
-        return shape.seed_person_shape(folder, seed_value)
+        store, data = shape.seed_person_shape(folder, seed_value)
+        add_chat_expectations(store, data["orgs"])
+        return store, data
     if profile != "large":
         raise ValueError("Unknown synthetic fixture profile: " + profile)
     from app import prefs
@@ -144,6 +178,7 @@ def seed(folder: Path, seed_value: int = 1729, profile: str = "large"):
             totals["messages"] = db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         prefs.save({"lang": "zh-CN", "theme": "light", "name": "Synthetic Person", "voice": "browser",
                     "notify": False, "font": "medium", "density": "comfortable"})
+        add_chat_expectations(store, orgs)
         return store, {"profile": "large", "orgs": orgs, "workspace": str(workspace), "counts": totals, "seed": seed_value}
     finally:
         stores.short_id, stores.now = original_id, original_now

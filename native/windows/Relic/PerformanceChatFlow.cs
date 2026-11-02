@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Relic.Core;
 using System.Diagnostics;
@@ -28,23 +29,52 @@ public sealed partial class MainWindow
         if (index < 0) throw new InvalidOperationException("Production sidebar has no row: " + key);
         // This is the same real virtual row navigation used by keyboard input.
         // Preparing the click target is reported separately from opening time.
-        side.BringIndexIntoView(index);
+        if (VisibleSidebarClickTarget(automationId) == null) side.BringIndexIntoView(index);
         var elapsed = Stopwatch.StartNew();
         while (elapsed.Elapsed < TimeSpan.FromSeconds(15))
         {
-            var row = PerformanceElements(side).OfType<NativeSidebarRow>()
-                .FirstOrDefault(item => AutomationProperties.GetAutomationId(item) == automationId);
-            if (row is { IsLoaded: true, ActualWidth: > 0, ActualHeight: > 0 })
+            var row = VisibleSidebarClickTarget(automationId);
+            if (row != null)
             {
-                var rect = row.TransformToVisual(root).TransformBounds(new(0, 0, row.ActualWidth, row.ActualHeight));
-                var viewport = treeRegion.TransformToVisual(root).TransformBounds(new(0, 0, treeRegion.ActualWidth, treeRegion.ActualHeight));
-                var middle = rect.Top + rect.Height / 2;
-                if (middle >= viewport.Top && middle < viewport.Bottom && rect.Left >= 0 && rect.Right <= root.ActualWidth)
-                    return row;
+                // Hover is real input. A pending activation refresh or virtual
+                // bring may replace/move this row while its input is queued.
+                // Locate it again before retaining the actual click observer.
+                await CaptureHover(row);
+                if (ReferenceEquals(row, VisibleSidebarClickTarget(automationId))
+                    && SidebarPointerHits(row).Flag("target_hit")) return row;
             }
             await Task.Delay(16);
         }
         throw new TimeoutException("Production sidebar did not reveal its actual click target: " + automationId);
+    }
+
+    private NativeSidebarRow? VisibleSidebarClickTarget(string automationId)
+    {
+        var row = PerformanceElements(side).OfType<NativeSidebarRow>()
+            .FirstOrDefault(item => AutomationProperties.GetAutomationId(item) == automationId);
+        if (row is not { IsLoaded: true, ActualWidth: > 0, ActualHeight: > 0 }) return null;
+        var rect = row.TransformToVisual(root).TransformBounds(new(0, 0, row.ActualWidth, row.ActualHeight));
+        var viewport = treeRegion.TransformToVisual(root).TransformBounds(new(0, 0, treeRegion.ActualWidth, treeRegion.ActualHeight));
+        var middle = rect.Top + rect.Height / 2;
+        return middle >= viewport.Top && middle < viewport.Bottom && rect.Left >= 0 && rect.Right <= root.ActualWidth ? row : null;
+    }
+
+    private JsonObject SidebarPointerHits(NativeSidebarRow row)
+    {
+        var cursor = new CapturePoint(); var origin = new CapturePoint();
+        if (!GetCursorPos(ref cursor) || !ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin))
+            throw new InvalidOperationException("Cannot observe the actual sidebar click pointer");
+        var scale = root.XamlRoot.RasterizationScale;
+        var point = new Windows.Foundation.Point((cursor.x - origin.x) / scale, (cursor.y - origin.y) / scale);
+        var hits = VisualTreeHelper.FindElementsInHostCoordinates(point, root, false).Take(12).ToArray();
+        var targetHit = false;
+        for (DependencyObject? node = hits.FirstOrDefault(); node != null; node = VisualTreeHelper.GetParent(node))
+            if (ReferenceEquals(node, row)) { targetHit = true; break; }
+        return new JsonObject { ["target_hit"] = targetHit, ["pointer_x"] = point.X, ["pointer_y"] = point.Y,
+            ["foreground_hwnd"] = WholeWindowForeground().ToInt64(), ["target_loaded"] = row.IsLoaded,
+            ["hits"] = new JsonArray(hits.Select(hit => (JsonNode)new JsonObject {
+                ["type"] = hit.GetType().Name, ["automation_id"] = AutomationProperties.GetAutomationId(hit),
+                ["same_target"] = ReferenceEquals(hit, row) }).ToArray()) };
     }
 
     private static ListView PerformanceListFor(NativeSidebarRow row)
@@ -54,27 +84,35 @@ public sealed partial class MainWindow
         throw new InvalidOperationException("Actual sidebar row has no owning ListView");
     }
 
-    private async Task<(string Id, bool Empty)> ExpectedLatestMessage(string organization, string who)
+    private readonly record struct ExpectedChat(string ItemId, string ItemKind, string MessageId, bool Empty);
+
+    private async Task<ExpectedChat> ExpectedLatestMessage(string organization, string who)
     {
         // Independent expectation from the server, before clicking. This does
         // not select a view or populate the client's conversation model.
         var page = await api!.Get(Client.Org(organization, "/chat?kind=" + (who.Length == 0 ? "group" : "private")
             + "&member=" + Client.Segment(who) + "&limit=1"));
         var rows = page.Rows("items");
-        return (rows.LastOrDefault().Text("id"), rows.Count == 0);
+        return new(rows.LastOrDefault().Text("id"), rows.LastOrDefault().Text("type"),
+            rows.LastOrDefault(item => long.TryParse(item.Text("id"), out _)).Text("id"), rows.Count == 0);
     }
 
-    private JsonObject ObserveOpenedChat(string organization, string who, string expectedId, bool expectedEmpty)
+    private JsonObject ObserveOpenedChat(string organization, string who, ExpectedChat expected)
     {
+        var expectedId = expected.ItemId; var expectedEmpty = expected.Empty;
         var selected = org == organization && member == who && renderedView == organization + "/" + who;
         var actualLast = messages.LastOrDefault().Text("id");
+        var messageLoaded = expected.MessageId.Length == 0 || messages.Any(item => item.Text("id") == expected.MessageId);
         var result = new JsonObject { ["selected_org"] = org, ["selected_member"] = member,
-            ["rendered_view"] = renderedView, ["expected_message_id"] = expectedId,
-            ["actual_latest_message_id"] = actualLast, ["expected_empty"] = expectedEmpty,
+            ["rendered_view"] = renderedView, ["expected_message_id"] = expected.MessageId,
+            ["expected_item_id"] = expectedId, ["expected_item_kind"] = expected.ItemKind,
+            ["actual_latest_item_id"] = actualLast, ["actual_latest_item_kind"] = messages.LastOrDefault().Text("type"),
+            ["latest_message_loaded"] = messageLoaded, ["expected_empty"] = expectedEmpty,
             ["selected"] = selected, ["content_ready"] = ConversationContentReady(), ["latest_visible"] = false };
         if (!selected || !ConversationContentReady()) return result;
         var repeater = VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater;
-        var index = expectedEmpty ? stream.Children.Count - 1 : stream.Children.FindIndex(row => row.Key == "message:" + expectedId);
+        var rowKey = (expected.ItemKind == "message" ? "message:" : "item:") + expectedId;
+        var index = expectedEmpty ? stream.Children.Count - 1 : stream.Children.FindIndex(row => row.Key == rowKey);
         var host = index >= 0 ? repeater?.TryGetElement(index) as Border : null;
         if (host is not { IsLoaded: true, Child: not null, ActualHeight: > 0 }) return result;
         var bounds = host.TransformToVisual(chatScroll).TransformBounds(new(0, 0, host.ActualWidth, host.ActualHeight));
@@ -102,8 +140,9 @@ public sealed partial class MainWindow
         }
         else
         {
-            var message = mounted.FirstOrDefault(element => AutomationProperties.GetAutomationId(element) == "message/" + expectedId);
-            var body = mounted.FirstOrDefault(element => AutomationProperties.GetAutomationId(element) == "message-body/" + expectedId);
+            var itemPrefix = expected.ItemKind == "message" ? "message" : "chat-item";
+            var message = mounted.FirstOrDefault(element => AutomationProperties.GetAutomationId(element) == itemPrefix + "/" + expectedId);
+            var body = mounted.FirstOrDefault(element => AutomationProperties.GetAutomationId(element) == itemPrefix + "-body/" + expectedId);
             var visibleBodyText = body == null ? [] : PerformanceElements(body).Where(element =>
             {
                 if (!element.IsLoaded || element.Visibility != Visibility.Visible || element.Opacity <= 0
@@ -111,7 +150,7 @@ public sealed partial class MainWindow
                 var rect = element.TransformToVisual(chatScroll).TransformBounds(new(0, 0, element.ActualWidth, element.ActualHeight));
                 return rect.Bottom > 0 && rect.Top < chatScroll.ViewportHeight && rect.Right > 0 && rect.Left < chatScroll.ViewportWidth;
             }).ToArray();
-            // Restrict evidence to the real bubble body. Names, dates, avatars,
+            // Restrict evidence to the real message or notice body. Names, dates, avatars,
             // hover actions and delivery receipts cannot stand in for a body.
             // A NativePathText line is witnessed by its actual drawn NativeLabel.
             var paintedBody = visibleBodyText.Any(element => element switch
@@ -124,7 +163,8 @@ public sealed partial class MainWindow
             result["message_control_present"] = message != null;
             result["body_control_present"] = body != null;
             result["body_text_present"] = paintedBody;
-            result["latest_visible"] = actualLast == expectedId && message != null && paintedBody;
+            result["latest_visible"] = actualLast == expectedId && messages.LastOrDefault().Text("type") == expected.ItemKind
+                && messageLoaded && message != null && paintedBody;
         }
         return result;
     }
@@ -140,13 +180,39 @@ public sealed partial class MainWindow
     {
         var preparing = Stopwatch.StartNew();
         var fromFixture = expectedAction?["latest_message_id"] != null || expectedAction?["expected_empty"] != null;
-        var expected = fromFixture ? (Id: expectedAction.Text("latest_message_id"), Empty: expectedAction.Flag("expected_empty"))
+        var expected = fromFixture ? new ExpectedChat(expectedAction.Text("latest_item_id"), expectedAction.Text("latest_item_kind"),
+            expectedAction.Text("latest_message_id"), expectedAction.Flag("expected_empty"))
             : await ExpectedLatestMessage(organization, who);
         var key = organizationRow ? "org:" + organization : "chat:" + organization + "/" + who;
         var id = organizationRow ? "sidebar-org/" + organization : "sidebar-chat/" + organization + "/" + who;
+        // Activation must finish before the target is retained. A real first
+        // click may activate the window, and previously activation rebuilt
+        // the sidebar between mouse-down and mouse-up.
+        var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        if (WholeWindowForeground() != windowHandle)
+        {
+            SetForegroundWindow(windowHandle);
+            var activation = Stopwatch.StartNew();
+            while (WholeWindowForeground() != windowHandle)
+            {
+                if (activation.Elapsed > TimeSpan.FromSeconds(5))
+                    throw new TimeoutException("Windows did not foreground the actual sidebar click window");
+                await Task.Delay(16);
+            }
+            await PerformanceYield();
+        }
+        capturePointerReceipts.Clear();
         var row = await PrepareSidebarClick(key, id);
         var list = PerformanceListFor(row); var clicks = 0;
         long handlerAt = 0;
+        var routed = new JsonArray();
+        void RecordPointer(string kind, PointerRoutedEventArgs args) => routed.Add(new JsonObject {
+            ["kind"] = kind, ["handled"] = args.Handled, ["target_loaded"] = row.IsLoaded,
+            ["original_source_type"] = args.OriginalSource?.GetType().Name,
+            ["original_source_id"] = args.OriginalSource is DependencyObject source ? AutomationProperties.GetAutomationId(source) : "" });
+        PointerEventHandler pressed = (_, args) => RecordPointer("pressed", args);
+        PointerEventHandler released = (_, args) => RecordPointer("released", args);
+        var unloaded = 0; RoutedEventHandler rowUnloaded = (_, _) => unloaded++;
         ItemClickEventHandler clicked = (_, args) =>
         {
             if (ReferenceEquals(args.ClickedItem, row)) { clicks++; handlerAt = Stopwatch.GetTimestamp(); }
@@ -154,12 +220,13 @@ public sealed partial class MainWindow
         long frames = 0;
         EventHandler<object> rendered = (_, _) => frames++;
         list.ItemClick += clicked; CompositionTarget.Rendering += rendered;
+        row.AddHandler(UIElement.PointerPressedEvent, pressed, true);
+        row.AddHandler(UIElement.PointerReleasedEvent, released, true); row.Unloaded += rowUnloaded;
         var receipt = new JsonObject { ["target"] = id, ["expectation_source"] = fromFixture
-            ? "Independent synthetic fixture latest message identity" : "Independent real chat API limit=1 before pointer input" };
+            ? "Independent server-view fixture tail and latest numeric message identities" : "Independent real chat API limit=1 before pointer input" };
         try
         {
-            SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
-            capturePointerReceipts.Clear(); await CaptureHover(row);
+            receipt["input_target"] = SidebarPointerHits(row);
             receipt["preparation_ms"] = preparing.Elapsed.TotalMilliseconds;
             var started = Stopwatch.GetTimestamp();
             receipt["input_unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -173,7 +240,7 @@ public sealed partial class MainWindow
             // delaying every remaining core-flow result.
             while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(1))
             {
-                observation = ObserveOpenedChat(organization, who, expected.Id, expected.Empty);
+                observation = ObserveOpenedChat(organization, who, expected);
                 if (clicks > 0 && observation.Flag("latest_visible"))
                 {
                     if (readyFrame >= 0 && frames > readyFrame) break;
@@ -189,10 +256,16 @@ public sealed partial class MainWindow
             receipt["latest_visible"] = readyFrame >= 0 && frames > readyFrame && observation.Flag("latest_visible");
             receipt["observation"] = observation;
             receipt["pointer_events"] = capturePointerReceipts.DeepClone();
+            receipt["routed_pointer_events"] = routed; receipt["target_unloads"] = unloaded;
             receipt["passed"] = clicks > 0 && receipt.Flag("latest_visible") && openMs <= 1000;
             return receipt;
         }
-        finally { list.ItemClick -= clicked; CompositionTarget.Rendering -= rendered; }
+        finally
+        {
+            list.ItemClick -= clicked; CompositionTarget.Rendering -= rendered;
+            row.RemoveHandler(UIElement.PointerPressedEvent, pressed);
+            row.RemoveHandler(UIElement.PointerReleasedEvent, released); row.Unloaded -= rowUnloaded;
+        }
     }
 
     private async Task ExerciseOpenChat(JsonNode step, JsonObject record)
