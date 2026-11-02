@@ -1,5 +1,17 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+761bfa9 Native apps41537608421 的318项测试、两端构建和包全部通过。
+a883d15 /41540453439 已编译，319项测试中2个断言失败，均来自新增“消息后接3条
+事件”的50行真实Home/End场景：尾部差2186 pt、最新正文未出现。其余317项测试通过，
+包括不等长聊天/长Markdown切换和移除idle全树扫描后的原生滚动条测试。
+候选继续启用SwiftUI原生scrollTargetLayout与scrollPosition绑定维护行身份和锚点，
+保留ScrollViewReader、原生viewport/composer及原有阅读位置/首尾内容断言。
+共享cf3c352的新manifest末项合同已接入：分别验latest_item_id/kind实际显示和
+latest_message_id在当前页存在；notice核对实际可见ReferenceLabel原文。
+Mac健康heartbeat写盘改200ms批处理，UI探针仍50ms，未返回探针/新最长停顿/阶段变化
+及时写入，退出flush；不扣CPU、不改250ms/2%门槛，新增3项持久化边界测试。
+这批变更仍需下一轮完整CI，不作为交付完成声明。
+
 761bfa9 / Native responsiveness 41537608358 已实际分别执行六阶段，仍 FAIL。
 macOS large：open 最长主线程316.994 ms，switch324.938 ms（停在warmup，未完成200次），
 idle CPU3.0947%、164.234 MiB/9线程且内存线程未增长；workflows189.796 ms但第二组织

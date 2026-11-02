@@ -333,7 +333,13 @@ struct ConversationStream: View {
     @State private var olderAnchor: String?
     @State private var keyboard = ConversationKeyboard()
     @State private var latestPlacement = LatestMessageTracking()
+    @State private var scrollPosition: String?
+    @State private var scrollAnchor = UnitPoint.bottom
     private var latestRowID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
+    private func seek(_ id: String, anchor: UnitPoint, using proxy: ScrollViewProxy) {
+        scrollAnchor = anchor; scrollPosition = id
+        proxy.scrollTo(id, anchor: anchor)
+    }
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
@@ -397,6 +403,7 @@ struct ConversationStream: View {
                             // the lazy document's measured row range belongs
                             // to one chat. Reusing that range across different
                             // histories can leave the new 1,000 rows unrealized.
+                            .scrollTargetLayout()
                             .id(m.selection.key)
                             .frame(maxWidth: 880).frame(maxWidth: .infinity).padding(.horizontal, 20)
                             .background(ScrollAppearance())
@@ -404,6 +411,7 @@ struct ConversationStream: View {
                             .background(GeometryReader { content in Color.clear.preference(key: StreamBottom.self, value: StreamMetrics(bottom: content.frame(in: .named("conversation")).maxY, height: content.size.height, width: content.size.width)) })
                             .background(ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused))
                     }.defaultScrollAnchor(initialLoad ? .bottom : nil)
+                        .scrollPosition(id: $scrollPosition, anchor: scrollAnchor)
                         // Start at the latest page before lazy row creation.
                         // Otherwise a cold mount first constructs the oldest
                         // visible rows and then discards them on the tail seek.
@@ -426,7 +434,7 @@ struct ConversationStream: View {
                                   initialLoad || userFollowsLatest else { return }
                             following.followsBottom = true
                             if !keyboard.finishRealizedEnd(bottom: latest.bottom, height: latest.size.height, viewportHeight: viewport.size.height),
-                               abs(latest.bottom - viewport.size.height) > 1 { proxy.scrollTo(latest.id, anchor: .bottom) }
+                               abs(latest.bottom - viewport.size.height) > 1 { seek(latest.id, anchor: .bottom, using: proxy) }
                             initialLoad = false
                         }
                         .onPreferenceChange(StreamBottom.self) { metrics in
@@ -447,7 +455,7 @@ struct ConversationStream: View {
                             if heightChanged, !preservingDisclosure, initialLoad || userFollowsLatest,
                                !m.isPreparingConversation, let target = latestRowID,
                                latestPlacement.bounds.id != target {
-                                proxy.scrollTo(target, anchor: .bottom)
+                                seek(target, anchor: .bottom, using: proxy)
                             }
                             // Actual proximity to the top is sufficient. Lazy
                             // height corrections can retain the previous bottom
@@ -470,7 +478,7 @@ struct ConversationStream: View {
                 }
                 else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if mountedComposer {
-                    ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) } } }.measuredRegion("composer")
+                    ComposerView { userFollowsLatest = true; following.followsBottom = true; m.run { try await m.send(); if let id = latestRowID { seek(id, anchor: .bottom, using: proxy) } } }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }.task(id: "\(m.selection.key)/\(m.streamVersion)/\(enabled)") {
                 // A replacement chat can exist beneath the organization's
@@ -507,27 +515,27 @@ struct ConversationStream: View {
                 defer { RowMountQueue.shared.release(anchorTurn) }
                 do { try await Task.sleep(for: .milliseconds(32)) }
                 catch { return }
-                if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
-                else if userFollowsLatest, let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                if let anchor = olderAnchor { seek(anchor, anchor: .top, using: proxy) }
+                else if userFollowsLatest, let id = latestRowID { seek(id, anchor: .bottom, using: proxy) }
                 do { try await Task.sleep(for: .milliseconds(32)) }
                 catch { return }
                 olderAnchor = nil
-            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollTracking(); latestPlacement = LatestMessageTracking(); userFollowsLatest = true; preservingDisclosure = false }
+            }.onChange(of: m.selection) { keyboard.discardDisclosurePosition(); initialLoad = true; olderAnchor = nil; following = ConversationScrollTracking(); latestPlacement = LatestMessageTracking(); scrollPosition = nil; scrollAnchor = .bottom; userFollowsLatest = true; preservingDisclosure = false }
                 .onChange(of: m.streamVersion) {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     keyboard.discardDisclosurePosition()
                     if preservingDisclosure { userFollowsLatest = following.followsBottom }
                     preservingDisclosure = false
                     following.contentChanged()
-                    if let anchor = olderAnchor { proxy.scrollTo(anchor, anchor: .top) }
+                    if let anchor = olderAnchor { seek(anchor, anchor: .top, using: proxy) }
                     else if !m.streamRows.isEmpty {
-                        if (initialLoad || userFollowsLatest), let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                        if (initialLoad || userFollowsLatest), let id = latestRowID { seek(id, anchor: .bottom, using: proxy) }
                     }
                 }
                 .onAppear {
                     PerformanceRendering.observed(streamVersion: m.streamVersion)
                     initialLoad = true
-                    if let id = latestRowID { proxy.scrollTo(id, anchor: .bottom) }
+                    if let id = latestRowID { seek(id, anchor: .bottom, using: proxy) }
                     keyboard.positionObservation = {
                         ["last_row_id": latestRowID as Any? ?? NSNull(), "follows_latest": userFollowsLatest,
                          "initial": initialLoad, "enabled": enabled, "preparing": m.isPreparingConversation]
@@ -543,8 +551,8 @@ struct ConversationStream: View {
                         initialLoad = false
                         userFollowsLatest = !top; preservingDisclosure = false; olderAnchor = nil
                         following.followsBottom = !top
-                        if top { proxy.scrollTo("start", anchor: .top) }
-                        else if let id = latestRowID { latestPlacement.bounds = LatestMessageBounds(); proxy.scrollTo(id, anchor: .bottom) }
+                        if top { seek("start", anchor: .top, using: proxy) }
+                        else if let id = latestRowID { latestPlacement.bounds = LatestMessageBounds(); seek(id, anchor: .bottom, using: proxy) }
                     }
                 }
                 .onDisappear { keyboard.scrollToEdge = nil; keyboard.didUserScroll = nil; keyboard.positionObservation = nil }

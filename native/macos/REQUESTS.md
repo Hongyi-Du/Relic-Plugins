@@ -1,4 +1,13 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+Mac now consumes latest_item_id/kind separately from latest_message_id as
+published in cf3c352, including exact actual native notice-label text evidence.
+761bfa9 passes318 tests/package (41537608421). a883d15 compiles but its new
+50-row messages+notices End regression fails2assertions (317other tests pass).
+The next candidate adds the native SwiftUI scroll-target layout/position
+binding while retaining existing reader, content, paging and anchor assertions.
+Mac healthy heartbeat persistence is batched200ms, UI probes remain50ms,
+pending/new-max/phase changes publish promptly, final state flushes. No CPU
+deduction or gate change. Three persistence boundary tests retain observability.
 761bfa9 /41537608358 gives separate Mac results for all phases. Large history
 PASS(all4 histories,248.395ms/284.125MiB/9threads), but other phases FAIL;
 person-shape history still misses End by692pt. Idle CPU3.0947%large/2.6219%shape.

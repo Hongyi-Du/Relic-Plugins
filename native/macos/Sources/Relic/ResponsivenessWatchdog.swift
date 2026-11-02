@@ -1,5 +1,16 @@
 ﻿import Foundation
 
+/// Persistence cadence is separate from the unchanged UI probe cadence.
+/// Unfinished probes and new failures are never delayed by healthy batching.
+struct HeartbeatPersistence {
+    private var writtenAt: Double?, writtenAction = "", writtenWorst: Double = -1
+    mutating func shouldWrite(now: Double, action: String, worst: Double, unfinished: Bool) -> Bool {
+        guard writtenAt == nil || now - writtenAt! >= 0.2 || action != writtenAction || worst > writtenWorst || unfinished else { return false }
+        writtenAt = now; writtenAction = action; writtenWorst = worst
+        return true
+    }
+}
+
 /// One independent timer and at most one outstanding main-queue dispatch.
 /// The shared driver owns resource sampling and all fixed acceptance limits.
 final class ResponsivenessWatchdog: @unchecked Sendable {
@@ -16,6 +27,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var stalls: [[String: Any]] = []
     private var sampledStall = false
     private var sampledStartup = false
+    private var persistence = HeartbeatPersistence()
 
     init(output: URL) { self.output = output }
     func begin() {
@@ -40,6 +52,12 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
     func finish(_ receipt: [String: Any]) {
         source?.cancel(); source = nil
+        lock.lock(); sequence += 1
+        let heartbeat: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
+            "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage,
+            "max_runloop_stall_ms": runLoopWorst, "runloop_pings": runLoopPings]
+        lock.unlock()
+        write(heartbeat, "heartbeat.json")
         var result = receipt; result["max_ui_stall_ms"] = maximum
         write(result, "performance-complete.json")
     }
@@ -54,8 +72,9 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let enqueue = pending == 0
         let sampleStall = worst > 250 && !sampledStall
         if sampleStall { sampledStall = true }
+        let persist = persistence.shouldWrite(now: now, action: stage, worst: worst, unfinished: !enqueue)
         if enqueue { pending = now; pendingEpoch = Self.epoch; pendingStage = stage }
-        sequence += 1
+        if persist { sequence += 1 }
         let receipt: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage,
             "max_runloop_stall_ms": runLoopWorst, "runloop_pings": runLoopPings]
@@ -96,7 +115,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
                 self.lock.unlock()
             }
         }
-        write(receipt, "heartbeat.json")
+        if persist { write(receipt, "heartbeat.json") }
         if sampledStall {
             write(UIWorkTrace.shared.snapshot(), "ui-work.json")
             write(["completed_probes_over_250ms": observations], "ui-stalls.json")
