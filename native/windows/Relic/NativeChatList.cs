@@ -104,7 +104,7 @@ internal sealed class NativeChatList : Grid
             "<Border HorizontalAlignment='Stretch' UseLayoutRounding='False'/></DataTemplate>");
         list.ItemsPanel = (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
             "<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
-            "<ItemsStackPanel ItemsUpdatingScrollMode='KeepItemsInView'/></ItemsPanelTemplate>");
+            "<ItemsStackPanel ItemsUpdatingScrollMode='KeepItemsInView' CacheLength='0.5'/></ItemsPanelTemplate>");
         var itemStyle = new Style(typeof(ListViewItem));
         itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
         itemStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0d));
@@ -282,6 +282,11 @@ internal sealed class NativeChatList : Grid
         foreach (var (host, binding) in mounted)
         {
             if (binding.Entry.Row.Key is not { } key || !ReadyHost(host)) continue;
+            // Paging controls and date separators may disappear when older
+            // data arrives. Preserve a real timeline item the person reads.
+            if (!key.StartsWith("message:", StringComparison.Ordinal)
+                && !key.StartsWith("item:", StringComparison.Ordinal)
+                && !key.StartsWith("transcript:", StringComparison.Ordinal)) continue;
             var bounds = Bounds(host, viewport);
             if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight) continue;
             if (first == null || bounds.Top < first.ViewportTop) first = new(key, bounds.Top);

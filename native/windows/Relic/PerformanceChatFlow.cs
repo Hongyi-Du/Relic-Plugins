@@ -162,7 +162,10 @@ public sealed partial class MainWindow
             ["expected_item_id"] = expectedId, ["expected_item_kind"] = expected.ItemKind,
             ["actual_latest_item_id"] = actualLast, ["actual_latest_item_kind"] = messages.LastOrDefault().Text("type"),
             ["latest_message_loaded"] = messageLoaded, ["expected_empty"] = expectedEmpty,
-            ["selected"] = selected, ["content_ready"] = ConversationContentReady(), ["latest_visible"] = false };
+            ["selected"] = selected, ["content_ready"] = ConversationContentReady(), ["latest_visible"] = false,
+            ["pending_markdown"] = PendingMarkdown, ["pending_chat_rows"] = NativeChatList.PendingBuilds,
+            ["pending_other_rows"] = VirtualRows.PendingBuilds, ["pending_path_text"] = NativePathText.PendingPreparations,
+            ["pending_labels"] = NativeLabel.PendingPreparations };
         if (!selected || !ConversationContentReady()) return result;
         var rowKey = (expected.ItemKind == "message" ? "message:" : "item:") + expectedId;
         var index = expectedEmpty ? stream.Children.Count - 1 : stream.Children.FindIndex(row => row.Key == rowKey);
