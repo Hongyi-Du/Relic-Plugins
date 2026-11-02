@@ -1,4 +1,10 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+2dfd2bf Native41547206375, Python41547206382, whole-window41547206346 PASS.
+Large pressure41547206354 idle PASS 1.29877%one-core/171.906MiB/9threads peak;
+other phases still fail264–374ms. Mac is removing repeated date formatting from
+row UI work and redundant per-paragraph SwiftUI help/tracking regions, based on
+actual native samples41546936631. Native path-link/label tooltips remain;10tests
+cover exact dates/context invalidation/path ranges. No shared gate change.
 2426050 native41546267685 PASS all331 Mac tests/package, including original
 Home/End5850rows/navigation and new atomic-navigation/height-only resize tests.
 Standard List fixes actual missing-tail regressions. Large pressure41546267562

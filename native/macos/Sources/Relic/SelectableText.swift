@@ -23,6 +23,7 @@ struct SelectableText: NSViewRepresentable {
     var monospaced = false
     var uniformSource = false
     var maximumLines = 0
+    var fileLinkTooltip: String? = nil
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
         let trace = UIWorkTrace.begin("text.make." + region); defer { UIWorkTrace.end(trace) }
@@ -50,7 +51,7 @@ struct SelectableText: NSViewRepresentable {
             selectable.quote = { text in m.setQuote(text, from: author.isEmpty ? m.t("common.quote") : author) }
         }
         let baseSize: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) * scale
-        let rendered = NativeTextStyle.render(value, size: baseSize, weight: weight, color: color, lineHeight: lineHeight, monospaced: monospaced, uniformSource: uniformSource)
+        let rendered = NativeTextStyle.render(value, size: baseSize, weight: weight, color: color, lineHeight: lineHeight, monospaced: monospaced, uniformSource: uniformSource, fileLinkTooltip: fileLinkTooltip)
         view.linkTextAttributes = [.foregroundColor: NSColor(RelicStyle.accent)]
         if view.attributedString() != rendered {
             let selected = view.selectedRange(); view.textStorage?.setAttributedString(rendered)
@@ -134,7 +135,7 @@ final class QuoteTextView: ReadOnlyTextView {
 // Width comes from TextKit, so a horizontal code scroller cannot expand a short
 // message's bubble to the whole available conversation column.
 enum NativeTextStyle {
-    static func render(_ value: AttributedString, size baseSize: CGFloat, weight: NSFont.Weight = .regular, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, monospaced: Bool = false, uniformSource: Bool = false) -> NSAttributedString {
+    static func render(_ value: AttributedString, size baseSize: CGFloat, weight: NSFont.Weight = .regular, color: Color = RelicStyle.ink, lineHeight: CGFloat? = nil, monospaced: Bool = false, uniformSource: Bool = false, fileLinkTooltip: String? = nil) -> NSAttributedString {
         let trace = UIWorkTrace.begin("text.style"); defer { UIWorkTrace.end(trace) }
         let rendered = NSMutableAttributedString(attributedString: NSAttributedString(value))
         let range = NSRange(location: 0, length: rendered.length)
@@ -165,6 +166,16 @@ enum NativeTextStyle {
             rendered.addAttribute(.relicConfiguredFontWeight, value: intent.contains(.stronglyEmphasized) ? 700 : intent.contains(.code) ? 400 : weight == .bold ? 700 : weight == .semibold ? 600 : 400, range: nsRange)
         }
         NativeInlineCode.decorate(rendered, ranges: codeRanges)
+        // Only local-file anchors have this help in the reference. Native text
+        // attributes avoid a SwiftUI tracking region around every paragraph and
+        // list item when AppKit reinserts recycled conversation rows.
+        if let fileLinkTooltip {
+            rendered.enumerateAttribute(.link, in: NSRange(location: 0, length: rendered.length)) { link, range, _ in
+                let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:))
+                guard let url, url.scheme == "relic-file" || url.isFileURL || url.scheme == nil && url.path.hasPrefix("/") else { return }
+                rendered.addAttribute(.toolTip, value: fileLinkTooltip, range: range)
+            }
+        }
         if uniformSource && codeRanges.isEmpty && value.runs.allSatisfy({ $0.inlinePresentationIntent == nil && $0.link == nil }) {
             // A raw tool-output string is one production text element. Preserve
             // that source boundary when TextKit fixes fallback font attributes.

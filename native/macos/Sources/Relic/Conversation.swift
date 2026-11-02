@@ -144,7 +144,7 @@ struct RichText: View {
         }.max() ?? 0
     }
     private func inline(_ value: String) -> some View {
-        SelectableText(value: attributed(value), pointSize: baseSize, lineHeight: textLineHeight).help(m.t("chat.path_preview"))
+        SelectableText(value: attributed(value), pointSize: baseSize, lineHeight: textLineHeight, fileLinkTooltip: m.t("chat.path_preview"))
     }
     @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.kind {
@@ -262,7 +262,7 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     let title = m.member.isEmpty ? m.t("common.group_chat") : m.member == m.secretary ? m.t("chat.secretary_title", ["name": m.roleName(m.member, "common.secretary")]) : m.name(m.member)
-                    ReferenceLabel(title, size: 15, weight: 650, lineHeight: 19.5).help(title)
+                    ReferenceLabel(title, size: 15, weight: 650, lineHeight: 19.5).nativeHelp(title)
                     if m.member.isEmpty { ReferenceLabel(m.t("common.members", ["n": String(m.members.count)]), size: 15, color: RelicStyle.muted, lineHeight: 19.5) }
                     else {
                         if !m.selectedMember["display"].text.isEmpty && m.selectedMember["display"].text != m.member { ReferenceLabel(m.member, size: 13.8, color: RelicStyle.muted, lineHeight: 17.94, monospaced: true) }
@@ -270,7 +270,7 @@ struct ChatView: View {
                     }
                 }.frame(height: 19.5, alignment: .leading)
                 let meta = m.member.isEmpty ? m.t(m.snapshot["org"]["auto_wake"].flag ? "chat.group_meta_on" : "chat.group_meta_off", ["org": m.snapshot["org"]["name"].text]) : [m.snapshot["org"]["name"].text, m.selectedMember["harness_label"].text, m.selectedMember["surface_label"].text, m.selectedMember["model"].text, m.stateLabel(m.selectedMember["state"].text)].filter { !$0.isEmpty }.joined(separator: " · ")
-                ReferenceLabel(meta, size: 12, color: RelicStyle.muted, lineHeight: 16.8).help(meta).frame(height: 16.8, alignment: .leading)
+                ReferenceLabel(meta, size: 12, color: RelicStyle.muted, lineHeight: 16.8).nativeHelp(meta).frame(height: 16.8, alignment: .leading)
             }.frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 2) {
             if m.member.isEmpty {
@@ -295,6 +295,9 @@ struct MessageView: View {
     var inThread = false
     var continued = false
     var preparedBody: PreparedMarkdown? = nil
+    var clockLabel: String? = nil
+    var dayTooltip: String? = nil
+    var timestampContext: ConversationTimestampContext? = nil
     @State private var threadIdentity = "relic-row/thread/" + UUID().uuidString
     @State private var hovering = false
     @State private var threadAvatarImages: Set<String> = []
@@ -332,8 +335,11 @@ struct MessageView: View {
                         ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0)
                         if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { ReferenceLabel(item["from"].text, size: 11, color: RelicStyle.muted, lineHeight: 14.3, lines: 0, monospaced: true) }
                         if item["type"].text == "receipt" { ReferenceLabel(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0) }
-                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).help(recipientLabel) }
-                        ReferenceLabel(m.clock(item["at"]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).fixedSize().help(m.day(item["at"]) + " " + m.clock(item["at"]))
+                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).nativeHelp(recipientLabel) }
+                        let currentTimestamp = timestampContext?.isCurrent(language: m.words.language, now: m.displayNow) ?? false
+                        let time = (currentTimestamp ? clockLabel : nil) ?? m.clock(item["at"])
+                        ReferenceLabel(time, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0)
+                            .nativeHelp((currentTimestamp ? dayTooltip : nil) ?? (m.day(item["at"]) + " " + time)).fixedSize()
                     } }
                     MessageBodyContent(item: item, inThread: inThread, wantsPlain: wantsPlain, preparedBody: preparedBody)
                     if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {
