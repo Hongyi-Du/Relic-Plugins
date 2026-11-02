@@ -612,9 +612,12 @@ internal sealed class VirtualRows : Grid
         }
         private static void Pump()
         {
-            // A cold row can create many native controls. Build one per UI
-            // turn, outside MeasureOverride, instead of concentrating the
-            // entire viewport in one uninterruptible layout pass.
+            // Keep construction outside MeasureOverride with a small measured
+            // budget. One row per 16 ms unnecessarily delays dozens of cheap
+            // sidebar/inspector rows for more than a second on organization
+            // changes. A cold/expensive row still gets the turn to itself.
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var built = 0;
             while (pending.TryDequeue(out var work))
             {
                 try
@@ -624,9 +627,10 @@ internal sealed class VirtualRows : Grid
                     // stays on the dispatcher even when realization originated
                     // in a native callback without a managed sync context.
                     work.Owner.BuildNow(work.Host);
+                    built++;
                 }
                 finally { Interlocked.Decrement(ref PendingBuilds); PresentationPreparation.NotifyCompletion(); }
-                break;
+                if (built >= 4 || System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 4) break;
             }
             if (pending.Count == 0) pumpTimer!.Stop();
         }
