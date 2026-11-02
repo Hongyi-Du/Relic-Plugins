@@ -1,5 +1,12 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: Native symbol replay is an offline, manual CI workflow
+for the retained diagnostic stacks. It does not launch either App and is never
+acceptance evidence. Exact captured DLL/PDB identities and every requested
+offset must match; failed resolution remains explicit. The 699f204 focused
+opening/monkey jobs still fail during initial display before any interaction,
+so their results do not establish whether the latest row-budget fix is enough.
+
 Windows863b18f normal person-shape41545286685 passes workflows86/86 and
 history2/2 (85.329ms worst); switch runs all269 warmup/measured actions but
 only187 satisfy opening, with pending_other_rows28–41 in failed receipts.

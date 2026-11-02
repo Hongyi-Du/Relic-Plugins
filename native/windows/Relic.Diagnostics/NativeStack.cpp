@@ -245,9 +245,43 @@ void EmitFrame(HANDLE process, size_t index, DWORD64 ip, DWORD64 sp, bool resolv
         << ",\"symbol_source\":\"local symbols or exports only\"}\n" << std::flush;
 }
 
+DWORD OfflineImageSize(HANDLE image) {
+    LARGE_INTEGER fileSize{};
+    if (!GetFileSizeEx(image, &fileSize)) Fail("Offline GetFileSizeEx");
+    auto read = [&](LONGLONG offset, void* target, DWORD size) {
+        if (offset < 0 || offset > fileSize.QuadPart || size > fileSize.QuadPart - offset)
+            throw std::runtime_error("Offline PE header is outside the image file");
+        LARGE_INTEGER position{}; position.QuadPart = offset;
+        if (!SetFilePointerEx(image, position, nullptr, FILE_BEGIN)) Fail("Offline SetFilePointerEx");
+        DWORD actual = 0;
+        if (!ReadFile(image, target, size, &actual, nullptr)) Fail("Offline ReadFile");
+        if (actual != size) throw std::runtime_error("Offline PE header read was incomplete");
+    };
+    IMAGE_DOS_HEADER dos{};
+    read(0, &dos, sizeof(dos));
+    if (dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew < static_cast<LONG>(sizeof(dos)))
+        throw std::runtime_error("Offline image has no DOS/PE header");
+    IMAGE_NT_HEADERS64 pe{};
+    read(dos.e_lfanew, &pe, sizeof(pe));
+    if (pe.Signature != IMAGE_NT_SIGNATURE || pe.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64
+        || pe.FileHeader.SizeOfOptionalHeader < sizeof(IMAGE_OPTIONAL_HEADER64)
+        || pe.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC || !pe.OptionalHeader.SizeOfImage)
+        throw std::runtime_error("Offline image is not a valid x64 PE image");
+    LARGE_INTEGER start{};
+    if (!SetFilePointerEx(image, start, nullptr, FILE_BEGIN)) Fail("Offline rewind image");
+    return pe.OptionalHeader.SizeOfImage;
+}
+
 int ResolveOffline(const wchar_t* imageArgument, const wchar_t* symbolArgument, int count, wchar_t** offsets) {
     const auto image = LocalPath(imageArgument, false);
     const auto symbols = LocalPath(symbolArgument, true);
+    Handle imageFile(CreateFileW(image.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    const DWORD imageSize = OfflineImageSize(imageFile.value);
+    // This is an RVA-only session: no image is loaded into this process. Give
+    // DbgHelp the actual PE file and an explicit address range instead of asking
+    // it to infer a module from the unrelated resolver process's address space.
+    constexpr DWORD64 offlineBase = 0x100000000ULL;
     // DbgHelp requires a unique session handle and explicitly warns against
     // GetCurrentProcess's shared pseudo-handle. Own a real handle even though
     // this offline mode only reads the supplied image and local PDB files.
@@ -260,8 +294,10 @@ int ResolveOffline(const wchar_t* imageArgument, const wchar_t* symbolArgument, 
     if (!SymInitializeW(process, symbols.c_str(), FALSE)) Fail("Offline SymInitializeW");
     struct Cleanup { HANDLE process; ~Cleanup() { SymCleanup(process); } } cleanup{process};
     SetLastError(ERROR_SUCCESS);
-    const DWORD64 base = SymLoadModuleExW(process, nullptr, image.c_str(), nullptr, 0, 0, nullptr, 0);
+    const DWORD64 base = SymLoadModuleExW(process, imageFile.value, image.c_str(), nullptr,
+        offlineBase, imageSize, nullptr, 0);
     if (!base) Fail("Offline SymLoadModuleExW");
+    if (base != offlineBase) throw std::runtime_error("Offline module loaded at an unexpected base");
     bool allResolved = true;
     for (int index = 0; index < count; ++index) {
         const std::wstring text(offsets[index]);
@@ -271,7 +307,8 @@ int ResolveOffline(const wchar_t* imageArgument, const wchar_t* symbolArgument, 
         if (consumed != text.size()) throw std::runtime_error("Invalid image offset");
         IMAGEHLP_MODULEW64 module{}; module.SizeOfStruct = sizeof(module);
         if (!SymGetModuleInfoW64(process, base, &module)) Fail("Offline module information");
-        if (offset >= module.ImageSize) throw std::runtime_error("Offset is outside the supplied image");
+        if (module.ImageSize != imageSize) throw std::runtime_error("Offline module size differs from its PE header");
+        if (offset >= imageSize) throw std::runtime_error("Offset is outside the supplied image");
         alignas(SYMBOL_INFO) std::array<unsigned char, sizeof(SYMBOL_INFO) + MAX_SYM_NAME> storage{};
         auto symbol = reinterpret_cast<PSYMBOL_INFO>(storage.data());
         symbol->SizeOfStruct = sizeof(SYMBOL_INFO); symbol->MaxNameLen = MAX_SYM_NAME;
