@@ -241,14 +241,19 @@ public sealed partial class MainWindow
             }
         }), true);
         chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest()), true);
+        chatScroll.PreviewKeyDown += (_, e) =>
+        {
+            // Handle the focused viewport's End before the native class
+            // handler submits a competing numeric scroll/inertia command.
+            // Text descendants retain their own caret navigation.
+            if (!ReferenceEquals(e.OriginalSource, chatScroll) || e.Key != VirtualKey.End) return;
+            e.Handled = true; FollowLatestIntent("end_key", explicitEnd: true);
+        };
         chatScroll.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
         {
-            // A focused conversation can navigate to its real end. Leave End
-            // on selectable/editable child text to that control's own caret.
+            // Observe upward navigation only on the viewport itself.
             if (!ReferenceEquals(e.OriginalSource, chatScroll)) return;
-            if (e.Key == VirtualKey.End)
-            { e.Handled = true; FollowLatestIntent("end_key", explicitEnd: true); }
-            else if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest();
+            if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest();
         }), true);
         // Touchpad/touch panning is direct manipulation, not a wheel event.
         var panRequest = -1; var panStartOffset = 0d;
