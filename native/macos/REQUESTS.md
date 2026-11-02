@@ -1,4 +1,16 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+Mac33965c1 builds but fails6native assertions across End and navigation; the
+scrollPosition experiment is removed. Candidate moves conversation to standard
+SwiftUI List recycling with semantic ScrollViewReader targets, native viewport
+geometry notifications, unchanged200-row pager, and one shared scroll observer.
+Navigation now prepares target data/Markdown before one atomic publication;
+slow/failed requests retain old content;6new race/native-body tests are added.
+All original assertions and strict gates remain. Python41541625632 all PASS.
+33965c1 /41541625578 Mac large idle PASS:1.45438%one-core,10.269s measurement,
+160.797MiB/7threads peak, ending RSS/threads flat/down. Other phases still FAIL:
+open315.774ms,switch618.812ms,history339.694ms; workflows/monkey can show no
+mounted conversation row despite native bottom gap0. Atomic prepared-navigation
+publication is being addressed on Mac; no threshold or eligibility change.
 Mac now consumes latest_item_id/kind separately from latest_message_id as
 published in cf3c352, including exact actual native notice-label text evidence.
 761bfa9 passes318 tests/package (41537608421). a883d15 compiles but its new

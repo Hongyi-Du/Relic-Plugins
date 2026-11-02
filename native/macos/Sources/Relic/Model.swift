@@ -183,11 +183,13 @@ import Combine
     @ObservationIgnored private var starting = false
     @ObservationIgnored private var refreshWaiters: [CheckedContinuation<Void, Error>] = []
     @ObservationIgnored private var conversationTask: Task<Void, Never>?
+    @ObservationIgnored private var conversationTaskID: UUID?
     var isPreparingConversation: Bool { conversationTask != nil }
     @ObservationIgnored private var conversationGeneration = 0
     @ObservationIgnored private var preparationSuspended = 0
     @ObservationIgnored private var navigationGeneration = 0
     @ObservationIgnored private var navigationTask: Task<Void, Error>?
+    @ObservationIgnored private var pendingNavigation: ChatSelection?
     var isLoadingSelectedChat: Bool { navigationTask != nil }
     @ObservationIgnored private(set) var selectedChatLoadVersion = 0
     @ObservationIgnored private var refreshAfterNavigation = false
@@ -275,6 +277,12 @@ import Combine
             if !event["done"].isNull { installLogs[id, default: []].append(event["done"].integer == 0 ? t("settings.install_done") : t("settings.install_failed", ["code": event["done"].text])); notice = t(event["done"].integer == 0 ? "settings.adapter_installed" : "settings.adapter_install_failed"); revision += 1 }
             installLogs[id] = Array((installLogs[id] ?? []).suffix(200)); return
         }
+        if let next = pendingNavigation, next != selection, event["org"].text == next.org,
+           ["org", "decision"].contains(type) || type == "live" && event["member"].text == next.member {
+            // The old chat remains selected until the new document is ready.
+            // Fetch any target events that arrived after its in-flight reply.
+            refreshAfterNavigation = true
+        }
         if event["org"].text == organization {
             if type == "plain" { acceptPlain(event["items"], ids: event["ids"].rows.map(\.text)); if !event["error"].text.isEmpty { error = t("plain.failed", ["error": event["error"].text]) }; return }
             if type == "digest" { digestPending = false; digest = event["digest"]; if !event["error"].text.isEmpty { error = t("digest.failed", ["error": event["error"].text]) }; return }
@@ -297,9 +305,12 @@ import Combine
     private func prepareConversation() {
         conversationGeneration += 1
         guard preparationSuspended == 0, conversationTask == nil else { return }
+        let taskID = UUID(); conversationTaskID = taskID
         conversationTask = Task { [weak self] in
             guard let self else { return }
-            defer { self.conversationTask = nil }
+            defer {
+                if self.conversationTaskID == taskID { self.conversationTask = nil; self.conversationTaskID = nil }
+            }
             while !Task.isCancelled {
                 // Coalesce the fields of one response and bursts of live events.
                 await Task.yield()
@@ -409,7 +420,10 @@ import Combine
         if !threadID.isEmpty { try await loadThread() }
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
-        navigationGeneration += 1; navigationTask?.cancel(); navigationTask = nil
+        navigationGeneration += 1; navigationTask?.cancel(); navigationTask = nil; pendingNavigation = nil
+        changeSelection(next, record: record, clearContent: true)
+    }
+    private func changeSelection(_ next: ChatSelection, record: Bool, clearContent: Bool) {
         let sameOrganization = organization == next.org && !next.org.isEmpty
         inputSuggestions = nil
         mentionEditor?.closeMentions()
@@ -418,11 +432,14 @@ import Combine
         persistDraft(); organization = next.org; member = next.member
         let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
         quoteAuthor = saved.quoteAuthor ?? ""; quoteText = saved.quoteText ?? ""
-        messages = []; streamRows = []
-        // Changing chats within an organization must not tear down its member
-        // tree and inspector, then build them again after the same snapshot.
-        if !sameOrganization { snapshot = Node() }
-        liveItems = []; liveStatus = Node(); conversation = Node(); moreChat = false; historyPagesLoaded = 0
+        if clearContent {
+            messages = []; streamRows = []
+            // Direct resets still discard the old chat. Network navigation
+            // replaces these fields with prepared data in one publication.
+            if !sameOrganization { snapshot = Node() }
+            liveItems = []; liveStatus = Node(); conversation = Node()
+        }
+        moreChat = false; historyPagesLoaded = 0
         selectedText = ""; selectedAuthor = ""; selectedTextView = nil
         threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
         file = Node(); fileImage = nil; plain = [:]; plainOne = []; plainPending = []; plainFailed = []; digest = Node(); digestPending = false
@@ -438,17 +455,20 @@ import Combine
     }
     func select(_ org: String, _ member: String = "", record: Bool = true) async throws {
         let next = ChatSelection(org, member)
-        // Clicking the active chat refreshes it without throwing away loaded
-        // history, its view identities, the draft, or the current scroll offset.
-        if next != selection { setSelection(next, record: record) }
+        if next.org.isEmpty { setSelection(next, record: record); return }
+        // Keep the actual selection and native document intact while fetching
+        // and preparing the replacement. Clearing a 1,000-row lazy document
+        // first makes SwiftUI tear it down, lay out an empty chat and recreate
+        // it in another transaction; a failed request also loses the old chat.
         navigationGeneration += 1
         let generation = navigationGeneration
         navigationTask?.cancel()
-        let task = Task { try await self.loadSelectedChat(next, generation: generation) }
+        pendingNavigation = next
+        let task = Task { try await self.loadSelectedChat(next, generation: generation, record: record) }
         navigationTask = task
         defer {
             if generation == navigationGeneration {
-                navigationTask = nil
+                navigationTask = nil; pendingNavigation = nil
                 if refreshAfterNavigation { refreshAfterNavigation = false; schedule() }
             }
         }
@@ -461,7 +481,7 @@ import Combine
         if digestOpen { try await loadDigest(false) }
     }
 
-    private func loadSelectedChat(_ selected: ChatSelection, generation: Int) async throws {
+    private func loadSelectedChat(_ selected: ChatSelection, generation: Int, record: Bool) async throws {
         guard !selected.org.isEmpty else { return }
         let query = selected.member.isEmpty ? "/chat?kind=group&limit=1000"
             : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=1000"
@@ -469,33 +489,51 @@ import Combine
         async let chatRequest = get(selected.path(query))
         let snap = try await snapshotRequest
         let who = snap["members"].rows.first { $0["name"].text == selected.member } ?? Node()
-        let liveRevision = liveGeneration
+        let requestedLiveRevision = liveGeneration
         async let liveRequest = optionalChatResource(who["embedded"].flag, path: selected.path("/live?member=" + Client.segment(selected.member)))
         async let transcriptRequest = optionalChatResource(who["has_transcript"].flag, path: selected.path("/convo?member=" + Client.segment(selected.member)))
         let (chat, live, transcript) = try await (chatRequest, liveRequest, transcriptRequest)
-        while !Task.isCancelled, selected == selection, generation == navigationGeneration {
-            let messageRevision = messageGeneration, current = messages
+        while !Task.isCancelled, generation == navigationGeneration {
+            let sameChat = selected == selection
+            let messageRevision = messageGeneration, liveRevision = liveGeneration, presentationRevision = conversationGeneration
+            let current = sameChat ? messages : []
+            // A live event for the still-visible chat can arrive while its
+            // refresh request is in flight. Preserve that newer native turn.
+            let useLiveReply = !sameChat || requestedLiveRevision == liveRevision
+            let nextLive = useLiveReply ? live["items"].rows : liveItems
+            let nextStatus = useLiveReply ? live["status"] : liveStatus
             let merged = await Timeline.mergeInBackground(current, chat["items"].rows)
             let sameMessages = await Node.sameRows(current, merged)
             let sameSnapshot = await Node.sameContent(snapshot, snap)
-            let sameLive = await Node.sameRows(liveItems, live["items"].rows)
-            let sameStatus = await Node.sameContent(liveStatus, live["status"])
+            let sameLive = await Node.sameRows(liveItems, nextLive)
+            let sameStatus = await Node.sameContent(liveStatus, nextStatus)
             let sameTranscript = await Node.sameContent(conversation, transcript)
-            guard !Task.isCancelled, selected == selection, generation == navigationGeneration else { return }
-            guard messageRevision == messageGeneration else { continue }
-            // Publish one response batch without starting projections of its
-            // intermediate empty/member/snapshot states on successive turns.
-            preparationSuspended += 1
-            if !sameSnapshot { snapshot = snap; revision += 1 }
-            if !sameMessages { messages = merged }
-            if current.isEmpty { moreChat = chat["more"].flag }
-            if liveRevision == liveGeneration {
-                if !sameLive { liveItems = live["items"].rows }
-                if !sameStatus { liveStatus = live["status"] }
+            let changed = !sameChat || !sameSnapshot || !sameMessages || !sameLive || !sameStatus || !sameTranscript
+            let rows = changed ? await ConversationRow.prepare(messages: merged, steps: transcript["steps"].rows,
+                member: who, live: nextLive, status: nextStatus, decisions: snap["decisions"].rows,
+                words: words, now: displayNow, privateChat: !selected.member.isEmpty) : streamRows
+            guard !Task.isCancelled, generation == navigationGeneration else { return }
+            // Rebase a current-chat refresh if history or SSE advanced while
+            // the background projection was running. New-chat replies never
+            // merge the old displayed chat's messages into the requested chat.
+            guard messageRevision == messageGeneration, liveRevision == liveGeneration,
+                  presentationRevision == conversationGeneration else { continue }
+            if changed {
+                // A canceled projection can finish later. Its identity-guarded
+                // defer must not clear a worker for a subsequent live update.
+                conversationTask?.cancel(); conversationTask = nil; conversationTaskID = nil
+                conversationGeneration += 1
+                preparationSuspended += 1
+                if !sameChat { changeSelection(selected, record: record, clearContent: false) }
+                if !sameSnapshot { snapshot = snap; revision += 1 }
+                if !sameMessages || !sameChat { messages = merged }
+                if !sameChat || current.isEmpty { moreChat = chat["more"].flag }
+                if !sameLive { liveItems = nextLive }
+                if !sameStatus { liveStatus = nextStatus }
+                if !sameTranscript { conversation = transcript }
+                preparationSuspended -= 1
+                streamRows = rows; streamVersion += 1
             }
-            if !sameTranscript { conversation = transcript }
-            preparationSuspended -= 1
-            if !sameSnapshot || !sameMessages || !sameLive || !sameStatus || !sameTranscript { prepareConversation() }
             let key = selected.member.isEmpty ? "group" : "member:" + selected.member
             if !snap["chats"][key]["last"]["id"].isNull {
                 defaults.set(snap["chats"][key]["last"]["id"].integer, forKey: "seen." + selected.org + "/" + key)
