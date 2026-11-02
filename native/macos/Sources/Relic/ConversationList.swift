@@ -38,6 +38,11 @@ struct ConversationStream: View {
                                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
                         }
                         ForEach(rows) { row in
+                            // List can discover all IDs without evaluating the
+                            // conditional admission content for every message.
+                            // One explicit container always means one row;
+                            // ForEach already supplies its scroll identity.
+                            VStack(alignment: .leading, spacing: 0) {
                             ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                     if let separator = row.separator {
@@ -52,11 +57,11 @@ struct ConversationStream: View {
                                 .onAppear { PerformanceRendering.rowAppeared() }
                                 .onDisappear { PerformanceRendering.rowDisappeared() }
                             }
+                            }
                             .padding(.bottom, row.id == last ? 24 : 0)
                             .frame(maxWidth: 880).frame(maxWidth: .infinity)
                             .environment(\.rowMountPriority, row.id == last ? 20 : 10)
                             .background(mount)
-                            .id(row.id)
                             .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                             .listRowSeparator(.hidden).listRowBackground(Color.clear)
                         }
@@ -67,7 +72,7 @@ struct ConversationStream: View {
                                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
                         }
                     }
-                    .listStyle(.plain).listRowSpacing(0)
+                    .listStyle(.plain)
                     .environment(\.defaultMinListRowHeight, 0)
                     .scrollContentBackground(.hidden)
                     .contentMargins(.all, 0, for: .scrollContent)
@@ -131,7 +136,9 @@ struct ConversationStream: View {
                 }
                 keyboard.geometryChanged = { geometry in
                     let changed = abs(keyboard.observedHeight - geometry.height) > 1
-                    if changed { keyboard.observedHeight = geometry.height }
+                        || abs(keyboard.observedViewportHeight - geometry.viewportHeight) > 1
+                    keyboard.observedHeight = geometry.height
+                    keyboard.observedViewportHeight = geometry.viewportHeight
                     keyboard.finishDisclosureLayout()
                     if changed, followsLatest, !preservingDisclosure, !m.isPreparingConversation {
                         seekLatest(proxy)
