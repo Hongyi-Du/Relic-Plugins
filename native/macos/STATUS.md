@@ -1,5 +1,18 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+2426050 / Native apps41546267685：331项macOS测试全部PASS（38.805秒），两端构建、
+合同检查与包通过。标准List的真实Home/End、5850行历史、跨聊天、height-only缩放和
+原子导航6项测试均通过；先前6个End/导航断言回归已经消除。
+其压力41546267562的large仍FAIL：open418.311ms、switch332.992ms、history391.906ms、
+workflows382.967ms、monkey378.809ms；idle阶段PASS。完整随机/200次切换未完成。
+发现原生日志重复“setRowHeight: not allowed (0.000)”和NSTableView delegate reentrant操作；
+下一修正使用实际最小空白行8pt，并把表格间距/滚动条配置延至cell delegate返回后。
+标准List首轮9191d75构建成功但首次挂载>1秒；2426050移除重复id、固定一项数据对应
+一个VStack后首次挂载已不再触发该失败。保留后续切换超限的真实失败结果。
+已查看9191d75四张整窗中的浅色1440×900、深色1024×700，标题栏和聊天布局正常；
+证据S:\Codex\Outputs\Relic-native-visual\window-9191d75\macos\，对应41545296886两端PASS。
+33965c1的person-shape idle也PASS：单核1.61121%、151.641MiB/7线程，内存/线程持平或下降。
+
 33965c1原生324项测试有6个断言失败：50行和1063行End未到末尾，跨聊天首次挂载正文缺失。
 原生scrollPosition绑定未修复问题，已移除。当前候选改用SwiftUI标准List管理行回收与
 可变高度，保留原生viewport/composer；真实clip范围通知驱动原有200条历史分页，

@@ -21,6 +21,7 @@ import SwiftUI
     private var lastGeometry: Geometry?
     private var scrollObservers: [NSObjectProtocol] = []
     private let mounts = NSHashTable<NSView>.weakObjects()
+    private weak var observedDocument: NSView?
     private var disclosureOrigin: NSPoint?
     private var disclosureHeight: CGFloat = 0
     private var disclosureGeneration = 0
@@ -29,11 +30,18 @@ import SwiftUI
     /// owns one observer set, so recycling a cell never detaches the live list
     /// and hundreds of history rows never create hundreds of scroll listeners.
     func attach(_ current: NSScrollView, owner: NSView) {
-        if scroll === current, !scrollObservers.isEmpty { mounts.add(owner); return }
+        if scroll === current, observedDocument === current.documentView, !scrollObservers.isEmpty { mounts.add(owner); return }
         for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) }
         mounts.removeAllObjects(); mounts.add(owner)
-        scrollObservers = []; scroll = current; lastGeometry = nil
-        if let table = current.documentView as? NSTableView { table.intercellSpacing = .zero }
+        scrollObservers = []; scroll = current; observedDocument = current.documentView; lastGeometry = nil
+        // AppKit can be asking its List delegate for a cell while this mount
+        // attaches. Changing table/scroller geometry inside that delegate is a
+        // reentrant table operation; configure once after the transaction.
+        DispatchQueue.main.async { [weak self, weak current] in
+            guard let self, let current, self.scroll === current else { return }
+            if let table = current.documentView as? NSTableView, table.intercellSpacing != .zero { table.intercellSpacing = .zero }
+            ScrollAppearance.apply(to: current)
+        }
         current.contentView.postsBoundsChangedNotifications = true
         current.documentView?.postsFrameChangedNotifications = true
         for (name, object) in [(NSView.boundsDidChangeNotification, current.contentView as NSView?),
@@ -52,7 +60,7 @@ import SwiftUI
         mounts.remove(owner)
         guard mounts.allObjects.isEmpty else { return }
         for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) }
-        scrollObservers = []; scroll = nil; lastGeometry = nil
+        scrollObservers = []; scroll = nil; observedDocument = nil; lastGeometry = nil
     }
     private func queueGeometry() {
         guard !geometryQueued else { return }; geometryQueued = true

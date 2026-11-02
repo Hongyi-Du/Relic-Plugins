@@ -1,4 +1,11 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+2426050 native41546267685 PASS all331 Mac tests/package, including original
+Home/End5850rows/navigation and new atomic-navigation/height-only resize tests.
+Standard List fixes actual missing-tail regressions. Large pressure41546267562
+still FAILS open418ms/switch333ms/history392ms/workflows383ms/monkey379ms; idlePASS.
+Native logs expose zero minimum rowHeight and reentrant table configuration;
+Mac fixes those next, keeping all original gates. Focused diagnostic41546936631
+is macOS/open only and explicitly ineligible, to obtain native call stacks.
 Mac33965c1 builds but fails6native assertions across End and navigation; the
 scrollPosition experiment is removed. Candidate moves conversation to standard
 SwiftUI List recycling with semantic ScrollViewReader targets, native viewport
