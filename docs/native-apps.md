@@ -1,5 +1,22 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+94e4d53 person-shape41543376236 completes all83 opening attempts:56 pass;
+all27 remaining failures have one actual ItemClick, the correct selected chat,
+and unfinished content preparation. Its standard list realizes42–63 rows for
+small-group opens because ItemsStackPanel defaults to four offscreen viewports.
+Set CacheLength=0.5 (the prior repeater's budget) to avoid preparing several
+screens of unseen text ahead of a one-second opening. History initially reaches
+its real final row, then fails because the newly keyed "older" control was
+mistaken for a reading anchor and disappears on the final page. Reading anchors
+now accept only actual timeline item keys, never paging controls/date dividers.
+No expected message, reading-position assertion or deadline is removed.
+This profile's worst stalls are120.009ms(open),157.993ms(switch),34.566ms(idle),
+107.331ms(workflows),62.679ms(history),89.688ms(monkey); workflows pass, idle
+CPU3.266% and switch RSS growth still fail. The full matrix remains unaccepted.
+Changes for the clients: integrating Mac e3aed94 via964129a (standard SwiftUI
+List and atomic prepared navigation). REQUESTS reports previous large idle
+PASS1.45438%; new Mac native tests and all remaining strict phases are required.
+
 The standard Windows list now terminates an unsuccessful reading-position
 restore after the real final ViewChanged (or a rejected/impossible ChangeView),
 instead of leaving the next history page permanently loading. Interim layout
