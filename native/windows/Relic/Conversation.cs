@@ -32,6 +32,15 @@ public sealed partial class MainWindow
     private int chatPages = 1;
     private int latestRequest;
     private readonly Dictionary<string, FrameworkElement> plainTargets = new();
+    private Dictionary<string, string> messagePresentationIdentities = new(StringComparer.Ordinal);
+    private string memberPresentationIdentity = "";
+    private static Dictionary<string, string> MessagePresentationIdentities(JsonArray rows)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in rows)
+            if (row.Text("id") is { Length: > 0 } id) result[id] = row!.ToJsonString();
+        return result;
+    }
     private readonly DispatcherTimer plainTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private readonly HashSet<ComposerInput> composing = new();
     private readonly Grid emptyConversation = new() { Visibility = Visibility.Collapsed, Padding = new Thickness(30), Margin = new Thickness(20, 8, 20, 0), VerticalAlignment = VerticalAlignment.Top };
@@ -167,9 +176,8 @@ public sealed partial class MainWindow
         if (key == VirtualKey.Escape) { mentionPopup.Hide(); return true; }
         return false;
     }
-    private void WireComposer()
+    private void WireConversationScroll()
     {
-        plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
         void LeaveLatest()
         {
             keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
@@ -294,6 +302,10 @@ public sealed partial class MainWindow
                 await LoadOlderAtTop();
             }
         };
+    }
+    private void WireComposer()
+    {
+        plainTimer.Tick += async (_, _) => { plainTimer.Stop(); await Run(VisiblePlain); };
         foreach (var text in new[] { editor, threadEditor })
         {
             text.TextCompositionStarted += (_, _) => composing.Add(text);
@@ -352,10 +364,14 @@ public sealed partial class MainWindow
             && renderedView == org + "/" + member ? stream.ReadVisibleAnchor(chatScroll) : null;
         var restoreStart = readingAnchor == null && !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending
             && renderedView == org + "/" + member && chatScroll.VerticalOffset < 32;
-        chatHead.Children.Clear(); stream.Children.Clear(); plainTargets.Clear();
+        if (stream.ViewIdentity != org + "/" + member) plainTargets.Clear();
+        stream.ViewIdentity = org + "/" + member;
+        stream.PresentationContext = words.Language + "/" + root.ActualTheme + "/" + preferences.Text("font")
+            + "/" + preferences.Text("density") + "/" + memberPresentationIdentity;
+        chatHead.Children.Clear(); stream.Children.Clear();
         conversationBanner.Child = null; conversationBanner.Visibility = Visibility.Collapsed; conversationBanner.MaxWidth = double.PositiveInfinity;
         composerRegion.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; chatScroll.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
+        emptyConversation.Children.Clear(); emptyConversation.Visibility = org.Length == 0 ? Visibility.Visible : Visibility.Collapsed; stream.Visibility = org.Length == 0 ? Visibility.Collapsed : Visibility.Visible; UpdateSendState();
         if (org.Length == 0)
         {
             stream.Commit();
@@ -457,12 +473,26 @@ public sealed partial class MainWindow
         }
         var atBottom = !loadingOlder && !stream.ReadingAnchorRestorePending
             && (keepLatest || chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120);
-        if (chatMore) stream.Children.Add(() => Button(T("trace.load_older"), LoadOlderMessages));
+        if (chatMore)
+        {
+            stream.Children.Add(() => Button(T("trace.load_older"), LoadOlderMessages), key: "older");
+            stream.SetPresentationIdentity("older", T("trace.load_older"));
+        }
         var items = ConversationItems().ToArray();
-        if (items.Length == 0) stream.Children.Add(Text(member.Length == 0 ? T("chat.empty_group") : T("chat.empty_private")));
+        if (items.Length == 0)
+        {
+            var emptyText = T(member.Length == 0 ? "chat.empty_group" : "chat.empty_private");
+            stream.Children.Add(() => Text(emptyText), key: "empty");
+            stream.SetPresentationIdentity("empty", emptyText);
+        }
         string day = ""; JsonNode? previous = null;
+        var ordinal = 0;
         foreach (var item in items)
         {
+            var itemKey = item.Text("id").Length > 0
+                ? (item.Text("type") == "message" ? "message:" : "item:") + item.Text("id")
+                : "transcript:" + item.Text("at") + ":" + item.Text("type") + ":" + ordinal;
+            ordinal++;
             var date = DateTimeOffset.TryParse(item.Text("at"), out var parsed) ? parsed.LocalDateTime.Date.ToString("yyyy-MM-dd") : "";
             string? separatorText = null;
             if (date != day && date.Length > 0) { separatorText = When(item.Text("at")); day = date; previous = null; }
@@ -479,23 +509,26 @@ public sealed partial class MainWindow
                     separator.TextWrapping = TextWrapping.WrapWholeWords;
                     separator.Margin = new Thickness(0, 18, 0, 8);
                     return separator;
-                }, 45);
+                }, 45, "separator:" + itemKey);
+                stream.SetPresentationIdentity("separator:" + itemKey, label);
             }
             var continued = Transcript.SameMessageGroup(previous, item!);
             var bodyLength = Math.Max(item.Text("body").Length, item.Text("text").Length);
             var estimate = item.Text("type") == "message" ? Math.Clamp(64 + bodyLength / 70d * 23, 64, 2100) : 40;
             // Notices are also real chronological chat items. Give them stable
             // identities for reading anchors and accessibility, just as messages.
-            var rowKey = item.Text("id").Length > 0
-                ? (item.Text("type") == "message" ? "message:" : "item:") + item.Text("id") : null;
-            stream.Children.Add(() => Message(item!, false, continued), estimate, rowKey);
+            stream.Children.Add(() => Message(item!, false, continued), estimate, itemKey);
+            var plainKey = PlainKey(item.Text("id"));
+            var bodyIdentity = messagePresentationIdentities.GetValueOrDefault(item.Text("id")) ?? item!.ToJsonString();
+            stream.SetPresentationIdentity(itemKey, bodyIdentity + "/" + continued + "/" + plainMode + "/"
+                + plainOne.Contains(plainKey) + "/" + plain.GetValueOrDefault(plainKey) + "/" + plainFailed.Contains(plainKey));
             if (item.Text("type") != "acts") previous = item;
         }
         var liveState = liveData["status"].Text("state");
         var hasLiveRows = liveState is "running" or "waiting" or "starting" ? liveData.Rows("items").Count > 0
             : liveData.Rows("items").Any(item => item.Text("type") == "permission"
                 && snap.Rows("decisions").Any(decision => decision.Text("kind") == "permission" && decision.Text("id") == item.Text("id")));
-        if (member.Length > 0 && hasLiveRows) stream.Children.Add(() => { var live = new StackPanel(); DrawLive(live); return live; });
+        if (member.Length > 0 && hasLiveRows) stream.Children.Add(() => { var live = new StackPanel(); DrawLive(live); return live; }, key: "live");
         stream.Commit();
         if (atBottom) ScrollToLatest();
         else if (readingAnchor != null)
@@ -512,7 +545,7 @@ public sealed partial class MainWindow
     private Task LoadOlderAtTop() => !closing && org.Length > 0 && api != null
         && !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending && chatMore && chatScroll.VerticalOffset < 32
         ? Run(LoadOlderMessages) : Task.CompletedTask;
-    private bool ConversationContentReady() => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0
+    private bool ConversationContentReady() => PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativeChatList.PendingBuilds == 0
         && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0;
     private async Task LoadOlderMessages()
     {
@@ -530,10 +563,15 @@ public sealed partial class MainWindow
         var page = await api!.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=1000&before=" + Client.Segment(before)));
         if (org != selectedOrg || member != selectedMember) return;
         var current = messages;
-        var merged = await Task.Run(() => Transcript.MergeMessages(page.Rows("items"), current), lifetime.Token);
+        var prepared = await Task.Run(() =>
+        {
+            var merged = Transcript.MergeMessages(page.Rows("items"), current);
+            return (Messages: merged, Identities: MessagePresentationIdentities(merged));
+        }, lifetime.Token);
         if (org != selectedOrg || member != selectedMember) return;
         readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
-        olderHistory = true; messages = merged; chatMore = page.Flag("more"); chatPages++; DrawConversation();
+        olderHistory = true; messages = prepared.Messages; messagePresentationIdentities = prepared.Identities;
+        chatMore = page.Flag("more"); chatPages++; DrawConversation();
         if (readingAnchor != null)
             await stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
                 () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,

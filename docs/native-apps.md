@@ -1,5 +1,26 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Windows conversation now uses a standard ListView/ItemsStackPanel with its
+single native ScrollViewer, replacing the custom VirtualRows realization and
+manual positioning for messages. Stable row identities retain unchanged
+message content; container recycling releases offscreen content, and a bounded
+dispatcher pump prepares visible row subtrees. Actual scroll/keyboard handlers,
+1000-item server pages, body-readiness checks and all acceptance limits remain.
+Same-organization chat changes update mounted sidebar selection/unread state
+and retain the unchanged Overview inspector. The sidebar input harness uses
+real wheel input to reveal a target before its real click, never forced row
+realization. This candidate builds locally; full responsiveness is CI-only.
+
+4abdca8 /41541102972 confirms the Content-payload navigation fix: a real Grid
+ItemClick opened the correct large-fixture group and drew message 5500 in
+581.0535 ms. Later private clicks reach the correct chat but exceed one second
+waiting for rendering. Workflows pass81 actions; idle CPU3.876% and history
+still fail. These failures motivated the standard list replacement; there is
+no acceptance claim. Changes for the clients: integrating native-macos4fee460
+via33965c1, including independent latest-item evidence and scroll-target binding;
+REQUESTS requires no shared route or tolerance change. The previous Mac End
+regression is retained and must pass, along with all six pressure phases.
+
 Changes for the clients: integrated native-macos a883d15 via 3670be1, covering
 viewport-scoped scroll styling, per-chat lazy ranges and content-height-driven
 tail continuation. REQUESTS reports all four large histories passed on its

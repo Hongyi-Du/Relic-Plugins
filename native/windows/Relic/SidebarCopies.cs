@@ -29,6 +29,13 @@ public sealed partial class MainWindow
     private ControlTemplate? sidebarItemTemplate;
     private ItemsPanelTemplate? sidebarItemsPanel;
     private bool sidebarKeyboardBound;
+    private readonly HashSet<Action> sidebarSelectionUpdates = [];
+    private void UpdateSidebarSelection()
+    {
+        // Only mounted rows register here. A chat switch does not need new
+        // avatars, text shaping, templates or a new virtual realization range.
+        foreach (var update in sidebarSelectionUpdates.ToArray()) update();
+    }
     private void DrawToolbar()
     {
         var state = string.Join("\u001f", org, member, snap["org"].Text("name"), snap["org"].Text("secretary"),
@@ -227,17 +234,36 @@ public sealed partial class MainWindow
             return list;
         }
         void Add(ListView list, UIElement content, Func<Task> action, bool selected, int indent = 0, bool chat = false,
-            NativeSidebarOrganization? organization = null, OverviewBadgeView? unreadBadge = null, string automationId = "")
+            NativeSidebarOrganization? organization = null, OverviewBadgeView? unreadBadge = null, string automationId = "",
+            Func<bool>? isSelected = null, Action? updateUnread = null)
         {
-            var background = selected ? Paint("E7E5DF", "2F2E2B") : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            bool SelectedNow() => isSelected?.Invoke() ?? selected;
+            var selectedBackground = Paint("E7E5DF", "2F2E2B");
+            var hoverBackground = Paint("EFEEEA", "262624");
+            var normalBackground = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            var hovering = false;
             var row = new NativeSidebarRow { Content = content, Tag = action, Template = template, Padding = new Thickness(8 + indent, 6, 8, 6), Margin = new Thickness(0, 0, 0, chat ? 1 : 0),
-                MinHeight = chat ? 0 : 34, HorizontalContentAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(8), Background = background, BorderThickness = new Thickness(0), UseLayoutRounding = false };
+                MinHeight = chat ? 0 : 34, HorizontalContentAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(8),
+                Background = SelectedNow() ? selectedBackground : normalBackground, BorderThickness = new Thickness(0), UseLayoutRounding = false };
             if (organization != null) row.BindOrganization(organization);
             else if (chat) row.BindChat(unreadBadge, unread => T(unread ? "msg.unread" : "msg.read"));
             if (automationId.Length > 0) Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(row, automationId);
-            row.PointerEntered += (_, _) => row.Background = selected ? background : Paint("EFEEEA", "262624"); row.PointerExited += (_, _) => row.Background = background;
+            void PaintSelection() => row.Background = SelectedNow() ? selectedBackground : hovering ? hoverBackground : normalBackground;
+            void UpdateSelection()
+            {
+                if (!row.IsLoaded) return;
+                var selectedNow = SelectedNow();
+                if (row.IsSelected != selectedNow) row.IsSelected = selectedNow;
+                if (selectedNow && !ReferenceEquals(list.SelectedItem, row)) list.SelectedItem = row;
+                else if (!selectedNow && ReferenceEquals(list.SelectedItem, row)) list.SelectedItem = null;
+                PaintSelection(); updateUnread?.Invoke();
+            }
+            row.PointerEntered += (_, _) => { hovering = true; PaintSelection(); };
+            row.PointerExited += (_, _) => { hovering = false; PaintSelection(); };
+            row.Loaded += (_, _) => { sidebarSelectionUpdates.Add(UpdateSelection); UpdateSelection(); };
+            row.Unloaded += (_, _) => { sidebarSelectionUpdates.Remove(UpdateSelection); hovering = false; };
             BindSidebarRowName(row, content);
-            list.Items.Add(row); if (selected) list.SelectedItem = row;
+            list.Items.Add(row); if (SelectedNow()) list.SelectedItem = row;
         }
         var visited = new HashSet<string>(); var query = search.Text.Trim(); bool Match(string value) => value.Contains(query, StringComparison.OrdinalIgnoreCase);
         void Chat(ListView list, string who, string title, string subtitle, string avatar, string state = "", bool secretarySetup = false)
@@ -274,14 +300,26 @@ public sealed partial class MainWindow
             var head = snap["chats"]?[key]; var at = head?["last"].Text("at") ?? "";
             if (!secretary && who.Length > 0 && head == null) at = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who).Text("doing_at");
             if (at.Length > 0) { var clock = SidebarText(ShortWhen(at), 11, true); clock.IsTextSelectionEnabled = false; info.Children.Add(clock); }
-            var selected = !secretarySetup && who == member; var unread = selected || secretarySetup ? 0 : Unread(key);
-            OverviewBadgeView? unreadBadge = null;
-            if (unread > 0)
+            bool IsSelected() => org == id && member == who && !secretarySetup;
+            var unread = IsSelected() || secretarySetup ? 0 : Unread(key);
+            // Keep the actual badge control so selection/read-state changes
+            // can update it without rebuilding the row or losing its UIA peer.
+            var unreadBadge = OverviewCount(unread); unreadBadge.UseLayoutRounding = false;
+            unreadBadge.HorizontalAlignment = HorizontalAlignment.Right;
+            if (unreadBadge.Content is TextBlock initialCount) initialCount.UseLayoutRounding = false;
+            void UpdateUnread()
             {
-                var count = OverviewCount(unread); unreadBadge = count; count.UseLayoutRounding = false; if (count.Content is TextBlock countText) { countText.UseLayoutRounding = false; if (unread > 99) countText.Text = "99+"; } count.HorizontalAlignment = HorizontalAlignment.Right; info.Children.Add(count);
+                // A stale row awaiting unload belongs to its original org;
+                // never read another organization's counts into that badge.
+                if (org != id) return;
+                var count = IsSelected() || secretarySetup ? 0 : Unread(key);
+                if (unreadBadge.Content is TextBlock countText) countText.Text = count > 99 ? "99+" : count.ToString();
+                unreadBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
             }
-            Grid.SetColumn(info, 2); row.Children.Add(info); Add(list, row, secretarySetup ? SecretarySetup : () => Select(id, who), selected, chat: true, unreadBadge: unreadBadge,
-                automationId: secretarySetup ? "sidebar-setup/" + id : "sidebar-chat/" + id + "/" + who);
+            UpdateUnread(); info.Children.Add(unreadBadge);
+            Grid.SetColumn(info, 2); row.Children.Add(info); Add(list, row, secretarySetup ? SecretarySetup : () => Select(id, who), IsSelected(), chat: true, unreadBadge: unreadBadge,
+                automationId: secretarySetup ? "sidebar-setup/" + id : "sidebar-chat/" + id + "/" + who,
+                isSelected: IsSelected, updateUnread: UpdateUnread);
         }
         void Node(JsonNode? item, int depth)
         {
@@ -306,8 +344,8 @@ public sealed partial class MainWindow
                 if (!selected && item.Text("last_at").Length > 0) { var time = SidebarText(ShortWhen(item.Text("last_at")), 11.5, true); time.IsTextSelectionEnabled = false; time.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(time, 3); row.Children.Add(time); }
                 var context = new MenuFlyout(); var chart = new MenuFlyoutItem { Text = T("appmenu.org_chart") }; chart.Click += async (_, _) => await Run(() => ShowChart(id)); context.Items.Add(chart); row.ContextFlyout = context;
                 if (item.Text("status") is not ("" or "active")) row.Opacity = .55;
-                var organizationRows = Rows(); Add(organizationRows, row, () => { if (selected) { Fold(); return Task.CompletedTask; } return Select(id); }, selected, depth * 16, organization: organizationState,
-                    automationId: "sidebar-org/" + id);
+                var organizationRows = Rows(); Add(organizationRows, row, () => { if (org == id) { Fold(); return Task.CompletedTask; } return Select(id); }, selected, depth * 16, organization: organizationState,
+                    automationId: "sidebar-org/" + id, isSelected: () => org == id);
                 return organizationRows;
                 }, key: "org:" + id);
                 if (selected && !collapsed)

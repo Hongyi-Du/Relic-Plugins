@@ -302,10 +302,8 @@ public sealed partial class MainWindow
                     if (!bottom) chatScroll.ChangeView(null, 0, null, true);
                     await PerformanceYield(); await WaitForMarkdown();
                     var gap = bottom ? chatScroll.ScrollableHeight - chatScroll.VerticalOffset : chatScroll.VerticalOffset;
-                    var repeater = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater
-                        ?? throw new InvalidOperationException("History viewport has no real ItemsRepeater");
                     var index = bottom ? stream.Children.Count - 1 : 0;
-                    var row = repeater.TryGetElement(index) as Border;
+                    var row = stream.TryGetRealizedRow(index);
                     var realized = row is { IsLoaded: true, Child: not null, ActualHeight: > 0 };
                     var bounds = realized ? row!.TransformToVisual(chatScroll).TransformBounds(new(0, 0, row.ActualWidth, row.ActualHeight))
                         : default;
@@ -336,9 +334,8 @@ public sealed partial class MainWindow
             {
                 // Observe the product's automatic arrival at the latest row;
                 // do not repair its initial scroll position from this scenario.
-                var repeater = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(stream, 0) as ItemsRepeater;
                 var index = stream.Children.Count - 1;
-                var row = index >= 0 ? repeater?.TryGetElement(index) as FrameworkElement : null;
+                var row = index >= 0 ? stream.TryGetRealizedRow(index) : null;
                 var visible = false;
                 var observation = new JsonObject { ["source"] = "Passive observation before any history input",
                     ["vertical_offset"] = chatScroll.VerticalOffset, ["scrollable_height"] = chatScroll.ScrollableHeight,
