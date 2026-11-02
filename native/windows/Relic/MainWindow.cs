@@ -82,7 +82,19 @@ public sealed partial class MainWindow : Window
         // their own localized shortcut labels/tooltips.
         root.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         SystemBackdrop = new MicaBackdrop();
-        Activated += (_, e) => { active = e.WindowActivationState != WindowActivationState.Deactivated; if (active && ready) { MarkSeen(); SaveViewState(); DrawSide(); } };
+        Activated += (_, e) =>
+        {
+            var wasActive = active;
+            active = e.WindowActivationState != WindowActivationState.Deactivated;
+            if (active && !wasActive && ready)
+            {
+                // Pointer activation is part of the user's click. Replacing
+                // the sidebar here destroys its pressed item before release.
+                // The selected chat already suppresses its unread badge;
+                // normal coalesced refresh handles actual data changes.
+                MarkSeen(); SaveViewState(); Schedule();
+            }
+        };
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });

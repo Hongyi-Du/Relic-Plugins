@@ -58,6 +58,17 @@ monkey requirements. Missing native v2 support fails explicitly.
 
 ## Changes for the clients
 
+- 2026-11-02: `latest_item_id` / `latest_item_kind` identify the independent
+  chronological tail from the actual server chat page, including a `notice`.
+  `latest_message_id` still identifies the last numeric message and must be in
+  the loaded page; it must not be mistaken for the page tail when a later event
+  follows it. Opening requires the actual tail's visible drawn body, the correct
+  selected chat and native input receipt. Fixture organization metadata adds
+  `latest_group_item_id`, `latest_group_item_kind`, `latest_private_item_ids`
+  and `latest_private_item_kinds`. Both clients must consume these fields.
+  This corrects an expectation error; no events, timestamps, page sizes or
+  acceptance deadlines are changed. Tests derive both identities independently
+  through `app.views.chat` and verify the event rows are untouched.
 - 2026-11-02: Both clients must consume `phase`, echo it in their completion,
   implement the real-click open/switch phase and idle marker/receipt above.
   The Windows/shared session owns the manifest, aggregation and external

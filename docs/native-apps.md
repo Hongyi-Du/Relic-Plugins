@@ -1,5 +1,28 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Windows activation no longer destroys/replaces the sidebar during a pointer
+click: the old Activated handler called DrawSide for every active notification,
+including activation by pointer. It now marks the selected chat seen only on
+inactive-to-active transition and schedules normal coalesced data refresh.
+The selected row already hides its own unread badge, so no rebuild is needed.
+The CI click observer also acquires its actual target after foreground
+activation. This is a verified input-lifecycle defect; the full CI click
+receipts must still prove the resulting navigation, latency and resource use.
+
+Changes for the clients: the independent fixture now distinguishes the latest
+numeric message from the actual displayed tail, which can be a later notice.
+Manifest actions add latest_item_id/latest_item_kind; organization metadata
+adds latest_group_item_id/kind and latest_private_item_ids/kinds. Both native
+observers must verify the real visible tail and the latest numeric message's
+presence in the loaded page. See native-responsiveness.md. This fixes the
+person-shape event-tail false failure without changing any stored event.
+
+Windows initial-load evidence on d9e051c includes a 196.087 ms DrawChat scope;
+the conversation still eagerly created every date/time separator despite
+deferring message rows. Separator XAML now uses the same viewport factories.
+The separate 582.994 ms native presentation stall has not yet been uniquely
+attributed; this change requires full CI verification, not a claimed pass.
+
 Changes for the clients: Windows opening observation now ends at the actual
 one-second requirement, retaining its failed content/input observation before
 moving to the next chat. It no longer waits fifteen seconds after an opening

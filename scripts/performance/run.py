@@ -404,6 +404,8 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
             expected = expected_chats[action["org"]]
             member = action.get("member", "")
             action["latest_message_id"] = expected.get("latest_private_message_ids", {}).get(member) if member else expected.get("latest_group_message_id")
+            action["latest_item_id"] = expected.get("latest_private_item_ids", {}).get(member) if member else expected.get("latest_group_item_id")
+            action["latest_item_kind"] = expected.get("latest_private_item_kinds", {}).get(member) if member else expected.get("latest_group_item_kind")
             action["expected_empty"] = expected.get("private_expected_empty", {}).get(member, False) if member else expected.get("group_expected_empty", False)
     monkey = list(full_plan)
     random.Random(seed_value).shuffle(monkey)

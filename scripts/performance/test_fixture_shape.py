@@ -79,6 +79,11 @@ class PersonShapedStore(unittest.TestCase):
     def test_real_api_paging_and_latest_ids_cover_each_chat(self):
         from app import views
         for org in self.data["orgs"]:
+            latest = views.chat(self.store, org["id"], limit=1000, lang="zh-CN")["items"]
+            self.assertEqual(org["latest_group_item_id"], latest[-1]["id"])
+            self.assertEqual(org["latest_group_item_kind"], latest[-1]["type"])
+            self.assertEqual(org["group_expected_empty"], not latest)
+            self.assertIn(org["latest_group_message_id"], [item["id"] for item in latest])
             ids, cursor = set(), None
             while True:
                 page = views.chat(self.store, org["id"], limit=1000, before=cursor, lang="zh-CN")
@@ -99,6 +104,8 @@ class PersonShapedStore(unittest.TestCase):
                 page = views.chat(self.store, org["id"], kind="private", member=member, limit=1000, lang="zh-CN")
                 self.assertEqual(len(page["items"]), 1)
                 self.assertEqual(page["items"][0]["id"], org["latest_private_message_ids"][member])
+                self.assertEqual(page["items"][-1]["id"], org["latest_private_item_ids"][member])
+                self.assertEqual(page["items"][-1]["type"], org["latest_private_item_kinds"][member])
                 self.assertFalse(org["private_expected_empty"][member])
                 self.assertFalse(page["more"])
         with self.store.db() as db:
@@ -108,6 +115,22 @@ class PersonShapedStore(unittest.TestCase):
             thread = views.thread(self.store, self.data["orgs"][0]["id"], root)
             self.assertEqual(thread["root"]["id"], root)
             self.assertEqual(len(thread["replies"]), 1)
+
+    def test_notice_tail_is_distinct_from_latest_message_without_rewriting_events(self):
+        from app import views
+        org = self.data["orgs"][0]
+        with self.store.db() as db:
+            events_before = db.execute("SELECT seq, org_id, member, kind, body, at FROM events ORDER BY seq").fetchall()
+        # Re-measure independently and prove this does not mutate the fixture.
+        fixture.add_chat_expectations(self.store, self.data["orgs"])
+        with self.store.db() as db:
+            self.assertEqual(events_before, db.execute("SELECT seq, org_id, member, kind, body, at FROM events ORDER BY seq").fetchall())
+        latest = views.chat(self.store, org["id"], limit=1000, lang="zh-CN")["items"]
+        self.assertEqual(latest[-1]["type"], "notice")
+        self.assertEqual(org["latest_group_item_id"], latest[-1]["id"])
+        self.assertEqual(org["latest_group_item_kind"], "notice")
+        self.assertNotEqual(org["latest_group_item_id"], org["latest_group_message_id"])
+        self.assertIn(org["latest_group_message_id"], [item["id"] for item in latest if isinstance(item["id"], int)])
 
 
 class ShapeDefinition(unittest.TestCase):
@@ -131,9 +154,15 @@ class ShapeDefinition(unittest.TestCase):
                     page = views.chat(store, org["id"], limit=1, lang="zh-CN")
                     actual = [item["id"] for item in page["items"] if isinstance(item["id"], int)]
                     self.assertEqual(actual, [org["latest_group_message_id"]])
+                    self.assertEqual(page["items"][-1]["id"], org["latest_group_item_id"])
+                    self.assertEqual(page["items"][-1]["type"], org["latest_group_item_kind"])
+                    self.assertEqual(org["group_expected_empty"], not page["items"])
                     for member in org["members"]:
                         page = views.chat(store, org["id"], kind="private", member=member, limit=1, lang="zh-CN")
                         self.assertEqual([item["id"] for item in page["items"]], [org["latest_private_message_ids"][member]])
+                        self.assertEqual(page["items"][-1]["id"], org["latest_private_item_ids"][member])
+                        self.assertEqual(page["items"][-1]["type"], org["latest_private_item_kinds"][member])
+                        self.assertEqual(org["private_expected_empty"][member], not page["items"])
 
 
 if __name__ == "__main__":

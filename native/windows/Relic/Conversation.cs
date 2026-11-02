@@ -463,18 +463,26 @@ public sealed partial class MainWindow
             if (date != day && date.Length > 0) { separatorText = When(item.Text("at")); day = date; previous = null; }
             else if (previous != null && DateTimeOffset.TryParse(previous.Text("at"), out var prior) && parsed - prior > TimeSpan.FromMinutes(20))
             { separatorText = parsed.ToLocalTime().ToString("HH:mm"); previous = null; }
-            TextBlock? separator = null;
             if (separatorText != null)
             {
-                separator = OverviewText(separatorText, 11.5, true); separator.TextAlignment = TextAlignment.Center;
-                // .day uses normal word wrapping, without overflow-wrap:anywhere.
-                separator.TextWrapping = TextWrapping.WrapWholeWords;
-                separator.Margin = new Thickness(0, 18, 0, 8); stream.Children.Add(separator);
+                var label = separatorText;
+                stream.Children.Add(() =>
+                {
+                    var separator = OverviewText(label, 11.5, true); separator.TextAlignment = TextAlignment.Center;
+                    // Date/time rows follow the same viewport virtualization as
+                    // messages. History outside the viewport needs no XAML.
+                    separator.TextWrapping = TextWrapping.WrapWholeWords;
+                    separator.Margin = new Thickness(0, 18, 0, 8);
+                    return separator;
+                }, 45);
             }
             var continued = Transcript.SameMessageGroup(previous, item!);
             var bodyLength = Math.Max(item.Text("body").Length, item.Text("text").Length);
             var estimate = item.Text("type") == "message" ? Math.Clamp(64 + bodyLength / 70d * 23, 64, 2100) : 40;
-            var rowKey = item.Text("type") == "message" && item.Text("id").Length > 0 ? "message:" + item.Text("id") : null;
+            // Notices are also real chronological chat items. Give them stable
+            // identities for reading anchors and accessibility, just as messages.
+            var rowKey = item.Text("id").Length > 0
+                ? (item.Text("type") == "message" ? "message:" : "item:") + item.Text("id") : null;
             stream.Children.Add(() => Message(item!, false, continued), estimate, rowKey);
             if (item.Text("type") != "acts") previous = item;
         }
@@ -537,8 +545,10 @@ public sealed partial class MainWindow
         if (item.Text("type") == "notice")
         {
             var note = NativePathText.Notice(item.Text("text"), words.Language, T("common.copy"), T("appmenu.select_all"));
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(note, "chat-item-body/" + item.Text("id"));
             note.Foreground = Muted;
             var layout = new CenteredFractionLayout { Fraction = .86, Margin = new Thickness(0, 8, 0, 0) };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(layout, "chat-item/" + item.Text("id"));
             layout.Children.Add(new Border { Child = note, Padding = new Thickness(10, 2, 10, 2), CornerRadius = new CornerRadius(10), Background = Paint("F8F7F5", "191918") }); return layout;
         }
         if (item.Text("type") == "acts") return ToolActions(item);
