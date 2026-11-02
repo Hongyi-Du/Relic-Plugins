@@ -1,5 +1,9 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: integrated Mac03f2590 via2dfd2bf, moving native table
+configuration outside delegate callbacks. REQUESTS retains the existing strict
+gates and reports Mac331 tests/package passing on2426050; pressure still fails.
+
 Changes for the clients: Native symbol replay is an offline, manual CI workflow
 for the retained diagnostic stacks. It does not launch either App and is never
 acceptance evidence. Exact captured DLL/PDB identities and every requested
