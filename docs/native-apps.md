@@ -1,4 +1,20 @@
-# Current delivery policy — Amendment 7 responsiveness
+# Current delivery policy — Amendment 9 core chat flow
+
+Changes for the clients (2026-11-02): the new phase-separated acceptance
+contract is in [native-responsiveness.md](native-responsiveness.md). Both
+clients must support manifest v2 phases, actual chat-click receipts under one
+second, 200 switches and idle observation. Earlier failures cannot hide later
+phase reports. Existing history, monkey and 250 ms gates remain unchanged.
+
+62bdd08 startup is broken: the retained titlebar CI app-unhandled.jsonl records
+COMException 0x80004005, "Cannot find a resource with the given key:
+RelicChatScrollViewStyle", at MainWindow.cs:111 -> App.OnLaunched:37. Process
+exit 0xC000027B wraps that unhandled XAML error; it is not evidence of another
+pressure-time layout cycle. The minimum correction removes this complete
+custom template's delayed SDK BasedOn dependency and declares its needed
+defaults locally. SDK generic.xaml does define DefaultScrollViewStyle;
+absence of that key from the SDK is not the diagnosed cause. A successful
+headless compile alone is insufficient; CI startup must verify the correction.
 
 11e6ec5 / 41253590421 still FAILS Windows, despite passing all 175 fixed
 interactions and the four complete history/top/End cases. Random history case

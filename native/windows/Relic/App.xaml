@@ -111,7 +111,13 @@
           </ControlTemplate>
         </Setter.Value></Setter>
       </Style>
-      <Style x:Key="RelicChatScrollViewStyle" TargetType="ScrollView" BasedOn="{StaticResource DefaultScrollViewStyle}">
+      <!-- This template supplies the complete chat surface. Keep it independent
+           of a deferred SDK style lookup when the app dictionary is requested
+           from MainWindow's constructor, before a ScrollView joins the tree. -->
+      <Style x:Key="RelicChatScrollViewStyle" TargetType="ScrollView">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="ContentOrientation" Value="Vertical" />
+        <Setter Property="IsTabStop" Value="True" />
         <Setter Property="UseLayoutRounding" Value="False" />
         <Setter Property="Template"><Setter.Value>
           <ControlTemplate TargetType="ScrollView">
