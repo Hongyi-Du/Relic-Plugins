@@ -1,6 +1,9 @@
 name: Native symbol replay
-run-name: Native symbol replay - run ${{ inputs.source_run }} - ${{ inputs.profile }}
+run-name: Native symbol replay - run ${{ inputs.source_run || '41546004847' }} - ${{ inputs.profile || 'person-shape' }}
 on:
+  push:
+    branches: [native-apps]
+    paths: [.github/workflows/native-symbol-replay.yml]
   workflow_dispatch:
     inputs:
       source_run:
@@ -31,8 +34,8 @@ jobs:
       - name: Validate the source run and download its synthetic diagnostic artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          RELIC_SOURCE_RUN: ${{ inputs.source_run }}
-          RELIC_SOURCE_PROFILE: ${{ inputs.profile }}
+          RELIC_SOURCE_RUN: ${{ inputs.source_run || '41546004847' }}
+          RELIC_SOURCE_PROFILE: ${{ inputs.profile || 'person-shape' }}
         run: |
           if ($env:RELIC_SOURCE_RUN -notmatch '^[1-9][0-9]{0,19}$') { throw 'source_run must contain a positive numeric run ID' }
           $source = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:RELIC_SOURCE_RUN" | ConvertFrom-Json
@@ -211,7 +214,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Relic-symbol-replay-${{ inputs.source_run }}-${{ inputs.profile }}
+          name: Relic-symbol-replay-${{ inputs.source_run || '41546004847' }}-${{ inputs.profile || 'person-shape' }}
           path: |
             replay-evidence/*.json
             replay-evidence/*/original-resolved-symbols.json
