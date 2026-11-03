@@ -2,6 +2,44 @@ import XCTest
 @testable import Relic
 
 @MainActor final class RowMountQueueTests: XCTestCase {
+    func testDelayedContentAdmissionKeepsTheNextColdRowQueued() async throws {
+        let queue = RowMountQueue(), acknowledgement = RowMountAcknowledgement()
+        let first = UUID(), second = UUID()
+        let granted = await queue.acquire(first); XCTAssertTrue(granted)
+        var nextAdmitted = false
+        let owner = Task {
+            defer { queue.release(first) }
+            return await acknowledgement.wait()
+        }
+        let next = Task {
+            if await queue.acquire(second) { nextAdmitted = true; queue.release(second) }
+        }
+        try await Task.sleep(for: .milliseconds(70))
+        XCTAssertFalse(nextAdmitted, "Elapsed time cannot stand in for SwiftUI admitting the first content")
+        acknowledgement.contentAppeared()
+        let appeared = await owner.value; XCTAssertTrue(appeared)
+        await next.value
+        XCTAssertTrue(nextAdmitted); XCTAssertTrue(queue.isIdle)
+    }
+    func testRemovedRowCancelsItsAdmissionWaitWithoutStrandingTheQueue() async {
+        let queue = RowMountQueue(), acknowledgement = RowMountAcknowledgement(), first = UUID()
+        let granted = await queue.acquire(first); XCTAssertTrue(granted)
+        let owner = Task {
+            defer { queue.release(first) }
+            return await acknowledgement.wait()
+        }
+        await Task.yield(); owner.cancel()
+        let appeared = await owner.value
+        XCTAssertFalse(appeared); XCTAssertTrue(queue.isIdle)
+        acknowledgement.contentAppeared() // A late callback cannot resume a waiter twice.
+    }
+    func testAdmissionBeforeTheWaitIsRetained() async {
+        let acknowledgement = RowMountAcknowledgement()
+        acknowledgement.contentAppeared()
+        let appeared = await acknowledgement.wait()
+        XCTAssertTrue(appeared)
+    }
+
     func testLatestContentGetsTheNextTurnWithoutReorderingPeersOrStrandingOtherPanes() async {
         let queue = RowMountQueue(), active = UUID()
         let acquired = await queue.acquire(active); XCTAssertTrue(acquired)

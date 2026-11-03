@@ -1,5 +1,10 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+候选进一步修复分批挂载的时序：原ProgressiveRow在mounted=true后立即开始32ms延时，
+只是请求视图更新，并未确认实际内容已进view graph。现在等待内容onAppear确认后再
+开始延时、释放下一行；取消等待会释放队列，延迟回调不重复resume。新增3项队列测试，
+原真实原生List/历史/End/取消测试继续执行。此为产品调度修正，需CI验证，尚未宣称通过。
+
 292daa9压力41551409844已证明直接创建消息正文的尝试退步：large各阶段启动最长
 1.51–2.39秒，person-shape1.41–2.08秒，全部在startup:publish失败。立即撤回
 ConversationList的去ProgressiveRow改动，恢复2323989的分批正文挂载；保留标准List、

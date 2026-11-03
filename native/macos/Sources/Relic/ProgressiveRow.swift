@@ -47,6 +47,30 @@ extension EnvironmentValues {
     var rowMountPriority: Int { get { self[RowMountPriority.self] } set { self[RowMountPriority.self] = newValue } }
 }
 
+/// A state assignment only requests a SwiftUI update. It does not mean the row
+/// has entered the view graph. Do not admit the next cold row until that actual
+/// content has appeared, even if an earlier fixed delay has already elapsed.
+@MainActor final class RowMountAcknowledgement {
+    private var appeared = false
+    private var waiter: CheckedContinuation<Bool, Never>?
+    func contentAppeared() {
+        appeared = true
+        let pending = waiter; waiter = nil; pending?.resume(returning: true)
+    }
+    func wait() async -> Bool {
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled { continuation.resume(returning: false) }
+                else if appeared { continuation.resume(returning: true) }
+                else { waiter = continuation }
+            }
+        }, onCancel: { Task { @MainActor in self.cancel() } })
+    }
+    private func cancel() {
+        let pending = waiter; waiter = nil; pending?.resume(returning: false)
+    }
+}
+
 struct ProgressiveRow<Content: View>: View {
     @Environment(\.captureRegion) private var region
     @Environment(\.rowMountPriority) private var priority
@@ -55,9 +79,10 @@ struct ProgressiveRow<Content: View>: View {
     var workLabel: String? = nil
     @ViewBuilder var content: () -> Content
     @State private var mounted = false
+    @State private var acknowledgement = RowMountAcknowledgement()
     var body: some View {
         Group {
-            if mounted { content() }
+            if mounted { content().onAppear { acknowledgement.contentAppeared() } }
             else { Color.clear.frame(width: estimatedWidth, height: estimatedHeight).accessibilityHidden(true) }
         }.task {
             guard !mounted else { return }
@@ -67,8 +92,10 @@ struct ProgressiveRow<Content: View>: View {
             defer { RowMountQueue.shared.release(turn) }
             guard !Task.isCancelled else { return }
             mounted = true
-            // Release the next row only after this actual display turn. Booking
-            // fixed future deadlines would let overdue rows all mount at once.
+            guard await acknowledgement.wait(), !Task.isCancelled else { return }
+            // Start the display-turn delay after actual content admission, not
+            // after merely requesting it. Delayed updates cannot accumulate a
+            // batch of cold native rows behind the same layout transaction.
             try? await Task.sleep(for: .milliseconds(32))
         }
     }

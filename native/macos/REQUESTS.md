@@ -1,4 +1,9 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+Next Mac admission fix waits for actual content onAppear before starting its
+32ms turn delay; setting mounted=true previously only requested a SwiftUI update.
+Canceled row waits release the queue; delayed callbacks cannot double-resume.
+Three tests cover delayed appearance, cancellation and early acknowledgement.
+All native history/End/virtualization and fixed acceptance limits remain.
 URGENT Mac rollback:292daa9 pressure41551409844 regresses startup to1.4–2.4s
 in every phase/profile when ProgressiveRow is removed. Restore exactly the
 2323989 ConversationList admission wrapper; keep standard List, all functional
