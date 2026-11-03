@@ -118,7 +118,12 @@ Resource gates are fixed before the baseline: peak RSS <= 1 GiB, peak threads
 <= 160. After exhaustive actions have warmed the content, three consecutive
 30-second median windows must not grow by more than 32 MiB each (memory) or
 4 threads each (threads). These limits detect sustained growth rather than a
-single normal cache allocation. All raw samples and computed medians are kept.
+single normal cache allocation. In `switch-chats`, the medians of the four
+50-switch blocks may not rise by more than 32 MiB (RSS) or two threads from any
+block to a later one, also after a fall. A fall alone does not fail: Windows
+retires idle loader and RPC threads about a minute after startup, and .NET
+returns unused memory to the system (decided by the person on 2026-11-03).
+All raw samples and computed medians are kept.
 The main process and owned descendants are sampled separately; native process
 values are the gate, and child-process values remain diagnostic evidence.
 

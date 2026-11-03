@@ -68,6 +68,21 @@ class PhaseContracts(unittest.TestCase):
             row["threads"] += 3
         self.assertEqual(len(phases.phase_resources("switch-chats", samples)["errors"]), 2)
 
+    def test_switch_resources_fail_on_growth_not_on_a_fall(self):
+        def errors(rss_mib, threads):
+            samples = [dict(action=f"switch:{block * 50 + i}", rss_bytes=rss * 1024 * 1024, threads=count)
+                       for block, (rss, count) in enumerate(zip(rss_mib, threads)) for i in range(50)]
+            return phases.phase_resources("switch-chats", samples)["errors"]
+        rss_grew = "RSS grew by more than 32 MiB across the 200 measured switches"
+        threads_grew = "Threads grew by more than two across the 200 measured switches"
+        # Windows retiring idle threads and .NET returning memory are falls.
+        self.assertEqual(errors([292, 290, 290, 255], [39, 36, 36, 34]), [])
+        # Growth within the tolerance passes; beyond it fails.
+        self.assertEqual(errors([284, 301, 316, 310], [34, 35, 36, 36]), [])
+        self.assertEqual(errors([284, 301, 316, 317], [34, 34, 34, 34]), [rss_grew])
+        # A rise after a fall is growth too.
+        self.assertEqual(errors([300, 260, 295, 300], [36, 33, 36, 36]), [rss_grew, threads_grew])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -70,6 +70,16 @@ def _median(rows):
             "threads": statistics.median(r["threads"] for r in rows)}
 
 
+def _largest_rise(values):
+    """The largest increase from any value to a later one; a fall counts as none."""
+    rise, lowest = 0, None
+    for value in values:
+        if lowest is not None:
+            rise = max(rise, value - lowest)
+        lowest = value if lowest is None else min(lowest, value)
+    return rise
+
+
 def phase_resources(phase, samples):
     result = {"errors": []}
     if phase == "idle":
@@ -109,9 +119,17 @@ def phase_resources(phase, samples):
         if any(len(rows) < 3 for rows in blocks):
             result["errors"].append("Insufficient process observations in every 50-switch block")
         else:
+            # Growth only (the person's decision, 2026-11-03): a block's median
+            # may not rise above an earlier block's by more than the tolerance,
+            # also after a fall. A fall alone is not a failure: Windows retires
+            # its idle loader and RPC threads about a minute after startup, and
+            # .NET returns unused memory to the system; neither is a leak.
             medians = result["switch_blocks"]
-            if max(r["rss_bytes"] for r in medians) - min(r["rss_bytes"] for r in medians) > RESOURCE_TOLERANCE_BYTES:
-                result["errors"].append("RSS is not flat within 32 MiB across the 200 measured switches")
-            if max(r["threads"] for r in medians) - min(r["threads"] for r in medians) > 2:
-                result["errors"].append("Threads are not flat within two threads across the 200 measured switches")
+            rss_rise = _largest_rise([r["rss_bytes"] for r in medians])
+            thread_rise = _largest_rise([r["threads"] for r in medians])
+            result.update(switch_rss_rise_bytes=rss_rise, switch_thread_rise=thread_rise)
+            if rss_rise > RESOURCE_TOLERANCE_BYTES:
+                result["errors"].append("RSS grew by more than 32 MiB across the 200 measured switches")
+            if thread_rise > 2:
+                result["errors"].append("Threads grew by more than two across the 200 measured switches")
     return result
