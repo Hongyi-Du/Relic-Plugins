@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS minutes(session TEXT NOT NULL, minute INTEGER NOT NUL
 CREATE TABLE IF NOT EXISTS hours(session TEXT NOT NULL, hour INTEGER NOT NULL, kind TEXT NOT NULL,
   fresh INTEGER NOT NULL DEFAULT 0, cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0,
   output INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(session, hour));
-CREATE TABLE IF NOT EXISTS sessions(session TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT, cwd TEXT,
+CREATE TABLE IF NOT EXISTS sessions(session TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT, cwd TEXT, prompt TEXT,
   last_at REAL NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
@@ -139,6 +139,36 @@ def _codex(record, recent, limits):
     return at, max(sent - cached, 0), cached, 0, int(last.get("output_tokens") or 0)
 
 
+PROMPT = 60  # characters of a session's first prompt kept to name it
+
+
+def _prompt(line, kind):
+    """The text the person (or the program that started the session) first asked, without tags; "" when not one."""
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return None
+    if kind == "claude":
+        if record.get("type") != "user" or record.get("isMeta") or record.get("isSidechain"):
+            return None
+        content = (record.get("message") or {}).get("content")
+        if isinstance(content, list):
+            parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+            content = next((p for p in parts if _TAGGED.sub("", p).strip()), "")
+    else:
+        payload = record.get("payload") or {}
+        if payload.get("type") != "user_message":
+            return None
+        content = payload.get("message")
+    text = " ".join(_TAGGED.sub("", str(content or "")).split())
+    if not text or text.startswith("<"):  # a command, a tool result or injected context, not a prompt
+        return None
+    return text[:PROMPT]
+
+
+_TAGGED = re.compile(r"^(\s*<([\w-]+)[^>]*>.*?</\2>)+", re.S)  # injected blocks in front of what was asked
+
+
 class Ledger:
     """usage.sqlite3 and the scan that keeps it current. One per process: Ledger.shared()."""
     _shared = None
@@ -210,8 +240,10 @@ class Ledger:
         if size < start:  # rewritten: start over
             start, recent = 0, collections.deque(maxlen=RECENT)
         marker, parse = (b'"usage"', _claude) if kind == "claude" else (b'"token_count"', _codex)
+        asked = b'"user"' if kind == "claude" else b'"user_message"'
         minutes, hours = {}, {}
         first, read, rest = None, 0, b""
+        prompt = "" if start or sub else None  # the session's first prompt names it; read once, from the start
         floor = now - MINUTES_KEPT
         try:
             with open(path, "rb") as f:
@@ -233,6 +265,8 @@ class Ledger:
                         except ValueError:
                             first = {}
                     for line in lines:
+                        if prompt is None and asked in line:
+                            prompt = _prompt(line, kind)
                         if marker not in line:
                             continue
                         try:
@@ -267,9 +301,10 @@ class Ledger:
                 title = None
         if kind == "codex" and isinstance(first, dict):
             cwd = (first.get("payload") or {}).get("cwd")
-        db.execute("INSERT INTO sessions(session, kind, title, cwd, last_at) VALUES(?,?,?,?,?) ON CONFLICT(session) DO UPDATE "
-                   "SET title=COALESCE(excluded.title, title), cwd=COALESCE(excluded.cwd, cwd), last_at=MAX(last_at, excluded.last_at)",
-                   (session, kind, title, cwd, mtime))
+        db.execute("INSERT INTO sessions(session, kind, title, cwd, prompt, last_at) VALUES(?,?,?,?,?,?) ON CONFLICT(session) "
+                   "DO UPDATE SET title=COALESCE(excluded.title, title), cwd=COALESCE(excluded.cwd, cwd), "
+                   "prompt=COALESCE(NULLIF(excluded.prompt, ''), prompt), last_at=MAX(last_at, excluded.last_at)",
+                   (session, kind, title, cwd, prompt or None, mtime))
         db.commit()
 
     # ---------------- reading the sums ----------------
@@ -277,8 +312,8 @@ class Ledger:
         """{session: {"kind", "title", "cwd", "last_at", "subagents"}}: subagents = subagent files changed within `active` s."""
         now = time.time() if now is None else now
         with self.db() as db:
-            found = {s: {"kind": k, "title": t, "cwd": c, "last_at": a, "subagents": 0}
-                     for s, k, t, c, a in db.execute("SELECT session, kind, title, cwd, last_at FROM sessions")}
+            found = {s: {"kind": k, "title": t, "cwd": c, "prompt": p, "last_at": a, "subagents": 0}
+                     for s, k, t, c, p, a in db.execute("SELECT session, kind, title, cwd, prompt, last_at FROM sessions")}
             for session, count in db.execute("SELECT session, COUNT(*) FROM files WHERE sub=1 AND mtime>=? GROUP BY session",
                                              (now - active,)):
                 if session in found:

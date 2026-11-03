@@ -317,7 +317,7 @@ def snapshot(store, now=None):
         thread = _thread(key)
         cwd = info.get("cwd")
         title = (info.get("title") or (seats and "%s · %s" % (seats[0]["org_name"], seats[0]["member"]))
-                 or (Path(cwd).name if cwd else None) or key[-12:])
+                 or info.get("prompt") or (Path(cwd).name if cwd else None) or key[-12:])
         return {"key": key, "harness": harness, "title": title, "seats": seats,
                 "working": running or active, "reason": "runner" if running else ("active" if active else None),
                 "last_active": last, "rate": window.get("rate", 0), "subagents": info.get("subagents", 0),
@@ -370,9 +370,10 @@ def _starts(since, now, bucket):
 def report(store, span="7d", group="agent", org=None, agent=None, bucket=None, now=None):
     """Tokens per period and cumulative for every session, agent or organization in the span, largest first.
 
-    Agent: a Relic seat ("<org id>/<member>") across every session that carried it; a session holding several seats
-    counts for its main seat. Organization: the agent's organization. Sessions without a Relic seat count under
-    their own key and under the organization "" (none). org= and agent= filter before grouping."""
+    Agent: a Relic seat ("<org id>/<member>") across every session that carried it. A session holding several seats
+    splits each hour's tokens between them by the tool calls it made in each seat that hour (all to its main seat in an
+    hour without calls). Organization: the agent's organization. Sessions without a Relic seat count under their own
+    key and under the organization "" (none). org= and agent= filter before grouping."""
     now = time.time() if now is None else now
     group = group if group in GROUPS else "agent"
     ledger = usage.Ledger.shared()
@@ -389,38 +390,69 @@ def report(store, span="7d", group="agent", org=None, agent=None, bucket=None, n
     meta = ledger.sessions(now)
     owners = {}
 
-    def owner(session):
+    def named(session):
+        info = meta.get(session) or {}
+        seat = owner(session)[1] if session in places else None
+        return (info.get("title") or seat or info.get("prompt") or (Path(info["cwd"]).name if info.get("cwd") else None)
+                or session[-12:])
+
+    def owner(session):  # its main seat, or the session itself when it holds no seat
         if session not in owners:
             if session in places:
                 place, member = _owner(store, session, places[session])
                 owners[session] = ("%s/%s" % (place["id"], member), "%s · %s" % (place["name"], member), place["id"], place["name"])
             else:
                 info = meta.get(session) or {}
-                label = info.get("title") or (Path(info["cwd"]).name if info.get("cwd") else None) or session[-12:]
-                owners[session] = (session, label, "", None)
+                owners[session] = (session, info.get("title") or info.get("prompt")
+                                   or (Path(info["cwd"]).name if info.get("cwd") else None) or session[-12:], "", None)
         return owners[session]
+
+    several = {session: {(place["id"], member): place for place, member in held}
+               for session, held in places.items() if len({(place["id"], member) for place, member in held}) > 1}
+    calls = {}
+    if several:
+        holders = {}
+        for session, seats in several.items():
+            for seat in seats:
+                holders.setdefault(seat, []).append(session)
+        with store.db() as db:
+            for org_id, member, hour, count in db.execute(
+                    "SELECT org_id, member, CAST(at / 3600 AS INTEGER), COUNT(*) FROM activity WHERE at >= ? GROUP BY 1, 2, 3",
+                    (starts[0],)):
+                for session in holders.get((org_id, member), []):
+                    calls.setdefault((session, hour), {})[(org_id, member)] = count
+
+    def shares(session, hour):
+        weights = calls.get((session, hour))
+        if not weights:
+            return [owner(session) + (1.0,)]
+        total = sum(weights.values())
+        return [("%s/%s" % seat, "%s · %s" % (several[session][seat]["name"], seat[1]), seat[0],
+                 several[session][seat]["name"], count / total) for seat, count in weights.items()]
 
     groups = {}
     for session, kind, hour, *counts in ledger.hours(starts[0], now + 3600):
         index = bisect.bisect_right(starts, hour * 3600) - 1
         if index < 0:
             continue
-        agent_key, agent_label, org_id, org_label = owner(session)
-        if (org is not None and org_id != org) or (agent and agent not in (agent_key, session)):
-            continue
-        if group == "session":
-            info = meta.get(session) or {}
-            key, label = session, info.get("title") or (agent_label if agent_key != session else agent_label)
-        elif group == "agent":
-            key, label = agent_key, agent_label
-        else:
-            key, label = org_id, org_label
-        entry = groups.setdefault(key, {"key": key, "label": label, "org": org_id, "kinds": set(),
-                                        "values": [0] * len(starts), "cells": [0, 0, 0, 0]})
-        entry["kinds"].add(kind)
-        entry["values"][index] += sum(counts)
-        for i in range(4):
-            entry["cells"][i] += counts[i]
+        for agent_key, agent_label, org_id, org_label, part in shares(session, hour):
+            if (org is not None and org_id != org) or (agent and agent not in (agent_key, session)):
+                continue
+            if group == "session":
+                key, label = session, named(session)
+            elif group == "agent":
+                key, label = agent_key, agent_label
+            else:
+                key, label = org_id, org_label
+            entry = groups.setdefault(key, {"key": key, "label": label, "org": org_id, "kinds": set(),
+                                            "values": [0.0] * len(starts), "cells": [0.0, 0.0, 0.0, 0.0]})
+            entry["kinds"].add(kind)
+            entry["values"][index] += sum(counts) * part
+            for i in range(4):
+                entry["cells"][i] += counts[i] * part
+    for entry in groups.values():
+        entry["values"] = [round(v) for v in entry["values"]]
+        entry["cells"] = [round(v) for v in entry["cells"]]
     series = sorted(groups.values(), key=lambda g: (-sum(g["cells"]), str(g["label"])))
     if len(series) > TOP:
         rest = {"key": "*", "label": None, "org": None, "kinds": set(), "values": [0] * len(starts), "cells": [0, 0, 0, 0],
@@ -436,11 +468,11 @@ def report(store, span="7d", group="agent", org=None, agent=None, bucket=None, n
         g["total"] = _counts(g.pop("cells"))
         g["cumulative"] = _running(g["values"])
     agents = {}
-    for session, held in places.items():
-        place, member = held[0]
-        if place.get("status") in (None, "active"):
-            key = "%s/%s" % (place["id"], member)
-            agents.setdefault(key, {"key": key, "label": "%s · %s" % (place["name"], member), "org": place["id"]})
+    for held in places.values():
+        for place, member in held:
+            if place.get("status") in (None, "active"):
+                key = "%s/%s" % (place["id"], member)
+                agents.setdefault(key, {"key": key, "label": "%s · %s" % (place["name"], member), "org": place["id"]})
     limits = ledger.limits.get("value")
     return {"span": span, "bucket": bucket, "group": group, "from": starts[0], "to": now, "starts": starts,
             "series": series, "totals": totals, "cumulative": _running(totals),

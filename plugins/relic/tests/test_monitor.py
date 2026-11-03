@@ -220,6 +220,34 @@ class Statistics(Base):
         older = datetime.fromtimestamp(self.now - 2 * 86400 - 60).replace(hour=0, minute=0, second=0, microsecond=0)
         self.assertEqual(head["values"][week["starts"].index(int(older.timestamp()))], 1000)
 
+    def test_a_session_in_several_seats_splits_each_hour_by_its_tool_calls(self):
+        first, second = int((self.now - 1800) // 3600), int((self.now - 300) // 3600)
+        with self.store.db() as db:  # three calls as the cabinet's head and one as the department's, in n1's hour
+            for org_id, calls in ((self.cabinet, 3), (self.org, 1)):
+                for i in range(calls):
+                    db.execute("INSERT INTO activity(org_id, member, tool, kind, summary, failed, at) VALUES(?,?,?,?,?,?,?)",
+                               (org_id, "head", "Bash", "run", "ls", 0, first * 3600 + 60 + i))
+        later = 20 * (0.75 if second == first else 0)
+        result = monitor.report(self.store, span="24h", group="org", now=self.now)
+        totals = {k: v[1] for k, v in self.series(result).items()}
+        self.assertEqual(totals[self.cabinet], round(200 * 0.75 + later))
+        self.assertEqual(totals[self.org], round(200 * 0.25 + 20 - later))
+        agents = self.series(monitor.report(self.store, span="24h", group="agent", now=self.now))
+        self.assertEqual(agents["%s/head" % self.cabinet][0], "秘书处 · head")
+
+    def test_an_unseated_session_is_named_by_its_first_prompt(self):
+        third = "33333333-2222-4333-8444-555555555555"
+        self.transcript(session=third, lines=[
+            json.dumps({"type": "user", "isMeta": True, "message": {"role": "user", "content": "<command-name>/init</command-name>"}}),
+            json.dumps({"type": "user", "message": {"role": "user", "content": [
+                {"type": "text", "text": "<system-reminder>context</system-reminder>"},
+                {"type": "text", "text": "帮我统计一下这周每个组织用了多少 token，按天画图"}]}}),
+            claude_usage("t1", self.now - 100)])
+        series = self.series(monitor.report(self.store, span="24h", group="session", now=self.now))
+        self.assertEqual(series[third][0], "帮我统计一下这周每个组织用了多少 token，按天画图")
+        snap = monitor.snapshot(self.store, self.now)
+        self.assertEqual(self.agent(snap, third)["title"], "帮我统计一下这周每个组织用了多少 token，按天画图")
+
     def test_the_sums_survive_a_restart_and_are_not_read_twice(self):
         monitor.report(self.store, span="7d", now=self.now)
         usage.Ledger._shared = None  # the App restarted
