@@ -1,6 +1,26 @@
 import Foundation
 import RelicCore
 
+/// The main-actor presentation methods reuse a small set of immutable formatter
+/// configurations. Sidebar/inspector updates must not initialize one formatter
+/// for every label and its accessibility name on each chat switch.
+@MainActor private enum PresentationDateFormats {
+    private struct Key: Hashable {
+        let language: String, zone: TimeZone, format: String, localized: Bool
+    }
+    private static var values: [Key: DateFormatter] = [:]
+    private static var order: [Key] = []
+    static func string(_ date: Date, language: String, zone: TimeZone, format: String, localized: Bool) -> String {
+        let key = Key(language: language, zone: zone, format: format, localized: localized)
+        if let value = values[key] { return value.string(from: date) }
+        let value = DateFormatter(); value.locale = Locale(identifier: language); value.timeZone = zone
+        if localized { value.setLocalizedDateFormatFromTemplate(format) } else { value.dateFormat = format }
+        if order.count >= 16 { values.removeValue(forKey: order.removeFirst()) }
+        values[key] = value; order.append(key)
+        return value.string(from: date)
+    }
+}
+
 // These tables drive controls and state labels; wording is always fetched from /api/i18n.
 enum Choices {
     static let accents = [("clay", "native.color_clay"), ("ink", "native.color_ink"), ("indigo", "native.color_indigo"), ("blue", "native.color_blue"), ("rose", "native.color_rose"), ("amber", "native.color_amber")]
@@ -70,22 +90,21 @@ extension Model {
         guard let date = Timeline.date(node) else { return "" }
         if calendar.isDate(date, inSameDayAs: now) { return t("time.today") }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return t("time.yesterday") }
-        let format = DateFormatter(); format.locale = Locale(identifier: words.language); format.timeZone = calendar.timeZone
-        format.setLocalizedDateFormatFromTemplate(calendar.component(.year, from: date) == calendar.component(.year, from: now) ? "MMMMd" : "yMMMMd")
-        return format.string(from: date)
+        return PresentationDateFormats.string(date, language: words.language, zone: calendar.timeZone,
+            format: calendar.component(.year, from: date) == calendar.component(.year, from: now) ? "MMMMd" : "yMMMMd", localized: true)
     }
     func clock(_ node: Node, calendar: Calendar = .current) -> String {
         guard let date = Timeline.date(node) else { return "" }
-        let format = DateFormatter(); format.locale = Locale(identifier: "en_US_POSIX"); format.timeZone = calendar.timeZone; format.dateFormat = "HH:mm"
-        return format.string(from: date)
+        return PresentationDateFormats.string(date, language: "en_US_POSIX", zone: calendar.timeZone, format: "HH:mm", localized: false)
     }
     func shortWhen(_ node: Node, now: Date? = nil, calendar: Calendar = .current) -> String {
         let now = now ?? displayNow
         guard let date = Timeline.date(node) else { return "" }
-        if calendar.isDate(date, inSameDayAs: now) { return clock(node, calendar: calendar) }
+        if calendar.isDate(date, inSameDayAs: now) {
+            return PresentationDateFormats.string(date, language: "en_US_POSIX", zone: calendar.timeZone, format: "HH:mm", localized: false)
+        }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return t("time.yesterday") }
-        let format = DateFormatter(); format.locale = Locale(identifier: words.language); format.timeZone = calendar.timeZone
-        format.setLocalizedDateFormatFromTemplate("Md"); return format.string(from: date)
+        return PresentationDateFormats.string(date, language: words.language, zone: calendar.timeZone, format: "Md", localized: true)
     }
     func ruleScope(_ rule: Node) -> String {
         let tools = rule["tools"].rows.map(\.text)

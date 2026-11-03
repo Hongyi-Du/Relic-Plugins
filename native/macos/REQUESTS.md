@@ -1,4 +1,9 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+292daa9 Native41551409974 PASS343 tests/package, including direct List recycling
+and retained partial-action evidence; window41551409776 bothPASS. Pressure both
+profiles still running. Mac now bounds/reuses sidebar/inspector date formatters
+(16 configurations keyed by locale/timezone/format) and removes duplicate parse
+in shortWhen; exact relative wording is retained and covered by another test.
 2323989 Native41549812156 PASS342 tests, Python41549811994 four jobsPASS,
 window41549812037 bothPASS. Large pressure41549811995 still fails350/341/307/
 500/401ms(open/switch/workflows/history/monkey), idlePASS1.28547%/163.359MiB/7.
