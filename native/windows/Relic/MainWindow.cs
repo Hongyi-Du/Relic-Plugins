@@ -276,6 +276,7 @@ public sealed partial class MainWindow : Window
     private async Task RefreshSidebar()
     {
         if (api == null || closing) return;
+        MonitorTick();
         if (refreshing) { ScheduleSidebar(); return; }
         var fresh = (await api.Get("/api/orgs")).Rows();
         if (closing) return;
@@ -412,7 +413,7 @@ public sealed partial class MainWindow : Window
             if (pane == "workspace" && changes.Detail) await Workspace();
             if (refreshChart != null && changes.Detail) await refreshChart();
         }
-        finally { refreshing = false; completed.TrySetResult(); if (pending) Schedule(); }
+        finally { refreshing = false; completed.TrySetResult(); if (pending) Schedule(); MonitorTick(); }
     }
     private async Task Select(string id, string who = "", bool fromHistory = false)
     {
