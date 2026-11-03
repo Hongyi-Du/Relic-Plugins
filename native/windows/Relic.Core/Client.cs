@@ -166,6 +166,29 @@ public sealed class Words
         foreach (var (name, arg) in args) text = text.Replace("{" + name + "}", arg.ToString());
         return text;
     }
+    // Every character the word list can show, once each in code point order,
+    // so the UI's own text can be prepared off the UI thread before it is
+    // first drawn. Whitespace and control characters are left out.
+    public string Characters()
+    {
+        var seen = new SortedSet<int>();
+        void Walk(JsonNode? node)
+        {
+            switch (node)
+            {
+                case JsonObject map: foreach (var (_, value) in map) Walk(value); break;
+                case JsonArray list: foreach (var item in list) Walk(item); break;
+                case JsonValue value when value.TryGetValue<string>(out var text):
+                    foreach (var rune in text.EnumerateRunes())
+                        if (!Rune.IsControl(rune) && !Rune.IsWhiteSpace(rune)) seen.Add(rune.Value);
+                    break;
+            }
+        }
+        Walk(strings);
+        var characters = new StringBuilder();
+        foreach (var value in seen) characters.Append(char.ConvertFromUtf32(value));
+        return characters.ToString();
+    }
     public string List(IEnumerable<string> values)
     {
         var items = values.ToArray(); if (items.Length == 0) return ""; if (items.Length == 1) return items[0];

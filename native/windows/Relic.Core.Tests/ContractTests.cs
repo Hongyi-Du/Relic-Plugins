@@ -22,6 +22,13 @@ public class ContractTests
         Assert.Equal(3, merged.Count); Assert.Equal("e1", merged[0].Text("id")); Assert.Equal("new", merged[1].Text("body"));
         Assert.Equal("old", older[1].Text("body"));
     }
+    [Fact] public void TheWordListNamesEachCharacterItCanShowOnce()
+    {
+        var words = new Words();
+        Assert.Equal("", words.Characters());
+        words.Load(JsonNode.Parse("""{"lang":"zh-CN","strings":{"a":"组织 成员","b":{"one":"1 个组织","other":"{n} 个组织"}}}""")!);
+        Assert.Equal("1n{}个员成组织", words.Characters());
+    }
     [Fact] public void ListsUseTheSharedLanguageTemplates()
     {
         var words = new Words();

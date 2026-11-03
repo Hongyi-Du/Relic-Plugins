@@ -207,6 +207,7 @@ public sealed partial class MainWindow : Window
                 var language = Words.Normalize(preferences.Text("lang").Length > 0 ? preferences.Text("lang") : System.Globalization.CultureInfo.CurrentUICulture.Name);
                 await api.Post("/api/prefs", new { lang = language });
                 words.Load(await api.Get("/api/i18n?lang=" + language));
+                StartupFontWarmup.WarmWords(words.Characters(), words.Language, (float)(root.XamlRoot?.RasterizationScale ?? 1));
                 LoadViewState();
                 if (root.ActualWidth <= ResponsiveLayout.InspectorOverlayWidth) panelOpen = false;
                 ready = true; LayoutColumns();
@@ -579,6 +580,7 @@ public sealed partial class MainWindow : Window
         var language = Words.Normalize(preferences.Text("lang"));
         if (language != words.Language) { plain.Clear(); plainPending.Clear(); plainFailed.Clear(); digest = new JsonObject(); }
         words.Load(await api.Get("/api/i18n?lang=" + language));
+        StartupFontWarmup.WarmWords(words.Characters(), words.Language, (float)(root.XamlRoot?.RasterizationScale ?? 1));
         // The reference sets document.documentElement.lang with its word list.
         // Native text shaping/fallback must use that same selected language,
         // including an already-open settings dialog outside the main tree.

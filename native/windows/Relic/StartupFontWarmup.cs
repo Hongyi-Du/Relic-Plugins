@@ -17,7 +17,39 @@ internal static class StartupFontWarmup
     // 3.3 s, and the first chat and sidebar measured their text on the UI
     // thread meanwhile: the window froze for 0.6-0.9 s. Waiting here keeps
     // the window responsive; on a warm machine the warm-up is done already.
-    internal static Task Ready(TimeSpan most) => Task.WhenAny(Completion, Task.Delay(most));
+    internal static Task Ready(TimeSpan most) => Task.WhenAny(Task.WhenAll(Completion, WordsReady), Task.Delay(most));
+
+    // The UI's own words, once loaded: every character of the word list (a few
+    // hundred CJK characters) in the weights and sizes the chrome uses most.
+    // DirectWrite keeps their design metrics, shaping data and glyph bitmaps in
+    // the shared factory WinUI uses, so a dialog, menu or row finds them ready.
+    // CI stacks caught the UI thread computing CJK glyph metrics from the font
+    // file for 60-390 ms per settings row (run 41687604479), and building a
+    // face's shaping data for a trimming sign during the first load.
+    internal static Task WordsReady { get; private set; } = Task.CompletedTask;
+
+    internal static void WarmWords(string characters, string language, float scale)
+    {
+        if (characters.Length == 0) return;
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        WordsReady = done.Task;
+        new Thread(() =>
+        {
+            using var timing = PerformanceTrace.Measure("startup.words.worker");
+            try
+            {
+                var text = characters + " …";
+                foreach (var weight in new uint[] { 400, 600, 700 })
+                    foreach (var size in new[] { 12.5f, 13f, 14f })
+                    {
+                        // A failed warm-up only leaves the original cold start.
+                        try { NativeGlyphRasterPreparation.Prepare(new(text, FontFamilies.UI, language, size, weight, 0, 5, scale, false), CancellationToken.None).Dispose(); }
+                        catch (Exception) { }
+                    }
+            }
+            finally { done.TrySetResult(); }
+        }) { IsBackground = true, Name = "Relic word warm-up", Priority = ThreadPriority.BelowNormal }.Start();
+    }
 
     internal static void Start()
     {

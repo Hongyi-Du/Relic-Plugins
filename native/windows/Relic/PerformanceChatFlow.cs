@@ -438,7 +438,8 @@ public sealed partial class MainWindow
         // what followed it (layout, row builds, a gen2 collection) in the
         // first measured second: 64% of the person profile's measured idle
         // CPU in run 41662135525, which then stayed near 0.8% of one core.
-        while (!stream.IsLastPositionSettled || refreshing || Volatile.Read(ref performanceCommands) > 0)
+        while (!stream.IsLastPositionSettled || refreshing || Volatile.Read(ref performanceCommands) > 0
+            || !StartupFontWarmup.WordsReady.IsCompleted)
         {
             if (settling.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("Conversation did not settle before idle CPU measurement");
             await Task.Delay(16);
