@@ -576,7 +576,7 @@ public sealed partial class MainWindow
         && !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending && chatMore && chatScroll.VerticalOffset < 32
         ? Run(LoadOlderMessages) : Task.CompletedTask;
     private bool ConversationContentReady() => PendingConversationPreparation == 0 && PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativeChatList.PendingBuilds == 0
-        && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0;
+        && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0 && NativeGlyphWarmup.PendingPreparations == 0;
     private async Task LoadOlderMessages()
     {
         if (loadingOlder || !chatMore || org.Length == 0 || api == null) return;

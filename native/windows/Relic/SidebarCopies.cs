@@ -400,7 +400,8 @@ public sealed partial class MainWindow
     }
     private TextBlock SidebarText(string value, double size = 12.5, bool muted = false, ushort weight = 400, double lineHeight = 0)
     {
-        var text = OverviewText(value, size, muted, weight, lineHeight); text.UseLayoutRounding = false; return text;
+        var text = OverviewText(value, size, muted, weight, lineHeight); text.UseLayoutRounding = false;
+        NativeGlyphWarmup.Attach(text); return text;
     }
     private static void BindSidebarRowName(ListViewItem row, UIElement content)
     {

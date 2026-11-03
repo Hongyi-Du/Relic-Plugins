@@ -178,6 +178,7 @@ public sealed partial class MainWindow
                 ["viewport_width"] = chatScroll.ViewportWidth, ["viewport_height"] = chatScroll.ViewportHeight,
                 ["native_positioning"] = System.Text.Json.JsonSerializer.SerializeToNode(stream.ReadScrollState(chatScroll)),
                 ["pending_conversation_model"] = PendingConversationPreparation,
+                ["pending_glyphs"] = NativeGlyphWarmup.PendingPreparations,
                 ["pending_chat_rows"] = NativeChatList.PendingBuilds, ["pending_other_rows"] = VirtualRows.PendingBuilds,
                 ["pending_path_text"] = NativePathText.PendingPreparations, ["pending_labels"] = NativeLabel.PendingPreparations,
                 ["pending_markdown"] = PendingMarkdown };

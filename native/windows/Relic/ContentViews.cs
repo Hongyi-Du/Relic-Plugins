@@ -25,7 +25,7 @@ public sealed partial class MainWindow
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => yield.TrySetResult());
             await yield.Task; await Task.Delay(16);
             quiet = PendingConversationPreparation == 0 && PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativeChatList.PendingBuilds == 0 && NativePathText.PendingPreparations == 0
-                && NativeLabel.PendingPreparations == 0 ? quiet + 1 : 0;
+                && NativeLabel.PendingPreparations == 0 && NativeGlyphWarmup.PendingPreparations == 0 ? quiet + 1 : 0;
         }
     }
     private RichTextBlock? selectedRich;

@@ -165,7 +165,9 @@ public sealed partial class MainWindow
             ["selected"] = selected, ["content_ready"] = ConversationContentReady(), ["latest_visible"] = false,
             ["pending_markdown"] = PendingMarkdown, ["pending_chat_rows"] = NativeChatList.PendingBuilds,
             ["pending_other_rows"] = VirtualRows.PendingBuilds, ["pending_path_text"] = NativePathText.PendingPreparations,
-            ["pending_labels"] = NativeLabel.PendingPreparations };
+            ["pending_labels"] = NativeLabel.PendingPreparations,
+            ["pending_conversation_model"] = PendingConversationPreparation,
+            ["pending_glyphs"] = NativeGlyphWarmup.PendingPreparations };
         if (!selected || !ConversationContentReady()) return result;
         var rowKey = (expected.ItemKind == "message" ? "message:" : "item:") + expectedId;
         var index = expectedEmpty ? stream.Children.Count - 1 : stream.Children.FindIndex(row => row.Key == rowKey);
