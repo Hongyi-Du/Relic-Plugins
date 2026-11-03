@@ -60,7 +60,7 @@ public sealed partial class MainWindow
             "\uE8D4" => "lang", "\uE945" => "sparkle", "\uE73A" => "check", "\uE71A" => "stop", "\uE81C" => "trace",
             "\uE8F2" => "quote", "\uE97A" => "thread", "\uE8C8" => "copy", "\uE711" => "x", "\uE74A" => "up", "\uE720" => "mic",
             "\uE8A7" => "open", "\uE738" => "minus", "\uE710" => "plus", "\uE9A6" => "fit", "\uE790" => "palette",
-            "\uE774" => "globe", "\uE839" => "plug", "\uE946" => "info", "\uE70F" => "neworg", "\uE77B" => "user",
+            "\uE774" => "globe", "\uE839" => "plug", "\uE946" => "info", "\uE70F" => "neworg", "\uE77B" => "user", "\uE9D9" => "chart",
             "\uE76C" or "\uE70D" => "chev", _ => throw new ArgumentOutOfRangeException(nameof(glyph), glyph, "Icon has no reference vector")
         };
         var icon = (FrameworkElement)ReferenceIcon(name, size);

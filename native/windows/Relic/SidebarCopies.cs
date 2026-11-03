@@ -78,8 +78,6 @@ public sealed partial class MainWindow
         var back = ToolbarIconButton("\uE72B", T("appbar.back"), () => Navigate(-1)); back.IsEnabled = historyIndex > 0; navigationButtons.Children.Add(back);
         var forward = ToolbarIconButton("\uE72A", T("appbar.forward"), () => Navigate(1)); forward.IsEnabled = historyIndex + 1 < history.Count; navigationButtons.Children.Add(forward);
         appTitle.Text = org.Length == 0 ? T("common.app_name") : snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member == snap["org"].Text("secretary") ? T("common.secretary") : Display(member)); appTitle.Foreground = Muted; toolbar.Content = null; ToolTipService.SetToolTip(appTitle, appTitle.Text);
-        var working = MonitorWorking;
-        AddCommand(ToolbarIconButton("\uE9D9", working > 0 ? T("appbar.monitor", ("n", working)) : T("appbar.monitor_idle"), OpenMonitor, badge: working));
         var count = snap.Rows("decisions").Count;
         AddCommand(ToolbarIconButton("\uE7BA", T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"), badge: count, alert: count > 0));
         var unread = copyInbox.Unread;
@@ -88,6 +86,9 @@ public sealed partial class MainWindow
         int i = 1;
         foreach (var (id, key, glyph) in new[] { ("overview", "panel.overview", "\uE8FD"), ("workspace", "panel.workspace", "\uE8B7"), ("files", "common.file", "\uE8A5") })
             AddCommand(ToolbarIconButton(glyph, T("appbar.pane_shortcut", ("pane", T(key)), ("key", "Alt+" + i++)), () => pane == id && panelOpen ? TogglePanel() : SetPane(id), selected: panelOpen && pane == id));
+        // Last, so the commands before it keep their positions.
+        var working = MonitorWorking;
+        AddCommand(ToolbarIconButton("\uE9D9", working > 0 ? T("appbar.monitor", ("n", working)) : T("appbar.monitor_idle"), OpenMonitor, badge: working));
     }
 
     private void ClipToolbarLogo()
