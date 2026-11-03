@@ -1,5 +1,15 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: Mac7808e68 restores bounded List row admission after
+292daa9's first-paint regression and waits for actual onAppear before releasing
+the next32ms render turn. REQUESTS keeps every original native/history gate.
+Windows5039a85 exact PDB stacks41551719704 now locate CTextBlock.MeasureOverride
+in DWrite font-face construction/fallback/shaping. Opacity alone cannot prevent
+that work: native TextBlock.Text is now withheld immediately before mounting,
+while the bounded worker prepares its real source text/font/DPI; success or
+failure restores that same real native control. Pending work remains included
+in readiness, and source text is never substituted for visible-content proof.
+
 Changes for the clients: integrated Mac bounded date-formatter reuse through
 8735b16; REQUESTS adds no shared API changes. Windows menus now retain their
 native anchors/items through chat navigation. Enabled/check/secretary labels

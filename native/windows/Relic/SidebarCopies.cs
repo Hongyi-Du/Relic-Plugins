@@ -374,7 +374,7 @@ public sealed partial class MainWindow
                     {
                     var add = QuietButton("", AddMember); add.Foreground = Muted; add.HorizontalAlignment = HorizontalAlignment.Stretch; add.Padding = new Thickness(8, 6, 8, 6); add.MinHeight = 0; add.CornerRadius = new CornerRadius(8);
                     var addContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; addContent.Children.Add(ReferenceIcon("plus", 14)); var addText = SidebarText(T("common.add_member"), 12.5, true); addText.IsTextSelectionEnabled = false; addContent.Children.Add(addText); add.Content = addContent;
-                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, addText.Text);
+                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, NativeGlyphWarmup.SourceText(addText));
                     return new Border { Child = add, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, firstChat ? 2 : 0, 0, 8), Margin = new Thickness(10, 0, 0, 0), UseLayoutRounding = false };
                     });
                 }
@@ -392,16 +392,16 @@ public sealed partial class MainWindow
         // from these actual children. Image avatars do not contribute alt text.
         var profileNameParts = new List<string>();
         foreach (var picture in human.Children.OfType<PersonPicture>())
-            if (picture.Tag is Border { Child: TextBlock initials } && initials.Text.Length > 0)
-                profileNameParts.Add(initials.Text);
-        profileNameParts.Add(nameLabel.Text); profileNameParts.Add(profileLabel.Text);
+            if (picture.Tag is Border { Child: TextBlock initials } && NativeGlyphWarmup.SourceText(initials).Length > 0)
+                profileNameParts.Add(NativeGlyphWarmup.SourceText(initials));
+        profileNameParts.Add(NativeGlyphWarmup.SourceText(nameLabel)); profileNameParts.Add(NativeGlyphWarmup.SourceText(profileLabel));
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(profile, string.Join(" ", profileNameParts.Where(part => part.Length > 0)));
         var settings = IconButton("\uE713", "common.settings", Settings); settings.Content = ReferenceIcon("gear", 18); settings.Padding = new Thickness(0); settings.Foreground = Paint("5A5853", "B8B5AE"); settings.HorizontalContentAlignment = HorizontalAlignment.Center; settings.VerticalContentAlignment = VerticalAlignment.Center; settings.VerticalAlignment = VerticalAlignment.Center; var footer = TwoColumns(profile, settings); footer.ColumnSpacing = 4; sidebarFooter.Children.Add(footer);
     }
     private TextBlock SidebarText(string value, double size = 12.5, bool muted = false, ushort weight = 400, double lineHeight = 0)
     {
         var text = OverviewText(value, size, muted, weight, lineHeight); text.UseLayoutRounding = false;
-        NativeGlyphWarmup.Attach(text); return text;
+        NativeGlyphWarmup.Attach(text, root.XamlRoot); return text;
     }
     private static void BindSidebarRowName(ListViewItem row, UIElement content)
     {
@@ -455,14 +455,14 @@ public sealed partial class MainWindow
     private PersonPicture SidebarOrgFace(JsonNode organization)
     {
         var badge = OverviewOrgBadge(organization, organization.Text("kind") == "subgroup");
-        if (badge is NativeOrganizationAvatarPaint paint) NativeGlyphWarmup.Attach(paint.Initial);
+        if (badge is NativeOrganizationAvatarPaint paint) NativeGlyphWarmup.Attach(paint.Initial, root.XamlRoot);
         return SidebarPicture(organization.Text("name"), badge, 22);
     }
     private Grid SidebarFace(string who, string url, string state, bool secretary)
     {
         var label = who.Length > 0 ? Display(who) : T("common.group_chat");
         var painted = who.Length == 0 && !secretary ? ChatAvatar(false) : secretary && url.Length == 0 ? ChatAvatar(true) : AvatarPaint(url, label, 28);
-        if (painted is Border face) { face.CornerRadius = new CornerRadius(8); if (face.Child is TextBlock initial) { initial.FontSize = 12; initial.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; NativeGlyphWarmup.Attach(initial); } }
+        if (painted is Border face) { face.CornerRadius = new CornerRadius(8); if (face.Child is TextBlock initial) { initial.FontSize = 12; initial.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; NativeGlyphWarmup.Attach(initial, root.XamlRoot); } }
         var result = new Grid { Width = 28, Height = 28 }; result.Children.Add(SidebarPicture(label, painted, 28));
         if (state is not ("" or "idle"))
         {
