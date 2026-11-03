@@ -365,6 +365,8 @@ import Combine
         }
     }
     private func refreshOnce() async throws {
+        // CI only: a background refresh's requests overlap chat switches.
+        let traced = UIWorkTrace.begin("refresh.once"); defer { UIWorkTrace.end(traced) }
         startupStage?("organizations")
         do {
             let updated = try await get("/api/orgs").rows
@@ -521,6 +523,10 @@ import Combine
 
     private func loadSelectedChat(_ selected: ChatSelection, generation: Int, record: Bool) async throws {
         guard !selected.org.isEmpty else { return }
+        // CI only: how long a chat's requests and its background preparation
+        // take, and how often a change elsewhere restarts that preparation.
+        let loading = UIWorkTrace.begin("load.chat"); defer { UIWorkTrace.end(loading) }
+        let requesting = UIWorkTrace.begin("load.requests"); defer { UIWorkTrace.end(requesting) }
         let query = selected.member.isEmpty ? "/chat?kind=group&limit=200"
             : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=200"
         // Like the reference, a chat switch inside the open organization only
@@ -535,7 +541,11 @@ import Combine
         async let liveRequest = optionalChatResource(who["embedded"].flag, path: selected.path("/live?member=" + Client.segment(selected.member)))
         async let transcriptRequest = optionalChatResource(who["has_transcript"].flag, path: selected.path("/convo?member=" + Client.segment(selected.member)))
         let (chat, live, transcript) = try await (chatRequest, liveRequest, transcriptRequest)
+        UIWorkTrace.end(requesting)
+        var attempt = 0
         while !Task.isCancelled, generation == navigationGeneration {
+            attempt += 1; if attempt > 1 { UIWorkTrace.count("load.restarted") }
+            let preparing = UIWorkTrace.begin("load.prepare")
             let sameChat = selected == selection
             let messageRevision = messageGeneration, liveRevision = liveGeneration, presentationRevision = conversationGeneration
             let current = sameChat ? messages : []
@@ -554,7 +564,8 @@ import Combine
             let rows = changed ? await ConversationRow.prepare(messages: merged, steps: transcript["steps"].rows,
                 member: who, live: nextLive, status: nextStatus, decisions: snap["decisions"].rows,
                 words: words, now: displayNow, privateChat: !selected.member.isEmpty) : streamRows
-            guard !Task.isCancelled, generation == navigationGeneration else { return }
+            UIWorkTrace.end(preparing)
+            guard !Task.isCancelled, generation == navigationGeneration else { UIWorkTrace.count("load.superseded"); return }
             // Rebase a current-chat refresh if history or SSE advanced while
             // the background projection was running. New-chat replies never
             // merge the old displayed chat's messages into the requested chat.
