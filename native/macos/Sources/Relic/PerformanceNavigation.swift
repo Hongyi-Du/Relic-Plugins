@@ -186,14 +186,20 @@ enum PerformancePhase: String {
             ? !model.messages.contains(where: { Int($0["id"].text) != nil })
             : (Int(expectedMessageID) ?? 0) > 0 && model.messages.contains(where: { $0["id"].text == expectedMessageID })
         let itemLoaded = model.messages.contains { $0["id"].text == expectedItemID && $0["type"].text == expectedItemKind }
-        let native = descendants(root)
-        guard let probe = native.compactMap({ $0 as? RenderReadiness.Probe }).first(where: {
+        // This runs every 10 ms on the UI thread while a chat opens. Use the
+        // registered probes and search only the latest row's own table row
+        // (or its scroll document), not every view in the window.
+        let probes = RenderReadiness.probes(in: window)
+        guard let probe = probes.first(where: {
             $0.kind == "conversation-row" && $0.identity == row.id && $0.visibleInViewport
         }) else { return nil }
         let rowBounds = probe.convert(probe.bounds, to: root)
-        let markdown = native.compactMap { $0 as? RenderReadiness.Probe }.filter {
+        let markdown = probes.filter {
             $0.kind == "markdown" && $0.visibleInViewport && intersects($0, row: rowBounds, root: root)
         }
+        var container: NSView? = probe.superview
+        while let view = container, !(view is NSTableRowView) { container = view.superview }
+        let native = descendants(container ?? probe.enclosingScrollView?.documentView ?? root)
         let text = native.compactMap { $0 as? NSTextView }.filter {
             !$0.isEditable && !$0.string.isEmpty && visible($0) && intersects($0, row: rowBounds, root: root)
         }

@@ -6,9 +6,15 @@ struct Overview: View {
     @State private var purposeOpen = false
     private var org: Node { m.snapshot["org"] }
     private func roleName(_ id: String, _ key: String) -> String { m.roleName(id, key) }
+    /// Entry ids (members, tasks, protocols) repeat across organizations.
+    /// Keyed by organization, another organization's rows are admitted
+    /// progressively instead of rewriting realized rows in one transaction.
+    private struct KeyedEntry: Identifiable { let id: String; let entry: OverviewEntry }
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(OverviewOutline.rows(snapshot: m.snapshot, liaison: m.overviewMode == "liaison")) { entry in
+            let scope = m.snapshot["org"]["id"].text + "/"
+            ForEach(OverviewOutline.rows(snapshot: m.snapshot, liaison: m.overviewMode == "liaison").map { KeyedEntry(id: scope + $0.id, entry: $0) }) { keyed in
+                let entry = keyed.entry
                 ProgressiveRow(estimatedHeight: entry.kind == "introduction" ? 240 : entry.kind == "hierarchy" ? 260 : entry.kind == "decision" ? 120 : 60) {
                 VStack(alignment: .leading, spacing: 0) {
                     if entry.kind == "introduction" { introduction }
