@@ -5,7 +5,7 @@ import RelicCore
 /// Runs the shared deterministic plan against the actual production model,
 /// view tree, native window and scroll view, without visual AX instrumentation.
 @MainActor enum ResponsivenessCapture {
-    static var enabled: Bool { ProcessInfo.processInfo.environment["RELIC_PERF_MANIFEST"] != nil }
+    static var enabled: Bool { ProcessEnvironment.contains("RELIC_PERF_MANIFEST") }
     static func run() async {
         let env = ProcessInfo.processInfo.environment
         guard env["GITHUB_ACTIONS"] == "true", let path = env["RELIC_PERF_MANIFEST"] else {
@@ -56,7 +56,13 @@ import RelicCore
             current.startupStage = nil
             guard current.ready else { throw RelicError.message(current.error) }
             try await settleConversation(current)
-            for action in manifest["plan"].rows {
+            // A diagnostic workflows run studies the cold dialogs. Open them
+            // first, so an earlier failure's 30 s retention cannot end the run
+            // before them. Acceptance runs keep the manifest's order.
+            let rows = manifest["plan"].rows
+            let plan = env["RELIC_PERF_DIAGNOSTIC"] == "true" && phase == .workflows
+                ? rows.filter { $0["kind"].text == "dialog" } + rows.filter { $0["kind"].text != "dialog" } : rows
+            for action in plan {
                 defer {
                     watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
                         "actions": receipts, "random_seconds": randomSeconds, "random_actions": randomActions])

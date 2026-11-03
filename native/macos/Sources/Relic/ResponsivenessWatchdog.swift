@@ -43,7 +43,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         source = timer; timer.resume()
     }
     func action(_ name: String) {
-        let diagnostic = ProcessInfo.processInfo.environment["RELIC_PERF_DIAGNOSTIC"] == "true"
+        let diagnostic = ProcessEnvironment.value("RELIC_PERF_DIAGNOSTIC") == "true"
         lock.lock(); stage = name
         let sample = !sampledStartup && name == "startup:publish" && diagnostic && samplesStartup
         if sample { sampledStartup = true }
@@ -56,7 +56,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // Starting sample after a 250 ms failure misses a 300 ms stall entirely.
         // Normal acceptance retains its original workload and watchdog limit.
         if sample { queue.async { self.sample("startup-diagnostic", seconds: 8) } }
-        if sampleDialog { queue.async { self.sample("first-dialog", seconds: 3) } }
+        if sampleDialog { queue.async { self.sample("first-dialog", seconds: 2) } }
     }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
     func recordActions(_ receipt: [String: Any]) {
@@ -144,7 +144,9 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // interval symbolicating millions of recursive SwiftUI frames and leave
         // no file. A 10 ms interval covers the same eight seconds with bounded
         // diagnostic overhead. The acceptance probes are completely separate.
-        let interval = name == "startup-diagnostic" ? "10" : "1"
+        // The first dialog's 2 s at 5 ms still resolves a 300 ms stall and
+        // finishes symbolicating within the 30 s diagnostic retention.
+        let interval = name == "startup-diagnostic" ? "10" : name == "first-dialog" ? "5" : "1"
         sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), interval, "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
         let log = output.appendingPathComponent(name + ".sampler.log")
         FileManager.default.createFile(atPath: log.path, contents: nil)
