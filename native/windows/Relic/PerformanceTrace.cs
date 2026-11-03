@@ -13,6 +13,11 @@ internal static class PerformanceTrace
     {
         if (Enabled) records.Enqueue(new { name, value, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
     }
+    // A structured CI-only record, for evidence a single number cannot carry.
+    internal static void Note(string name, object detail)
+    {
+        if (Enabled) records.Enqueue(new { name, detail, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+    }
     internal static object[] Drain()
     {
         var batch = new List<object>();

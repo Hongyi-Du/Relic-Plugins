@@ -49,6 +49,7 @@ internal sealed class NativeChatList : Grid
     };
     private ObservableCollection<Entry> entries = [];
     private readonly Dictionary<Border, Mounted> mounted = [];
+    private readonly HashSet<Border> placing = [];
     private readonly Dictionary<string, string> identities = [];
     private readonly Queue<BuildWork> builds = [];
     private readonly DispatcherTimer pump = new() { Interval = TimeSpan.FromMilliseconds(16) };
@@ -108,7 +109,15 @@ internal sealed class NativeChatList : Grid
         set
         {
             if (value != null) value.Margin = new Thickness(0, 0, 0, spacing);
-            if (!ReferenceEquals(list.Header, value)) list.Header = value;
+            if (ReferenceEquals(list.Header, value)) return;
+            if (list.Header is FrameworkElement old)
+            {
+                old.SizeChanged -= HeaderSizeChanged;
+                // Removing it moves the rows below it up by its whole slot.
+                if (old.IsLoaded) KeepRowsOnScreen(old, -(old.ActualHeight + old.Margin.Top + old.Margin.Bottom), changed: false);
+            }
+            if (value != null) value.SizeChanged += HeaderSizeChanged;
+            list.Header = value;
         }
     }
 
@@ -126,8 +135,10 @@ internal sealed class NativeChatList : Grid
         // Rows are not scroll anchor candidates. During a far scroll the
         // ScrollViewer could pick a row whose container the panel then recycled
         // for another item, and shifted the view by that item's position (a
-        // scroll to the top stopped 272 px down). AnchorRequested names the
-        // anchor instead, only while a reading position is restored.
+        // scroll to the top stopped 272 px down). Naming the row being read as
+        // the anchor fed back into the panel's estimates instead (a restore
+        // grew the extent to 1.2 million px and never settled). Rows that
+        // change height above the viewport are offset in KeepRowsOnScreen.
         list.ItemTemplate = XamlTemplates.Load<DataTemplate>(
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
             "<Border HorizontalAlignment='Stretch' UseLayoutRounding='False'/></DataTemplate>");
@@ -155,7 +166,7 @@ internal sealed class NativeChatList : Grid
         list.ItemsSource = entries;
         list.ContainerContentChanging += ContainerChanging;
         list.Loaded += (_, _) => BindViewport();
-        list.LayoutUpdated += (_, _) => { if (position != null) QueuePositionCheck(); };
+        list.LayoutUpdated += (_, _) => { ApplyPendingShift(); if (position != null) QueuePositionCheck(); };
         base.Children.Add(list);
         pump.Tick += (_, _) => BuildNext();
         Loaded += (_, _) =>
@@ -190,26 +201,47 @@ internal sealed class NativeChatList : Grid
         {
             Viewport.ViewChanged -= ViewChanged;
             Viewport.SizeChanged -= ViewSizeChanged;
-            Viewport.AnchorRequested -= AnchorRequested;
+            Viewport.DirectManipulationStarted -= ManipulationStarted;
+            Viewport.DirectManipulationCompleted -= ManipulationCompleted;
         }
         Viewport = viewport; viewport.IsTabStop = true;
         viewport.ViewChanged += ViewChanged; viewport.SizeChanged += ViewSizeChanged;
-        viewport.AnchorRequested += AnchorRequested;
+        viewport.DirectManipulationStarted += ManipulationStarted;
+        viewport.DirectManipulationCompleted += ManipulationCompleted;
         ViewportReady?.Invoke(viewport);
         QueuePositionCheck();
     }
 
-    // While a reading position is restored (anchor ratio 0), the ScrollViewer
-    // holds the message being read where it is when rows above it are built
-    // or change height; otherwise each correction was undone by the next rows
-    // to build. Only that message, and only while it is realized and on screen.
-    private void AnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
+    private bool manipulating;
+    private double pendingShift;
+    private void ManipulationStarted(object? sender, object args) { manipulating = true; pendingShift = 0; }
+    private void ManipulationCompleted(object? sender, object args) => manipulating = false;
+
+    // ItemsStackPanel's KeepItemsInView did this itself (and failed fast, see
+    // the panel template): a row that lies entirely above the viewport and is
+    // built or changes height moves every row on screen by the same amount.
+    // Move the view with it, in the same layout, so what the person reads stays
+    // put. Not while following the latest message (the bottom edge is anchored
+    // then), and not during a touch or touchpad pan, where a ChangeView would
+    // end the person's own gesture.
+    // changed: the element's current bounds already include the change (a size
+    // change after layout); otherwise they are from before it (a removal).
+    private void KeepRowsOnScreen(FrameworkElement element, double delta, bool changed)
     {
-        if (position is not { Kind: PositionKind.Reading, RequestedEntry: { } entry } intent || !intent.IsCurrent()) return;
-        if (TryGetRealizedRow(entries.IndexOf(entry)) is not { IsLoaded: true } host
-            || !mounted.TryGetValue(host, out var binding) || !ReferenceEquals(binding.Entry, entry)) return;
-        var bounds = Bounds(host, sender);
-        if (bounds.Bottom > 0 && bounds.Top < sender.ViewportHeight) args.Anchor = host;
+        if (Math.Abs(delta) < .25 || manipulating || Viewport is not { } viewport || !element.IsLoaded
+            || position is { Kind: PositionKind.Latest }) return;
+        var bounds = Bounds(element, viewport);
+        var bottomBefore = changed ? bounds.Bottom - delta : bounds.Bottom;
+        if (bounds.Top < 0 && bottomBefore <= .5) pendingShift += delta;
+    }
+
+    private void ApplyPendingShift()
+    {
+        if (pendingShift == 0 || Viewport is not { } viewport) return;
+        var shift = pendingShift; pendingShift = 0;
+        if (manipulating) return;
+        PerformanceTrace.Count(TraceName + ".list.keep_rows_on_screen", shift);
+        viewport.ChangeView(null, Math.Clamp(viewport.VerticalOffset + shift, 0, viewport.ScrollableHeight), null, true);
     }
 
     private void ConfigurePresenter()
@@ -291,6 +323,9 @@ internal sealed class NativeChatList : Grid
     {
         if (mounted.TryGetValue(host, out var old) && ReferenceEquals(old.Entry, entry) && old.Version == entry.Version) return;
         if (!mounted.ContainsKey(host)) host.SizeChanged += HostSizeChanged;
+        // A container placed for another item: its next size change is that
+        // placement, not a row on the page growing (see KeepRowsOnScreen).
+        if (old == null || !ReferenceEquals(old.Entry, entry)) placing.Add(host);
         mounted[host] = new(entry, entry.Version);
         host.Child = null; host.Tag = entry.Row; host.MinHeight = entry.Row.Estimate;
         host.Margin = new Thickness(0, 0, 0, spacing);
@@ -300,7 +335,7 @@ internal sealed class NativeChatList : Grid
 
     private void Release(Border host)
     {
-        mounted.Remove(host); host.SizeChanged -= HostSizeChanged;
+        mounted.Remove(host); placing.Remove(host); host.SizeChanged -= HostSizeChanged;
         host.Tag = null; host.Child = null;
     }
 
@@ -408,8 +443,21 @@ internal sealed class NativeChatList : Grid
     {
         // A row that changed height moves the bottom; following it again is
         // not a repeat of the previous correction.
+        var placed = sender is Border placedHost && placing.Remove(placedHost);
         if (position is { Kind: PositionKind.Latest } follow) { follow.Corrections = 0; follow.LastGeometry = null; }
+        else if (!placed && sender is Border host && args.PreviousSize.Height > 0)
+            KeepRowsOnScreen(host, args.NewSize.Height - args.PreviousSize.Height, changed: true);
         QueuePositionCheck();
+    }
+    private void HeaderSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        // The header sits above every row: it appearing or changing height
+        // moves the rows on screen when the view is below it. Appearing, it
+        // also brings its margin.
+        if (sender is not FrameworkElement header) return;
+        var delta = args.NewSize.Height - args.PreviousSize.Height;
+        if (args.PreviousSize.Height == 0) delta += header.Margin.Top + header.Margin.Bottom;
+        KeepRowsOnScreen(header, delta, changed: true);
     }
     private void ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
     {

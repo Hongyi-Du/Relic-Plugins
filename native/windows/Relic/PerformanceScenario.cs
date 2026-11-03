@@ -46,7 +46,7 @@ public sealed partial class MainWindow
                 }
             }
             await Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), phases_version = 2 }, token);
-            long sequence = 0, pings = 0;
+            long sequence = 0, pings = 0, lastCensus = 0;
             long lastPublished = 0, publishedWorst = -1, pendingSince = 0;
             string? publishedAction = null;
             var publishedPending = false;
@@ -121,6 +121,11 @@ public sealed partial class MainWindow
                         await Publish(false, token);
                         if (completed.Task.IsCompletedSuccessfully) break;
                     }
+                    // Only while switching chats: the census enumerates threads,
+                    // and the idle phase measures the process's own CPU.
+                    if (Volatile.Read(ref performanceAction).StartsWith("switch", StringComparison.Ordinal)
+                        && Stopwatch.GetElapsedTime(lastCensus).TotalMilliseconds >= 2000)
+                    { lastCensus = Stopwatch.GetTimestamp(); PerformanceThreadCensus.Take(); }
                     await Task.Delay(40, token);
                 }
             }
