@@ -193,6 +193,11 @@ struct AppToolbar: View {
 /// order: navigation and menus, title, then the right-hand actions. A title
 /// painted as the last ZStack overlay is exposed after all toolbar buttons.
 private struct ToolbarLayout: Layout {
+    // No subview defines an explicit alignment guide. Without these, SwiftUI's
+    // default merges the subviews' guides, measuring every subview again each
+    // time a parent stack asks this view for its leading or center guide.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         CGSize(width: proposal.width ?? subviews.reduce(0) { $0 + $1.sizeThatFits(.unspecified).width }, height: proposal.height ?? 40)
     }

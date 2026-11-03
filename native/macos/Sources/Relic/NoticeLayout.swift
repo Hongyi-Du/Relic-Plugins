@@ -2,6 +2,11 @@ import SwiftUI
 
 // The event pill wraps at 86% of the actual stream width, as in app.css.
 struct NoticeLayout: Layout {
+    // No subview defines an explicit alignment guide. Without these, SwiftUI's
+    // default merges the subviews' guides, measuring every subview again each
+    // time a parent stack asks this view for its leading or center guide.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let child = subviews.first else { return .zero }
         let width = proposal.width ?? child.sizeThatFits(.unspecified).width

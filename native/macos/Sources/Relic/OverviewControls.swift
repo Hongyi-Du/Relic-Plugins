@@ -20,6 +20,11 @@ struct FlowLayout: Layout {
     struct Cache { var values: [Key: Arrangement] = [:] }
     func makeCache(subviews: Subviews) -> Cache { Cache() }
     func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.values.removeAll(keepingCapacity: true) }
+    // No subview defines an explicit alignment guide. Without these, SwiftUI's
+    // default merges the subviews' guides, measuring every subview again each
+    // time a parent stack asks this view for its leading or center guide.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
     private func positions(_ subviews: Subviews, width: CGFloat, cache: inout Cache) -> Arrangement {
         let key = Key(width: width, spacing: spacing, centered: centerRows, trailing: rowAlignment == .trailing)
         if let stored = cache.values[key] { return stored }

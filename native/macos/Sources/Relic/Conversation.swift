@@ -336,6 +336,11 @@ struct IntrinsicMarkdownLayout: Layout {
     struct Cache { var sizes: [CGFloat: CGSize] = [:] }
     func makeCache(subviews: Subviews) -> Cache { Cache() }
     func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.sizes.removeAll(keepingCapacity: true) }
+    // No subview defines an explicit alignment guide. Without these, SwiftUI's
+    // default merges the subviews' guides, measuring every subview again each
+    // time a parent stack asks this view for its leading or center guide.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let width = max(1, min(proposal.width ?? preferredWidth, preferredWidth))
         if let size = cache.sizes[width] { return size }
