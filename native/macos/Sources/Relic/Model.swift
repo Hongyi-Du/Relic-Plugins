@@ -125,6 +125,8 @@ import Combine
         get { dialogPresentation.sheet }
         set {
             guard newValue != dialogPresentation.sheet else { return }
+            // CI only: how long the transaction that shows or removes it takes.
+            UIWorkTrace.untilNextTurn(newValue != nil ? "dialog.open" : "dialog.close")
             activeSpeech?.stop()
             if newValue != nil {
                 if recipientPicker { recipientPicker = false }
