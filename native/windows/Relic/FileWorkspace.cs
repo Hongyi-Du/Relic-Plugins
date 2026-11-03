@@ -37,6 +37,11 @@ public sealed partial class MainWindow
         if (workspaceIdentity != identity) { workspaceIdentity = identity; workspaceOpenFolders.Clear(); }
         var picker = WorkspaceBlock(workspaceBody, T("work.whose"));
         var people = new ActionRow { Spacing = 5 };
+        // A large organization has dozens of people here: building every avatar
+        // and label in one turn froze the window for 370 ms. Show the row at
+        // once and fill it a few people at a time.
+        picker.Children.Add(people);
+        var built = 0;
         foreach (var candidate in candidates)
         {
             var id = candidate.Text("name"); var label = candidate.Text("display").Length > 0 ? candidate.Text("display") : id;
@@ -53,8 +58,12 @@ public sealed partial class MainWindow
             pick.HorizontalAlignment = HorizontalAlignment.Left;
             ToolTipService.SetToolTip(pick, id + (candidate.Text("role").Length > 0 ? " · " + candidate.Text("role") : ""));
             people.Children.Add(pick);
+            if (++built % 8 == 0)
+            {
+                await YieldPresentation();
+                if (epoch != workspaceEpoch || org != selectedOrg || pane != "workspace") return;
+            }
         }
-        picker.Children.Add(people);
         if (workspaceMember.Length == 0) { WorkspaceEmptyBlock(workspaceBody, T("work.no_members")); return; }
         var loading = WorkspaceEmptyBlock(workspaceBody, T("common.loading"));
         JsonNode ws;
