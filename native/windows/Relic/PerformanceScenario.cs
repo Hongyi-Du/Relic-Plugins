@@ -231,6 +231,31 @@ public sealed partial class MainWindow
         });
         await Parts("list_row_tooltip", () => { var content = SidebarText("Probe"); SidebarToolTip(content, "Probe"); return SidebarList(content); });
         await Parts("list_row_avatar", () => SidebarList(SidebarOrgFace(probeOrg!)));
+        // None of those parts survived alone, yet replaced organization rows
+        // did. Release one suspect registration at a time and count the
+        // detached rows still alive before and after.
+        static bool Attached(DependencyObject element, DependencyObject root)
+        {
+            for (var parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(element); parent != null;
+                parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(parent))
+                if (ReferenceEquals(parent, root)) return true;
+            return false;
+        }
+        int DetachedSidebarRows() => PerformanceTrace.AliveObjects().TryGetValue("VirtualRow.sidebar", out var alive)
+            ? alive.OfType<FrameworkElement>().Count(element => !Attached(element, root)) : 0;
+        async Task Release(string name, Action release)
+        {
+            await Settled(); var before = DetachedSidebarRows();
+            release(); await PerformanceYield(); await Settled(); var after = DetachedSidebarRows();
+            PerformanceTrace.Note("leak.release", new { name, before, after, selection_updates = sidebarSelectionUpdates.Count,
+                message_interactions = messageInteractions.Count, typing = liveTypingAnimations.Count,
+                microphones = microphoneButtons.Count, menu_bindings = menuStateBindings.Count });
+        }
+        await Release("none", () => { });
+        await Release("selection_updates", UpdateSidebarSelection);
+        await Release("sidebar_redraw", DrawSide);
+        await Release("sidebar_cleared", () => { side.Children.Clear(); side.Commit(); });
+        DrawSide();
     }
 
     // CI-only: the tracked rows that outlived full collections while out of

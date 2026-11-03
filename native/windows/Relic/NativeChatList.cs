@@ -413,17 +413,28 @@ internal sealed class NativeChatList : Grid
         return (list.ContainerFromIndex(index) as ListViewItem)?.ContentTemplateRoot as Border;
     }
 
-    internal VirtualRows.ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport)
+    // The message to keep in place while an older page goes in above. Rows
+    // that are built first: right after a jump to the top an unbuilt row can
+    // still sit where the panel's estimate put it (one was read 12 px above the
+    // view and could not be put back there). Only when no built row is in view
+    // (every row there unbuilt, so no anchor at all, and the page then opened at
+    // its first row) a realized row waiting to be built, which holds its place.
+    internal VirtualRows.ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport) =>
+        ReadVisibleAnchor(viewport, built: true) ?? ReadVisibleAnchor(viewport, built: false);
+
+    private VirtualRows.ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport, bool built)
     {
-        VirtualRows.ReadingAnchor? first = null;
+        // Everything inserted goes above every row in view, so keeping any one
+        // of them in place keeps them all. Take the first row that starts in
+        // the view: a row cut by the top edge has to be moved down past its
+        // own height, and a 1356 px row sent that far left the panel's realized
+        // range and never came back. Only when one row covers the whole view
+        // is the row cut by the top edge kept.
+        VirtualRows.ReadingAnchor? first = null, cut = null;
         foreach (var (host, binding) in mounted)
         {
-            // A realized row still waiting to be built already holds its place.
-            // After a jump to the top every row there was unbuilt: no anchor was
-            // read, and the older page then opened at its first row instead of
-            // keeping the message in view. A container just placed for another
-            // row may not have moved there yet.
-            if (binding.Entry.Row.Key is not { } key || !(ReadyHost(host) || PlacedHost(host))) continue;
+            // A container just placed for another row may not have moved there yet.
+            if (binding.Entry.Row.Key is not { } key || !(built ? ReadyHost(host) : PlacedHost(host))) continue;
             // Paging controls and date separators may disappear when older
             // data arrives. Preserve a real timeline item the person reads.
             if (!key.StartsWith("message:", StringComparison.Ordinal)
@@ -431,9 +442,10 @@ internal sealed class NativeChatList : Grid
                 && !key.StartsWith("transcript:", StringComparison.Ordinal)) continue;
             var bounds = Bounds(host, viewport);
             if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight) continue;
-            if (first == null || bounds.Top < first.ViewportTop) first = new(key, bounds.Top);
+            if (bounds.Top >= 0) { if (first == null || bounds.Top < first.ViewportTop) first = new(key, bounds.Top); }
+            else if (cut == null || bounds.Top < cut.ViewportTop) cut = new(key, bounds.Top);
         }
-        return first;
+        return first ?? cut;
     }
 
     internal VirtualRows.ReadingAnchor? ReadAnchor(ScrollViewer viewport, string key)
@@ -838,6 +850,13 @@ internal sealed class NativeChatList : Grid
         // A failure remains observable; no idle retry loop conceals it.
         var offset = intent.Kind == PositionKind.Latest ? viewport.ScrollableHeight
             : intent.Kind == PositionKind.First ? 0 : viewport.VerticalOffset + bounds.Top - intent.Top;
+        // A reading row taller than the view, cut by the top edge, is moved down
+        // past most of its own height. One 1301 px move left the panel's
+        // realized range: the row was gone and the restore waited for it until
+        // it timed out. Move at most most of a view at a time; each step is a
+        // correction of its own.
+        if (intent.Kind == PositionKind.Reading && offset - viewport.VerticalOffset > viewport.ViewportHeight * .9)
+            offset = viewport.VerticalOffset + viewport.ViewportHeight * .9;
         var clamped = Math.Clamp(offset, 0, viewport.ScrollableHeight);
         if (intent.Kind == PositionKind.Reading && Math.Abs(offset - clamped) > 1)
         {
