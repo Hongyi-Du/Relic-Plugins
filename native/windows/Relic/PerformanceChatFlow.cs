@@ -67,6 +67,9 @@ public sealed partial class MainWindow
                     var center = bounds.Top + bounds.Height / 2;
                     if (center < 0) direction = 1;
                     else if (center >= viewport.ViewportHeight) direction = -1;
+                    // Partly cut off by an edge: wheel it fully into view.
+                    else if (bounds.Top < -0.5 && bounds.Height < viewport.ViewportHeight - 2) direction = 1;
+                    else if (bounds.Bottom > viewport.ViewportHeight + 0.5 && bounds.Height < viewport.ViewportHeight - 2) direction = -1;
                 }
                 if (direction == 0)
                 {
@@ -111,7 +114,15 @@ public sealed partial class MainWindow
         var rect = row.TransformToVisual(root).TransformBounds(new(0, 0, row.ActualWidth, row.ActualHeight));
         var viewport = treeRegion.TransformToVisual(root).TransformBounds(new(0, 0, treeRegion.ActualWidth, treeRegion.ActualHeight));
         var middle = rect.Top + rect.Height / 2;
-        return middle >= viewport.Top && middle < viewport.Bottom && rect.Left >= 0 && rect.Right <= root.ActualWidth ? row : null;
+        // The whole row, not only its middle: the middle of a row half under
+        // the search tools lay exactly on the viewport's top edge, and every
+        // press there went past the row (43 lost clicks, run 41679770563).
+        // A person clicks a row they can see; a row taller than the viewport
+        // is still clicked in the middle.
+        var inside = rect.Height < viewport.Height - 2
+            ? rect.Top >= viewport.Top - 0.5 && rect.Bottom <= viewport.Bottom + 0.5
+            : middle >= viewport.Top && middle < viewport.Bottom;
+        return inside && rect.Left >= 0 && rect.Right <= root.ActualWidth ? row : null;
     }
 
     private JsonObject SidebarPointerHits(NativeSidebarRow row)
