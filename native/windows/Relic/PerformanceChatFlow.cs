@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Relic.Core;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 
 namespace Relic;
@@ -126,10 +127,37 @@ public sealed partial class MainWindow
             if (ReferenceEquals(node, row)) { targetHit = true; break; }
         return new JsonObject { ["target_hit"] = targetHit, ["pointer_x"] = point.X, ["pointer_y"] = point.Y,
             ["foreground_hwnd"] = WholeWindowForeground().ToInt64(), ["target_loaded"] = row.IsLoaded,
+            ["window_at_pointer"] = WindowAtPointer(cursor),
             ["hits"] = new JsonArray(hits.Select(hit => (JsonNode)new JsonObject {
                 ["type"] = hit.GetType().Name, ["automation_id"] = AutomationProperties.GetAutomationId(hit),
                 ["same_target"] = ReferenceEquals(hit, row) }).ToArray()) };
     }
+
+    // CI evidence: which window the system delivers input to at the pointer.
+    // Every click on the top sidebar row of the large profile was lost while
+    // XAML's own hit test found the row (run 41679770563); this tells another
+    // window (a popup, a tooltip) from a non-client part of our own window.
+    private JsonObject WindowAtPointer(CapturePoint cursor)
+    {
+        var chain = new JsonArray();
+        for (var window = ProbeWindowFromPoint(cursor); window != IntPtr.Zero && chain.Count < 6; window = ProbeGetParent(window))
+        {
+            var name = new System.Text.StringBuilder(128); _ = ProbeGetClassName(window, name, name.Capacity);
+            _ = ProbeGetWindowThreadProcessId(window, out var process); ProbeGetWindowRect(window, out var bounds);
+            chain.Add(name + " pid=" + process + " rect=" + bounds.Left + "," + bounds.Top + "," + bounds.Right + "," + bounds.Bottom);
+        }
+        var main = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var hit = ProbeSendMessage(main, 0x0084 /* WM_NCHITTEST */, IntPtr.Zero, (IntPtr)(((cursor.y & 0xFFFF) << 16) | (cursor.x & 0xFFFF)));
+        return new JsonObject { ["screen_x"] = cursor.x, ["screen_y"] = cursor.y, ["chain"] = chain,
+            ["main_nchittest"] = hit.ToInt64(), ["main_pid"] = Environment.ProcessId };
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct WindowBounds { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll", EntryPoint = "WindowFromPoint")] private static extern IntPtr ProbeWindowFromPoint(CapturePoint point);
+    [DllImport("user32.dll", EntryPoint = "GetParent")] private static extern IntPtr ProbeGetParent(IntPtr window);
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode)] private static extern int ProbeGetClassName(IntPtr window, System.Text.StringBuilder name, int capacity);
+    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")] private static extern uint ProbeGetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("user32.dll", EntryPoint = "GetWindowRect")] private static extern bool ProbeGetWindowRect(IntPtr window, out WindowBounds bounds);
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")] private static extern IntPtr ProbeSendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 
     private static ListView PerformanceListFor(NativeSidebarRow row)
     {
@@ -386,7 +414,9 @@ public sealed partial class MainWindow
         }
         await PerformanceYield(); await WaitForMarkdown();
         // CI-only idle sampling enumerates modules and threads once to set up;
-        // do that before the measured window, not in its first second.
+        // do that before the measured window, not in its first second. Write
+        // out the trace records gathered so far before it too.
+        await Task.Run(FlushPerformanceTrace);
         PerformanceThreadCensus.SampleCycles();
         Volatile.Write(ref performanceAction, "idle-measure");
         record["idle_started_unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();

@@ -20,6 +20,21 @@ public sealed partial class MainWindow
     private string performanceAction = "initial organization load";
     private string PerformanceOutput => performanceManifest!.Text("output");
 
+    private readonly object performanceTraceFile = new();
+    // Appends the trace records gathered so far. Also right before idle is
+    // measured: serializing the backlog of the last draw took the probe's
+    // worker 70 M cycles in the first measured second of the large profile.
+    private void FlushPerformanceTrace()
+    {
+        lock (performanceTraceFile)
+        {
+            var batch = PerformanceTrace.Drain();
+            if (batch.Length > 0)
+                System.IO.File.AppendAllText(System.IO.Path.Combine(PerformanceOutput, "timings.jsonl"),
+                    string.Join("\n", batch.Select(timing => JsonSerializer.Serialize(timing))) + "\n");
+        }
+    }
+
     private void StartPerformanceProbe()
     {
         if (!PerformanceEnabled) return;
@@ -73,10 +88,7 @@ public sealed partial class MainWindow
                     titlebar_layout_notifications = Interlocked.Read(ref titlebarLayoutNotifications),
                     titlebar_layout_measurements = Interlocked.Read(ref titlebarLayoutMeasurements),
                     action }, writeToken);
-                var batch = PerformanceTrace.Drain();
-                if (batch.Length > 0)
-                    System.IO.File.AppendAllText(System.IO.Path.Combine(PerformanceOutput, "timings.jsonl"),
-                        string.Join("\n", batch.Select(timing => JsonSerializer.Serialize(timing))) + "\n");
+                FlushPerformanceTrace();
                 lastPublished = Stopwatch.GetTimestamp(); publishedWorst = worst;
                 publishedAction = action; publishedPending = pending != 0;
             }
