@@ -21,13 +21,6 @@
     <ProjectReference Include="../Relic.Core/Relic.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Every parsed response keeps a copy of its JSON and a token table the
-         size of the payload. Above 85,000 bytes those went to the large object
-         heap, whose budget then started a full (gen2) collection about once a
-         second while switching chats. Up to 1 MB they now die young instead. -->
-    <RuntimeHostConfigurationOption Include="System.GC.LOHThreshold" Value="1048576" />
-  </ItemGroup>
-  <ItemGroup>
     <Content Include="../../../plugins/relic/app/static/icon.svg" Link="Assets/Relic.svg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
