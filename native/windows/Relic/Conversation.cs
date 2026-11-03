@@ -30,6 +30,10 @@ public sealed partial class MainWindow
     // person scrolls up. A thousand made each refresh of a busy chat read and compare megabytes.
     private const int chatLimit = 200;
     private bool chatMore, olderHistory;
+    // While an older page loads: the message being read, and whether the page
+    // has been merged into the messages yet (see LoadOlderMessages).
+    private VirtualRows.ReadingAnchor? historyAnchor;
+    private bool historyMerged;
     private bool loadingOlder, keepLatest = true;
     // While an older page loads and its reading position is restored, the list's own offset adjustments can start
     // native direct manipulation. Without new input since the load began, that is not the person panning.
@@ -369,6 +373,7 @@ public sealed partial class MainWindow
             if (plainMode && !plainTimer.IsEnabled) plainTimer.Start();
             if (!e.IsIntermediate)
             {
+                CaptureHistoryAnchor();
                 if (HasDownwardIntent() && chatScroll.ScrollableHeight > 0
                     && chatScroll.VerticalOffset >= chatScroll.ScrollableHeight - 1)
                     FollowLatestIntent("settled_view");
@@ -656,6 +661,11 @@ public sealed partial class MainWindow
         if (plainMode && member.Length == 0) plainTimer.Start();
     }
     private bool olderAfterRestore;
+    // An older page is on its way and no reading anchor could be read yet.
+    private void CaptureHistoryAnchor()
+    {
+        if (loadingOlder && !historyMerged && chatScroll.VerticalOffset < 32) historyAnchor ??= stream.ReadVisibleAnchor(chatScroll);
+    }
     private Task LoadOlderAtTop()
     {
         if (closing || org.Length == 0 || api == null || !chatMore || chatScroll.VerticalOffset >= 32) return Task.CompletedTask;
@@ -686,7 +696,13 @@ public sealed partial class MainWindow
         try
         {
         var selectedOrg = org; var selectedMember = member;
-        var readingAnchor = stream.ReadVisibleAnchor(chatScroll);
+        // The message being read is taken when the page is asked for, or else
+        // at the next settled scroll before the page arrives (see the view
+        // handler) or right before it goes in: right after a jump to the top
+        // the rows there are not placed yet. Reading it at other moments (once
+        // after the merge) took the same 2009 px message 549 px from where it
+        // had been when the person reached the top.
+        historyAnchor = stream.ReadVisibleAnchor(chatScroll); historyMerged = false;
         var requestedStart = chatScroll.VerticalOffset < 32;
         var request = latestRequest;
         var before = messages.FirstOrDefault(m => long.TryParse(m.Text("id"), out _)).Text("id");
@@ -708,20 +724,19 @@ public sealed partial class MainWindow
         while (org == selectedOrg && member == selectedMember && !ReferenceEquals(messages, current))
         { current = messages; prepared = await MergeOlder(current); }
         if (org != selectedOrg || member != selectedMember) return;
-        readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         olderHistory = true; messages = prepared.Messages; messagePresentationIdentities = prepared.Identities;
-        chatMore = page.Flag("more"); chatPages++;
+        chatMore = page.Flag("more"); chatPages++; historyMerged = true;
         // Keep the message the person was reading when the page was asked
         // for, where it was then. Reading the anchor again at the commit took
         // whichever row was first by then: once a row above the first one was
         // still unbuilt at the start and grew 70 px before the commit, and the
         // message that had been in view moved. The anchor is read again here
         // only if none could be read before.
-        void CaptureReadingAnchor() => readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
+        void CaptureReadingAnchor() => historyAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         stream.ItemsReplacing += CaptureReadingAnchor;
         try { if (!await DrawConversationAsync()) return; }
         finally { stream.ItemsReplacing -= CaptureReadingAnchor; }
-        if (readingAnchor != null)
+        if (historyAnchor is { } readingAnchor)
             await stream.RestoreReadingAnchorAsync(readingAnchor, chatScroll,
                 () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,
                 ConversationContentReady);
@@ -730,7 +745,7 @@ public sealed partial class MainWindow
                 () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,
                 ConversationContentReady);
         }
-        finally { loadingOlder = false; historySeekGeneration = null; }
+        finally { loadingOlder = false; historySeekGeneration = null; historyAnchor = null; }
     }
     private UIElement Message(JsonNode item, bool inThread, bool continued = false)
     {
