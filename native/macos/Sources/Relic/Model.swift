@@ -439,6 +439,7 @@ import Combine
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
         navigationGeneration += 1; navigationTask?.cancel(); navigationTask = nil; pendingNavigation = nil
+        RowMountQueue.shared.holdRows(false)
         changeSelection(next, record: record, clearContent: true)
     }
     private func changeSelection(_ next: ChatSelection, record: Bool, clearContent: Bool) {
@@ -511,11 +512,14 @@ import Combine
         let generation = navigationGeneration
         navigationTask?.cancel()
         pendingNavigation = next
+        // The rows of the chat being left are not built while this one loads.
+        RowMountQueue.shared.holdRows(true)
         let task = Task { try await self.loadSelectedChat(next, generation: generation, record: record) }
         navigationTask = task
         defer {
             if generation == navigationGeneration {
                 navigationTask = nil; pendingNavigation = nil
+                RowMountQueue.shared.holdRows(false)
                 if refreshAfterNavigation { refreshAfterNavigation = false; schedule() }
             }
         }
