@@ -5,8 +5,18 @@ import CoreGraphics
 // involved. The source path is retained alongside the CGPath for capture evidence.
 enum VectorPath {
     enum ParseError: Error { case invalidCommand(String), incompleteCommand(String) }
+    private static let tokenizer = try! NSRegularExpression(pattern: #"[a-zA-Z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"#)
+    private static let parsed: NSCache<NSString, CGPath> = { let cache = NSCache<NSString, CGPath>(); cache.countLimit = 256; return cache }()
+    /// Icons draw on every hover, selection and appearance change. Each source
+    /// path is tokenized once; the immutable result is shared by every view.
     static func parse(_ source: String) throws -> CGPath {
-        let regex = try NSRegularExpression(pattern: #"[a-zA-Z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"#)
+        if let path = parsed.object(forKey: source as NSString) { return path }
+        let path = try tokenize(source)
+        parsed.setObject(path, forKey: source as NSString)
+        return path
+    }
+    private static func tokenize(_ source: String) throws -> CGPath {
+        let regex = tokenizer
         let ns = source as NSString
         let tokens = regex.matches(in: source, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
         let path = CGMutablePath()

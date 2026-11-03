@@ -16,24 +16,51 @@ final class UIWorkTrace: @unchecked Sendable {
         let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
         trace.gauges[name] = (value, max(value, trace.gauges[name]?.peak ?? 0))
     }
+    /// The CI samples showed ProcessInfo.systemUptime (an Objective-C call
+    /// that retains the shared ProcessInfo) as most of the cost of tracing a
+    /// label measurement. Read the same uptime clock directly.
+    private static var uptime: Double { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000 }
     static func begin(_ name: String) -> Int? {
         guard enabled else { return nil }
+        let started = uptime, main = pthread_main_np() != 0
         let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
         trace.ordinal += 1
-        trace.active[trace.ordinal] = (name, ProcessInfo.processInfo.systemUptime, Thread.isMainThread)
+        trace.active[trace.ordinal] = (name, started, main)
         return trace.ordinal
+    }
+    /// Counts a cheap event, such as one view body evaluation, without timing it.
+    static func count(_ name: String) {
+        guard enabled else { return }
+        let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
+        let previous = trace.totals[name] ?? (0, 0, 0)
+        trace.totals[name] = (previous.count + 1, previous.ms, previous.maximum)
+    }
+    /// Calls and milliseconds so far, to attribute work to one scripted action.
+    func counts() -> [String: (calls: Int, ms: Double)] {
+        lock.lock(); defer { lock.unlock() }
+        return totals.mapValues { (calls: $0.count, ms: $0.ms) }
+    }
+    func delta(since before: [String: (calls: Int, ms: Double)]) -> [String: [String: Any]] {
+        var result: [String: [String: Any]] = [:]
+        for (name, now) in counts() {
+            let calls = now.calls - (before[name]?.calls ?? 0)
+            guard calls > 0 else { continue }
+            result[name] = ["calls": calls, "ms": ((now.ms - (before[name]?.ms ?? 0)) * 10).rounded() / 10]
+        }
+        return result
     }
     static func end(_ token: Int?) {
         guard let token else { return }
+        let ended = uptime
         let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
         guard let scope = trace.active.removeValue(forKey: token) else { return }
-        let ms = (ProcessInfo.processInfo.systemUptime - scope.started) * 1000
+        let ms = (ended - scope.started) * 1000
         let previous = trace.totals[scope.name] ?? (0, 0, 0)
         trace.totals[scope.name] = (previous.count + 1, previous.ms + ms, max(previous.maximum, ms))
     }
     func snapshot() -> [String: Any] {
         lock.lock(); defer { lock.unlock() }
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = Self.uptime
         let activeRows: [[String: Any]] = active.values.map { ["name": $0.name, "milliseconds": (now - $0.started) * 1000, "main_thread": $0.main] }
         let summaries: [String: [String: Any]] = totals.mapValues { ["calls": $0.count, "total_ms": $0.ms, "max_ms": $0.maximum] }
         return ["active": activeRows, "totals": summaries,

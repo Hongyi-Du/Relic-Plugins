@@ -72,8 +72,8 @@ extension Model {
         return t(card["has_transcript"].flag ? "banner.transcript" : "banner.inbox")
     }
     var displayNow: Date {
-        if VisualCapture.enabled, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true",
-           let iso = ProcessInfo.processInfo.environment["RELIC_VISUAL_NOW"], let date = Timeline.date(Node(iso)) { return date }
+        if VisualCapture.enabled, ProcessEnvironment.value("GITHUB_ACTIONS") == "true",
+           let iso = ProcessEnvironment.value("RELIC_VISUAL_NOW"), let date = Timeline.date(Node(iso)) { return date }
         return Date()
     }
     func ago(_ node: Node, now: Date? = nil) -> String {

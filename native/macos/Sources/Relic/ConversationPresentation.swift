@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import RelicCore
 
-struct ConversationTimestampContext {
+struct ConversationTimestampContext: Equatable {
     let language: String
     let calendar: Calendar
     let dayStart: Date
@@ -110,6 +110,11 @@ struct MessageColumns: Layout {
     struct Cache { var measurements: [CGFloat: Measurement] = [:] }
     func makeCache(subviews: Subviews) -> Cache { Cache() }
     func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.measurements.removeAll(keepingCapacity: true) }
+    // No subview defines an explicit alignment guide. Without these, SwiftUI's
+    // default merges the subviews' guides, measuring every subview again each
+    // time a parent stack asks this view for its leading or center guide.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
     private func measurements(_ proposal: ProposedViewSize, _ subviews: Subviews, cache: inout Cache) -> Measurement {
         let key = proposal.width ?? -.infinity
         if let value = cache.measurements[key] { return value }

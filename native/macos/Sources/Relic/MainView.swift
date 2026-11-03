@@ -24,16 +24,20 @@ struct MainView: View {
         InspectorGeometry.width(window: m.windowSize.width, saved: resizingPanel ?? CGFloat(m.defaults.double(forKey: panelKey)), files: m.pane == "files")
     }
     var body: some View {
+        let _ = UIWorkTrace.count("body.main")
         GeometryReader { geometry in
-        VStack(spacing: 0) {
+        // Overlays (dialogs, the inspector, toasts, a loading cover) align to
+        // these regions; each boundary answers that alignment without
+        // measuring the region's whole subtree again. See AlignmentBoundary.
+        AlignmentBoundary { VStack(spacing: 0) {
             AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready && !m.error.isEmpty { Button(m.t("appmenu.reload")) { Task { await m.start() } } }
-            HStack(spacing: 0) {
-                if m.sidebarOpen { Sidebar(revealMembers: revealPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)).measuredRegion("sidebar", createsAccessibilityContainer: false) }
+            AlignmentBoundary { HStack(spacing: 0) {
+                if m.sidebarOpen { AlignmentBoundary { Sidebar(revealMembers: revealPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)) }.measuredRegion("sidebar", createsAccessibilityContainer: false) }
                 if revealPhase < 2 { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else {
-                    ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
+                    AlignmentBoundary { ChatView().frame(minWidth: 0, maxWidth: .infinity) }.measuredRegion("conversation", createsAccessibilityContainer: false)
                         .disabled(loadingOrganization)
                         .overlay {
                             if loadingOrganization {
@@ -48,12 +52,12 @@ struct MainView: View {
                     // controls and rebuilds them inside the resize transaction.
                     Color.clear.frame(width: min(panelWidth, m.windowSize.width - 48))
                 }
-            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) {
+            }.frame(maxHeight: .infinity) }.overlay(alignment: .trailing) {
                 if revealPhase >= 3 && m.panelOpen {
-                    inspector.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
+                    AlignmentBoundary { inspector }.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
                 }
             }
-        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading) }
         .background(alignment: .topLeading) { if !m.ready { NativeWarmup() } }
         .modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }
@@ -129,6 +133,7 @@ struct AppToolbar: View {
     @State private var controlBounds: [CGRect] = []
     private let menus = [("file", "common.file"), ("edit", "appmenu.edit"), ("view", "appmenu.view"), ("help", "appmenu.help")]
     var body: some View {
+        let _ = UIWorkTrace.count("body.toolbar")
         ToolbarLayout {
             HStack(spacing: 2) {
                 RelicLogo().padding(.leading, 6).padding(.trailing, 8)
@@ -191,6 +196,11 @@ struct AppToolbar: View {
 /// order: navigation and menus, title, then the right-hand actions. A title
 /// painted as the last ZStack overlay is exposed after all toolbar buttons.
 private struct ToolbarLayout: Layout {
+    // No subview defines an explicit alignment guide. Without these, SwiftUI's
+    // default merges the subviews' guides, measuring every subview again each
+    // time a parent stack asks this view for its leading or center guide.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         CGSize(width: proposal.width ?? subviews.reduce(0) { $0 + $1.sizeThatFits(.unspecified).width }, height: proposal.height ?? 40)
     }
@@ -269,7 +279,7 @@ struct RightPane: View {
             case "workspace": WorkspaceView()
             case "files": FilePreview()
             case "thread": ThreadView()
-            default: ScrollView { if !m.snapshot["org"].isNull { Overview().background(ScrollAppearance()) } }.defaultScrollAnchor(.top)
+            default: ScrollRegion { ScrollView { if !m.snapshot["org"].isNull { Overview().background(ScrollAppearance()) } }.defaultScrollAnchor(.top) }
             } } else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityHidden(true) }
         }.frame(maxHeight: .infinity, alignment: .top).padding(.leading, 1)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region", shadows: floating ? SurfaceShadow.dialog : [])).help(m.t("panel.resize"))

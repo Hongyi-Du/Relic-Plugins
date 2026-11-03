@@ -3,6 +3,8 @@ import RelicCore
 
 struct DetailsView: View {
     @EnvironmentObject var m: Model
+    /// The header and tabs first, the open tab's content in the next turn.
+    @State private var stage = 0
     private func tasks(_ filter: String) -> [Node] {
         m.snapshot["tasks"].rows.filter { filter == "all" || (filter == "open" ? !["done", "dropped"].contains($0["status"].text) : $0["status"].text == filter) }
     }
@@ -19,6 +21,7 @@ struct DetailsView: View {
                 IconButton(title: m.t("common.close"), icon: "x", radius: 8) { m.sheet = nil }
             }.padding(.horizontal, 16).frame(height: 57)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card"))
+            if stage >= 1 {
             switch m.detailTab {
             case "tasks":
                 ScrollView {
@@ -32,8 +35,10 @@ struct DetailsView: View {
             case "docs": DocumentsView()
             default: TraceView()
             }
+            }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("details.dialog"))
+            .task { await DialogStages.admit(1, label: "details") { stage = $0 } }
     }
 
 }

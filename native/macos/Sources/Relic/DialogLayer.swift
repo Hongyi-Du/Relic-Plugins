@@ -23,6 +23,9 @@ struct DialogLayer: View {
     @State private var contentTitle = ""
     @State private var scrimIdentity = "relic-scrim/" + UUID().uuidString
     @State private var panelIdentity = "relic-dialog-panel/" + UUID().uuidString
+    /// A fixed-size dialog first shows its frame, then builds its content in
+    /// a later display turn; content-sized dialogs need their content at once.
+    @State private var contentAdmitted = false
     private var layout: DialogGeometry { DialogGeometry(kind: sheet.rawValue, window: m.windowSize) }
     private var title: String {
         switch sheet {
@@ -35,22 +38,30 @@ struct DialogLayer: View {
         }
     }
     var body: some View {
+        let _ = UIWorkTrace.count("body.dialog")
         ZStack(alignment: sheet == .card ? .topLeading : .center) {
             Color.clear.contentShape(Rectangle())
                 .modifier(RecordedSurface(background: sheet == .card ? .clear : Color(red: 15/255, green: 14/255, blue: 12/255).opacity(0.32), kind: "region", owner: scrimIdentity))
                 .accessibilityElement(children: .contain).accessibilityIdentifier(scrimIdentity).accessibilityLabel("")
                 .onTapGesture { m.sheet = nil }
-            panel
+            // The ZStack centers the panel without measuring its content again.
+            AlignmentBoundary { panel }
                 .offset(x: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).x : 0,
                         y: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).y : 0)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
             .background { if RenderReadiness.enabled { RenderReadiness(kind: "dialog") } }
             .onExitCommand { m.sheet = nil }
+            .task(id: sheet) {
+                guard layout.height != nil, !contentAdmitted else { return }
+                await DialogStages.admit(1, label: "dialog-" + sheet.rawValue) { _ in contentAdmitted = true }
+            }
     }
     private var panel: some View {
         Group {
             if let height = layout.height {
-                SheetContent(sheet: sheet).frame(width: layout.width, height: height)
+                Group {
+                    if contentAdmitted { SheetContent(sheet: sheet) } else { Color.clear.accessibilityHidden(true) }
+                }.frame(width: layout.width, height: height)
             } else {
                 FittingScroll(maxHeight: layout.maximumHeight, accessibilityOwner: panelIdentity, accessibilityTitle: title) {
                     // The reference card's 18px padding sits inside its 1px

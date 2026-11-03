@@ -5,7 +5,7 @@ import RelicCore
 /// Runs the shared deterministic plan against the actual production model,
 /// view tree, native window and scroll view, without visual AX instrumentation.
 @MainActor enum ResponsivenessCapture {
-    static var enabled: Bool { ProcessInfo.processInfo.environment["RELIC_PERF_MANIFEST"] != nil }
+    static var enabled: Bool { ProcessEnvironment.contains("RELIC_PERF_MANIFEST") }
     static func run() async {
         let env = ProcessInfo.processInfo.environment
         guard env["GITHUB_ACTIONS"] == "true", let path = env["RELIC_PERF_MANIFEST"] else {
@@ -31,6 +31,8 @@ import RelicCore
             try await Task.sleep(for: .milliseconds(250))
             seed = manifest["seed"].integer
             let watchdog = ResponsivenessWatchdog(output: output); monitor = watchdog
+            watchdog.samplesStartup = phase != .workflows
+            watchdog.samplesEarlyStalls = phase != .workflows
             for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
             let fixture = manifest["fixture"]
             let suite = "Relic.Responsiveness." + UUID().uuidString
@@ -55,7 +57,23 @@ import RelicCore
             current.startupStage = nil
             guard current.ready else { throw RelicError.message(current.error) }
             try await settleConversation(current)
-            for action in manifest["plan"].rows {
+            // A diagnostic workflows run studies the first dialog. An earlier
+            // failure's 30 s retention can end the run before the manifest's
+            // dialogs, so it opens the first chat, then the dialogs, then the
+            // rest. Acceptance runs keep the manifest's order.
+            let rows = manifest["plan"].rows
+            let studiesDialogs = env["RELIC_PERF_DIAGNOSTIC"] == "true" && phase == .workflows && !rows.isEmpty
+            let plan = studiesDialogs
+                ? [rows[0]] + rows.dropFirst().filter { $0["kind"].text == "dialog" } + rows.dropFirst().filter { $0["kind"].text != "dialog" } : rows
+            var quietedBeforeDialog = false
+            for action in plan {
+                if studiesDialogs, !quietedBeforeDialog, action["kind"].text == "dialog" {
+                    // Let the chat finish its row admission and Markdown first,
+                    // so the dialog's sample holds the dialog, not that work.
+                    quietedBeforeDialog = true
+                    try await settleConversation(current)
+                    try await Task.sleep(for: .seconds(3))
+                }
                 defer {
                     watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
                         "actions": receipts, "random_seconds": randomSeconds, "random_actions": randomActions])
@@ -86,7 +104,14 @@ import RelicCore
                         var completed = action.object
                         completed["idle_seconds"] = ended - began; completed["idle_interval"] = idleInterval
                         completed["passed"] = true; receipt = completed
-                    } else { receipt = try await perform(action, model: current, window: window, output: output, phase: phase) }
+                    } else {
+                        // Which work each scripted action caused: view bodies,
+                        // layouts and native text, counted and timed by name.
+                        let work = UIWorkTrace.shared.counts()
+                        var completed = try await perform(action, model: current, window: window, output: output, phase: phase)
+                        completed["ui_work"] = UIWorkTrace.shared.delta(since: work)
+                        receipt = completed
+                    }
                     receipts.append(receipt)
                     if receipt["passed"] as? Bool == false {
                         let failures = receipt["errors"] as? [String] ?? ["Native action failed"]
@@ -112,7 +137,9 @@ import RelicCore
             repeat {
                 let action = deck[randomActions % deck.count]
                 watchdog.action("monkey:" + action["kind"].text)
+                let work = UIWorkTrace.shared.counts()
                 var receipt = try await perform(action, model: current, window: window, output: output, phase: phase)
+                receipt["ui_work"] = UIWorkTrace.shared.delta(since: work)
                 if receipt["passed"] as? Bool == false { throw RelicError.message((receipt["errors"] as? [String] ?? ["Monkey navigation failed"]).joined(separator: "; ")) }
                 random = random &* 6364136223846793005 &+ 1442695040888963407
                 let targets = ["sidebar", "menu:file", "menu:edit", "menu:view", "menu:help", "pane:overview", "pane:workspace", "pane:files"]
@@ -158,7 +185,9 @@ import RelicCore
         display?.restore(); NSApp.terminate(nil)
     }
 
+    private static var diagnosedDialog = false
     private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL, phase: PerformancePhase = .legacy) async throws -> [String: Any] {
+        let env = ProcessInfo.processInfo.environment
         let started = ProcessInfo.processInfo.systemUptime, kind = action["kind"].text
         var result = action.object
         m.appMenu = nil; m.sheet = nil
@@ -180,6 +209,24 @@ import RelicCore
         case "menu":
             m.appMenu = action["name"].text; await settle(); m.appMenu = nil; await settle()
         case "dialog":
+            // Diagnostic runs sample the first dialog from its start. Give the
+            // sampler time to attach before the cold presentation begins.
+            if env["RELIC_PERF_DIAGNOSTIC"] == "true", !diagnosedDialog {
+                // /usr/bin/sample prints its first line once it is attached.
+                // Open the dialog only then, or the sample misses its first frame.
+                diagnosedDialog = true
+                let log = output.appendingPathComponent("first-dialog.sampler.log")
+                let deadline = ProcessInfo.processInfo.systemUptime + 6
+                while ProcessInfo.processInfo.systemUptime < deadline,
+                      !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                try await Task.sleep(for: .milliseconds(150))
+            }
+            result["responder_before"] = responder(window)
+            // Wall-clock marks in the stall records' clock: a long probe can
+            // then be placed at the opening request or at the close.
+            result["open_requested_unix_ms"] = Date().timeIntervalSince1970 * 1000
             switch action["name"].text {
             case "settings": m.sheet = .settings
             case "about": m.settingsSection = "about"; m.sheet = .settings
@@ -188,7 +235,10 @@ import RelicCore
             case "tasks", "protocols": m.openDetails(action["name"].text)
             default: throw RelicError.message("Unknown dialog in performance manifest")
             }
-            try await settleConversation(m); m.sheet = nil; try await settleConversation(m)
+            try await settleConversation(m); result["responder_open"] = responder(window)
+            result["close_requested_unix_ms"] = Date().timeIntervalSince1970 * 1000
+            m.sheet = nil; try await settleConversation(m); result["responder_after"] = responder(window)
+            result["closed_unix_ms"] = Date().timeIntervalSince1970 * 1000
         case "scroll-history":
             try await m.select(action["org"].text); try await settleConversation(m)
             while m.moreChat {
@@ -244,6 +294,7 @@ import RelicCore
         return result
     }
     private static func settle() async { try? await Task.sleep(for: .milliseconds(300)) }
+    private static func responder(_ window: NSWindow) -> String { window.firstResponder.map { String(describing: type(of: $0)) } ?? "none" }
     private static func capture(_ window: NSWindow, output: URL, name: String) async throws -> String {
         let number = window.windowNumber, file = output.appendingPathComponent(name)
         try await Task.detached {

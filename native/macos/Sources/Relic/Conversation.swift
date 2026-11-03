@@ -84,11 +84,17 @@ struct RichText: View {
     @State private var prepared: PreparedMarkdown?
     @State private var presentedBlocks = 0
     private var parsed: PreparedMarkdown? { prepared?.source == text ? prepared : nil }
-    private var blocks: [MarkdownBlock] { parsed?.blocks ?? [] }
-    private func attributed(_ value: String) -> AttributedString { parsed?.inline(value) ?? AttributedString(value) }
-    private func list(_ block: MarkdownBlock) -> [MarkdownListItem] { parsed?.list(block) ?? [] }
-    private func table(_ block: MarkdownBlock) -> [[String]] { parsed?.table(block) ?? [] }
+    // The content below is built only after `parsed` found that `prepared`
+    // belongs to this text, and the task replaces it only with this text's
+    // parse. The block and cell helpers therefore read it directly: comparing
+    // a long non-ASCII source again for every block and table cell (Unicode
+    // canonical comparison) cost a large chat's switch most of its time.
+    private var blocks: [MarkdownBlock] { prepared?.blocks ?? [] }
+    private func attributed(_ value: String) -> AttributedString { prepared?.inline(value) ?? AttributedString(value) }
+    private func list(_ block: MarkdownBlock) -> [MarkdownListItem] { prepared?.list(block) ?? [] }
+    private func table(_ block: MarkdownBlock) -> [[String]] { prepared?.table(block) ?? [] }
     var body: some View {
+        let _ = UIWorkTrace.count("body.richtext")
         Group {
         if parsed == nil { Color.clear.frame(height: textLineHeight).accessibilityHidden(true) }
         else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
@@ -297,12 +303,14 @@ struct RichText: View {
                 }.padding(.leading, item.indented ? 18 : 0)
             } }
         case "table":
+            // Measure the columns once per table, not again for every cell.
+            let rows = table(block), widths = tableWidths(block), header = NativeMarkdown.tableHasHeader(block)
             ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
-                ForEach(Array(table(block).enumerated()), id: \.offset) { index, row in GridRow {
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in GridRow {
                     ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
-                        SelectableText(value: attributed(cell), weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular, pointSize: baseSize * 0.93, lineHeight: textLineHeight * 0.93)
-                            .padding(.horizontal, 8).padding(.vertical, 3.5).frame(width: tableWidths(block)[column], alignment: .leading)
-                            .modifier(RecordedSurface(background: index == 0 && NativeMarkdown.tableHasHeader(block) ? RelicStyle.ink.opacity(0.04) : .clear, border: RelicStyle.border, edges: EdgeInsets(top: 1, leading: 1, bottom: index == table(block).count - 1 ? 1 : 0, trailing: column == row.count - 1 ? 1 : 0), kind: "card"))
+                        SelectableText(value: attributed(cell), weight: index == 0 && header ? .semibold : .regular, pointSize: baseSize * 0.93, lineHeight: textLineHeight * 0.93)
+                            .padding(.horizontal, 8).padding(.vertical, 3.5).frame(width: widths[column], alignment: .leading)
+                            .modifier(RecordedSurface(background: index == 0 && header ? RelicStyle.ink.opacity(0.04) : .clear, border: RelicStyle.border, edges: EdgeInsets(top: 1, leading: 1, bottom: index == rows.count - 1 ? 1 : 0, trailing: column == row.count - 1 ? 1 : 0), kind: "card"))
                             .accessibilityLabel(String(attributed(cell).characters))
                     }
                 } }
@@ -335,6 +343,11 @@ struct IntrinsicMarkdownLayout: Layout {
     struct Cache { var sizes: [CGFloat: CGSize] = [:] }
     func makeCache(subviews: Subviews) -> Cache { Cache() }
     func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.sizes.removeAll(keepingCapacity: true) }
+    // No subview defines an explicit alignment guide. Without these, SwiftUI's
+    // default merges the subviews' guides, measuring every subview again each
+    // time a parent stack asks this view for its leading or center guide.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let width = max(1, min(proposal.width ?? preferredWidth, preferredWidth))
         if let size = cache.sizes[width] { return size }
@@ -440,6 +453,7 @@ struct MessageView: View {
         return m.t("msg.to", ["names": !everyone.isEmpty && everyone.allSatisfy(recipients.contains) ? m.t("msg.everyone") : m.list(item["to"].rows.map { m.name($0.text) })])
     }
     var body: some View {
+        let _ = UIWorkTrace.count("body.message")
         if item["type"].text == "notice" {
             NoticeLayout {
                 ReferenceLabel(item["text"].text, size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)

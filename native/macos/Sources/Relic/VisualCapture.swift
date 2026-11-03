@@ -10,7 +10,7 @@ import RelicAX
 @MainActor enum VisualCapture {
     private static var started = false
     private static var captureWindow: NSWindow?
-    static var enabled: Bool { ProcessInfo.processInfo.environment["RELIC_VISUAL_MANIFEST"] != nil }
+    static var enabled: Bool { ProcessEnvironment.contains("RELIC_VISUAL_MANIFEST") }
     static func run(_ initialModel: Model) async {
         guard !started else { return }; started = true
         var model = initialModel
