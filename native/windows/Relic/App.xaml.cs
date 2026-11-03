@@ -9,6 +9,12 @@ public partial class App : Application
         // Preserve the real failure on CI rather than letting a stowed WinRT
         // exception leave only an exit code. This never handles the exception
         // or changes the app's normal crash behavior.
+        // A refresh starts several reads at once and parses each off the UI
+        // thread. Above the pool's minimum, extra workers start only after a delay
+        // and retire after 20 s idle, so bursts waited and the thread count kept
+        // rising and falling. Keep enough workers for those bursts.
+        ThreadPool.GetMinThreads(out var workers, out var completion);
+        ThreadPool.SetMinThreads(Math.Max(workers, 12), completion);
         UnhandledException += (_, args) => CaptureFailure("Xaml.UnhandledException", args.Exception, args.Message);
         AppDomain.CurrentDomain.UnhandledException += (_, args) => CaptureFailure("AppDomain.UnhandledException", args.ExceptionObject as Exception, args.ExceptionObject?.ToString());
         InitializeComponent();

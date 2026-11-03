@@ -492,7 +492,7 @@ public sealed partial class MainWindow : Window
         LayoutColumns();
         // A selected chat opens at its latest message. Its first draw starts that one scroll intent; a second request
         // here would restart positioning that is already under way.
-        keepLatest = true;
+        keepLatest = true; followInputGeneration = conversationScrollInput.Generation;
         var requested = latestRequest;
         await Refresh();
         if (org != id || member != who) return;
@@ -534,7 +534,7 @@ public sealed partial class MainWindow : Window
         // Retain the actual final-row anchor through deferred Markdown/font
         // layout and virtual extent changes. NativeChatList reacts to real layout
         // changes, and a later user/history scroll cancels this single intent.
-        keepLatest = true;
+        keepLatest = true; followInputGeneration = conversationScrollInput.Generation;
         chatScroll.VerticalAnchorRatio = 1;
         var request = ++latestRequest;
         PerformanceTrace.Count("conversation.latest.request", request);

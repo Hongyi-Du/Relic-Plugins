@@ -34,6 +34,11 @@ public sealed partial class MainWindow
     // While an older page loads and its reading position is restored, the list's own offset adjustments can start
     // native direct manipulation. Without new input since the load began, that is not the person panning.
     private long? historySeekGeneration;
+    // The same holds while a chat follows its latest message: as rows build and
+    // grow, the list keeps the last one in view itself. Only input recorded since
+    // following began (wheel, touchpad, pointer, key, scrollbar) makes a native
+    // direct manipulation the person's own scroll.
+    private long followInputGeneration;
     private readonly ScrollInputIntent conversationScrollInput = new();
     private NativeTouchpadInput? conversationTouchpadInput;
     private int chatPages = 1;
@@ -327,7 +332,8 @@ public sealed partial class MainWindow
             // DM start in either delivery order, never with pointer motion alone.
             manipulationOrg = org; manipulationMember = member; manipulationRequest = latestRequest;
             manipulationStartOffset = chatScroll.VerticalOffset;
-            if (!conversationScrollInput.BeginDirectManipulation(stream.PendingSeekInputGeneration ?? historySeekGeneration,
+            if (!conversationScrollInput.BeginDirectManipulation(stream.PendingSeekInputGeneration ?? historySeekGeneration
+                    ?? (keepLatest ? followInputGeneration : (long?)null),
                 conversationTouchpadInput?.IsAvailable == true))
             {
                 PerformanceTrace.Count("conversation.programmatic_direct_manipulation", latestRequest);
