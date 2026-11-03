@@ -34,6 +34,7 @@ public partial class App : Application
     }
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        StartupFontWarmup.Start();
         window = new MainWindow(); window.Activate();
     }
 }
