@@ -16,7 +16,8 @@ struct Overview: View {
             let scope = m.snapshot["org"]["id"].text + "/"
             ForEach(OverviewOutline.rows(snapshot: m.snapshot, liaison: m.overviewMode == "liaison").map { KeyedEntry(id: scope + $0.id, entry: $0) }) { keyed in
                 let entry = keyed.entry
-                ProgressiveRow(estimatedHeight: entry.kind == "introduction" ? 240 : entry.kind == "hierarchy" ? 260 : entry.kind == "decision" ? 120 : 60) {
+                ProgressiveRow(estimatedHeight: entry.kind == "introduction" ? 240 : entry.kind == "hierarchy" ? 260 : entry.kind == "decision" ? 120 : 60,
+                               weight: entry.kind == "introduction" || entry.kind == "hierarchy" ? RowMountQueue.budget : 1) {
                 VStack(alignment: .leading, spacing: 0) {
                     if entry.kind == "introduction" { introduction }
                     else if entry.kind == "hierarchy" { HierarchyView() }
