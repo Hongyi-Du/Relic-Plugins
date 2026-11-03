@@ -350,6 +350,7 @@
  "fs.dir_outside": "这个目录不属于任何成员的工作区。",
  "fs.file_outside": "这个文件不在任何成员的工作区里。",
  "fs.path_outside": "这个路径不属于任何成员的工作区。",
+ "harness.native_acp": "此程序自带 ACP。复用现有安装和登录，无需安装 npm 适配器。",
  "harness.need_node": "没找到 Node.js，ACP 适配器需要它。",
  "harness.need_npm": "没找到 npm：先安装 Node.js（nodejs.org）。",
  "harness.not_found": "没找到 {title}。",

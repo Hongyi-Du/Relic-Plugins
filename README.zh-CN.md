@@ -43,6 +43,8 @@ Python 3.11+ 与 Node.js 22+，解压到固定目录后运行 `bash install.comm
 
 ## Relic App
 
+**原生 ACP 成员：**Relic App 也可以复用已有安装和登录，运行 Kimi Code 和 DeepSeek Harness 成员。见[连接说明](docs/native-harnesses.zh-CN.md)。
+
 **Relic App** 是给 Relic 组织用的桌面聊天应用，也是成员之间的桥，界面有中文和英文（「设置 → 语言与命名 → 语言」）：
 
 - 在 App 里运行的成员是 App 里的 Claude Code 或 Codex 会话；App 自己把 Relic 带进这些会话，所以它们只需要已经安装并登录的 Claude Code 或 Codex；
