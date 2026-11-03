@@ -1,5 +1,16 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+2323989：Native apps41549812156 的342项macOS测试全部PASS（45.222秒）；
+Python41549811994四组、整窗41549812037两端PASS。已查看1024×700深色整窗，
+标题栏/自动收起右栏/聊天和输入区正常，文件在window-2323989\macos。
+large压力41549811995仍FAIL：open349.598ms、switch340.780ms、workflows306.528ms、
+history500.135ms、monkey400.836ms；idle PASS1.28547%、163.359MiB/7线程。
+当前进一步简化为标准List直接回收消息行，移除List内部第二层ProgressiveRow占位，
+避免同一行从100pt占位反复变成真实正文高度；首批1000/历史200不变。新增原生检查：
+全量历史行仍在table内，但400pt视口实际实例化的行数小于100。效果待CI。
+每个实际动作的partial receipts现异步写入performance-actions.json；中途被watchdog
+终止仍保留之前的点击证据，不生成完成或验收资格，原六阶段门槛完全保留。
+
 当前候选把首次原生List创建与首批数据接入分到连续显示回合；后续聊天切换保留同一
 表格。几何通知若原生viewport已在底部，则不重复scrollTo；首次、End和新数据定位保留。
 新增flipped/nonflipped原生0→73→0pt观测，扩展真实List宽度重排/历史位置测试。

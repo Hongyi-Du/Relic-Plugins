@@ -2,6 +2,28 @@ import XCTest
 @testable import Relic
 
 final class ResponsivenessWatchdogTests: XCTestCase {
+    func testPartialActionsSurviveBeforeCompletionAndNeverClaimEligibility() async throws {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("Relic-action-evidence-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+        let watchdog = ResponsivenessWatchdog(output: output)
+        watchdog.recordActions(["phase": "open-every-chat", "actions": [["id": "open-0000", "passed": true, "click_events": 1, "open_ms": 72.0]]])
+        let partial = output.appendingPathComponent("performance-actions.json")
+        let deadline = Date().addingTimeInterval(2)
+        while !FileManager.default.fileExists(atPath: partial.path), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let first = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: partial)) as? [String: Any])
+        XCTAssertEqual((first["actions"] as? [[String: Any]])?.first?["id"] as? String, "open-0000")
+        XCTAssertNil(first["acceptance_eligible"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.appendingPathComponent("performance-complete.json").path))
+        watchdog.recordActions(["phase": "open-every-chat", "actions": [["id": "open-0000", "passed": true], ["id": "open-0001", "passed": false]]])
+        watchdog.finish(["actions": [], "errors": ["Scenario interrupted"]])
+        let last = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: partial)) as? [String: Any])
+        XCTAssertEqual((last["actions"] as? [[String: Any]])?.count, 2)
+        XCTAssertEqual((last["actions"] as? [[String: Any]])?.last?["passed"] as? Bool, false)
+    }
+
     func testHealthyProbesKeepTheirSampleCadenceButBoundDiskPersistence() {
         var persistence = HeartbeatPersistence()
         var writes: [Double] = []
