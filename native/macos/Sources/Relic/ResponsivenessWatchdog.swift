@@ -75,7 +75,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // Starting sample after a 250 ms failure misses a 300 ms stall entirely.
         // Normal acceptance retains its original workload and watchdog limit.
         if sample { queue.async { self.sample("startup-diagnostic", seconds: 8) } }
-        if sampleDialog { queue.async { self.sample("first-dialog", seconds: 2) } }
+        if sampleDialog { queue.async { self.sample("first-dialog", seconds: 8) } }
         if sampleArmed { queue.async { self.sample("armed-action", seconds: 2) } }
     }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
@@ -186,8 +186,8 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // interval symbolicating millions of recursive SwiftUI frames and leave
         // no file. A 10 ms interval covers the same eight seconds with bounded
         // diagnostic overhead. The acceptance probes are completely separate.
-        // The first dialog's 2 s at 3 ms resolves a 300 ms stall and still
-        // finishes symbolicating within the 30 s diagnostic retention.
+        // The first dialog's 8 s at 3 ms resolves a 300 ms stall; the dialog
+        // action waits until sample has written it.
         let interval = name == "startup-diagnostic" ? "10" : name == "first-dialog" ? "3" : name == "armed-action" ? "2" : "1"
         sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), interval, "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
         let log = output.appendingPathComponent(name + ".sampler.log")

@@ -239,8 +239,10 @@ import RelicCore
             // sampler time to attach before the cold presentation begins.
             let sampled = env["RELIC_PERF_DIAGNOSTIC"] == "true" && !diagnosedDialog
             if sampled {
-                // /usr/bin/sample prints its first line once it is attached.
-                // Open the dialog only then, or the sample misses its first frame.
+                // /usr/bin/sample prints its first line before it is attached:
+                // two samples that opened the dialog 150 ms after that line saw
+                // an idle main thread for their whole two seconds. Open it 3 s
+                // after the line, inside an eight-second sample.
                 diagnosedDialog = true
                 let log = output.appendingPathComponent("first-dialog.sampler.log")
                 let deadline = ProcessInfo.processInfo.systemUptime + 6
@@ -248,7 +250,7 @@ import RelicCore
                       !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
                     try await Task.sleep(for: .milliseconds(20))
                 }
-                try await Task.sleep(for: .milliseconds(150))
+                try await Task.sleep(for: .milliseconds(3000))
             }
             result["responder_before"] = responder(window)
             // Wall-clock marks in the stall records' clock: a long probe can
