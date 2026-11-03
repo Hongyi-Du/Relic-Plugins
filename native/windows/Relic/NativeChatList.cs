@@ -205,37 +205,16 @@ internal sealed class NativeChatList : Grid
         }
         identities.Clear();
         committed = revision; committedView = ViewIdentity; committedPresentationContext = PresentationContext;
+        // Another chat is cleared and filled row by row while the panel keeps its
+        // last item in view, so its latest message is placed without a seek. (A
+        // one-step reset started the list at its oldest rows and built those
+        // first.) Older pages stay incremental too: rows inserted above the
+        // visible ones keep the reading position in place (KeepItemsInView)
+        // without a far ScrollIntoView, which is where ModernCollectionBasePanel
+        // failed fast (ContainerManager::PlaceInValidElements, E_UNEXPECTED) on
+        // lists of thousands of rows.
+        if (!sameView) entries.Clear();
         var wanted = next.ToHashSet();
-        // ItemsStackPanel reconciles every single-item change on its next layout
-        // pass. Another chat replaces the collection in one reset instead of a
-        // clear and an insert per row; its latest position intent places it.
-        // Older pages stay incremental: rows inserted above the visible ones keep
-        // the reading position in place (KeepItemsInView) without a far
-        // ScrollIntoView, which is where ModernCollectionBasePanel failed fast
-        // (ContainerManager::PlaceInValidElements, E_UNEXPECTED) on long lists.
-        if (!sameView)
-        {
-            entries = new ObservableCollection<Entry>(next);
-            list.ItemsSource = entries;
-            foreach (var (host, binding) in mounted.ToArray())
-                if (!wanted.Contains(binding.Entry)) Release(host);
-            // The new collection has no realized target yet: aim the current
-            // position intent again from the start.
-            if (position is { } intent)
-            {
-                intent.RequestedEntry = null; intent.LastGeometry = null; intent.Corrections = 0;
-                intent.CorrectionPending = false; intent.CorrectionCompleted = false; intent.ConfirmAfter = 0;
-            }
-            // Containers the list discarded without a recycle notification would
-            // keep stale bindings; drop those that are no longer in the tree.
-            dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-            {
-                foreach (var (host, _) in mounted.ToArray()) if (!host.IsLoaded) Release(host);
-            });
-            PerformanceTrace.Count(TraceName + ".list.reset", next.Count);
-            ConfigurePresenter(); QueuePositionCheck();
-            return;
-        }
         for (var index = entries.Count - 1; index >= 0; index--)
             if (!wanted.Contains(entries[index])) entries.RemoveAt(index);
         var existing = entries.ToHashSet();
