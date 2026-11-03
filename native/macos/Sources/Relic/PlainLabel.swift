@@ -11,16 +11,18 @@ struct PlainLabel: View {
     var color: Color = RelicStyle.ink
     var lineHeight: CGFloat? = nil
     var monospaced = false
+    var struck = false
     init(_ text: String, size: CGFloat = 14, weight: Int = 400, color: Color = RelicStyle.ink,
-         lineHeight: CGFloat? = nil, monospaced: Bool = false) {
+         lineHeight: CGFloat? = nil, monospaced: Bool = false, struck: Bool = false) {
         self.text = text; self.size = size; self.weight = weight; self.color = color
-        self.lineHeight = lineHeight; self.monospaced = monospaced
+        self.lineHeight = lineHeight; self.monospaced = monospaced; self.struck = struck
     }
     var body: some View {
         let font = monospaced ? RelicStyle.monoFont(size) : RelicStyle.nativeFont(size, weight: weight)
         let natural = font.ascender - font.descender + font.leading
         let extra = max(0, (lineHeight ?? size * 1.6) - natural)
         Text(verbatim: text)
+            .strikethrough(struck)
             .font(Font(font))
             .foregroundStyle(color)
             .lineSpacing(extra)

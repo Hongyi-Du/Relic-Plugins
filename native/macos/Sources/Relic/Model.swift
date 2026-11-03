@@ -378,8 +378,8 @@ import Combine
         let navigation = navigationGeneration
         startupStage?("snapshot")
         let snap = try await get(selected.path("?lang=" + words.language))
-        let chatQuery = selected.member.isEmpty ? "/chat?kind=group&limit=1000"
-            : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=1000"
+        let chatQuery = selected.member.isEmpty ? "/chat?kind=group&limit=200"
+            : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=200"
         let chat = try await get(selected.path(chatQuery))
         startupStage?("history")
         let who = snap["members"].rows.first { $0["name"].text == selected.member } ?? Node()
@@ -512,8 +512,8 @@ import Combine
 
     private func loadSelectedChat(_ selected: ChatSelection, generation: Int, record: Bool) async throws {
         guard !selected.org.isEmpty else { return }
-        let query = selected.member.isEmpty ? "/chat?kind=group&limit=1000"
-            : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=1000"
+        let query = selected.member.isEmpty ? "/chat?kind=group&limit=200"
+            : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=200"
         // Like the reference, a chat switch inside the open organization only
         // loads that chat. Event-driven refreshes keep this snapshot current;
         // re-reading the whole organization doubled the server work per click.

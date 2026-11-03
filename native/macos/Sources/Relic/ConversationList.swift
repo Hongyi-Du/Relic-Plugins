@@ -54,6 +54,9 @@ struct ConversationStream: View {
     @State private var revealRequest = 0
     /// The oldest loaded row when an earlier server page was requested.
     @State private var olderRequest: String?
+    /// Home keeps the actual first row at the top until the person scrolls or
+    /// a page arrives, even when AppKit restores an offset after the update.
+    @State private var pinsTop = false
     private enum Reveal: Equatable { case top(String), bottom(String), start, latest }
     private struct UpdateKey: Hashable {
         let selection: String, version: Int, enabled: Bool, window: String, request: Int
@@ -94,7 +97,7 @@ struct ConversationStream: View {
                             ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                     if let separator = row.separator {
-                                        ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center)
+                                        PlainLabel(separator, size: 11.5, color: RelicStyle.muted).lineLimit(1)
                                             .frame(maxWidth: .infinity).padding(.top, 18)
                                             .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: compact))
                                     }
@@ -179,7 +182,7 @@ struct ConversationStream: View {
             .onChange(of: m.selection) {
                 keyboard.discardDisclosurePosition(); followsLatest = true
                 preservingDisclosure = false; keyboard.observedHeight = 0
-                window = ConversationWindow(selection: m.selection.key); reveal = nil; olderRequest = nil
+                window = ConversationWindow(selection: m.selection.key); reveal = nil; olderRequest = nil; pinsTop = false
             }
             .onChange(of: m.streamVersion) {
                 PerformanceRendering.observed(streamVersion: m.streamVersion)
@@ -197,7 +200,7 @@ struct ConversationStream: View {
                 keyboard.didUserScroll = { nearBottom in
                     let all = m.streamRows, range = window.range(in: all, selection: m.selection.key)
                     followsLatest = nearBottom && range.upperBound == all.count
-                    preservingDisclosure = false
+                    preservingDisclosure = false; pinsTop = false
                     if followsLatest, window.anchor != nil {
                         window = .showing(range, in: all, selection: m.selection.key)
                     } else if !followsLatest, window.anchor == nil, !range.isEmpty {
@@ -210,11 +213,11 @@ struct ConversationStream: View {
                     preservingDisclosure = false; olderRequest = nil
                     let all = m.streamRows, key = m.selection.key
                     if top {
-                        followsLatest = false
+                        followsLatest = false; pinsTop = true
                         let end = min(all.count, ConversationWindow.initial)
                         request(.start, window: end < all.count ? ConversationWindow.pinned(0..<end, in: all, selection: key) : ConversationWindow.showing(0..<end, in: all, selection: key))
                     } else {
-                        followsLatest = true
+                        followsLatest = true; pinsTop = false
                         request(.latest, window: ConversationWindow(selection: key))
                     }
                 }
@@ -230,6 +233,7 @@ struct ConversationStream: View {
                     if changed, geometry.bottomGap > 1, followsLatest, !preservingDisclosure, !m.isPreparingConversation {
                         seekLatest(proxy)
                     }
+                    if pinsTop, reveal == nil, geometry.topGap > 1 { proxy.scrollTo("start", anchor: .top); return }
                     guard !followsLatest, reveal == nil, olderRequest == nil, !m.isPreparingConversation,
                           geometry.height > geometry.viewportHeight else { return }
                     let all = m.streamRows, range = window.range(in: all, selection: m.selection.key)
@@ -237,7 +241,7 @@ struct ConversationStream: View {
                     if geometry.topGap < 100 {
                         if range.lowerBound > 0 { showOlder(all, above: range) }
                         else if m.moreChat, !m.loadingOlder { requestOlderPage(all[range.lowerBound].id) }
-                    } else if geometry.bottomGap < 100, range.upperBound < all.count {
+                    } else if !pinsTop, geometry.bottomGap < 100, range.upperBound < all.count {
                         showNewer(all, below: range)
                     }
                 }
@@ -257,6 +261,7 @@ struct ConversationStream: View {
     /// Page one bounded step toward older loaded rows, keeping the current
     /// first row at the top. Newer rows beyond the window size are released.
     private func showOlder(_ all: [ConversationRow], above range: Range<Int>) {
+        pinsTop = false
         let anchor = all[range.lowerBound].id
         let start = max(0, range.lowerBound - ConversationWindow.page)
         let end = min(range.upperBound, start + ConversationWindow.maximum)
@@ -266,6 +271,7 @@ struct ConversationStream: View {
     /// Page one bounded step toward the newest rows, keeping the current last
     /// row at the bottom. Reaching the newest row follows new rows again.
     private func showNewer(_ all: [ConversationRow], below range: Range<Int>) {
+        pinsTop = false
         let anchor = all[range.upperBound - 1].id
         let end = min(all.count, range.upperBound + ConversationWindow.page)
         let start = max(range.lowerBound, end - ConversationWindow.maximum)
@@ -299,6 +305,7 @@ struct ConversationStream: View {
         if shownRange.upperBound < all.count {
             // The newest rows are outside the window: show them first, then
             // scroll after the List has received that bounded collection.
+            pinsTop = false
             request(.latest, window: ConversationWindow(selection: m.selection.key)); return
         }
         if let id = latestID { proxy.scrollTo(id, anchor: .bottom) }
