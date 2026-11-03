@@ -28,6 +28,8 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var sampledStall = false
     private var sampledStartup = false
     private var sampledDialog = false
+    private var earlySamples = 0
+    private let diagnostic = ProcessEnvironment.value("RELIC_PERF_DIAGNOSTIC") == "true"
     /// Diagnostic runs only. A phase that studies a later action can skip the
     /// startup sample, whose overhead can fail the phase before that action.
     var samplesStartup = true
@@ -88,6 +90,14 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let enqueue = pending == 0
         let sampleStall = worst > 250 && !sampledStall
         if sampleStall { sampledStall = true }
+        // Diagnostic runs only: a sample that starts after a 250 ms failure
+        // sees idle time. Start while a main-thread block is still growing,
+        // so the sample holds the actual work of the long stalls.
+        let sampleEarly = diagnostic && pending > 0 && (now - pending) * 1000 >= 170 && earlySamples < 3
+            && !(stage.hasPrefix("startup") || stage.hasSuffix(":dialog"))
+        if sampleEarly { earlySamples += 1 }
+        let earlyName = "early-stall-" + String(earlySamples)
+        let earlyReceipt: [String: Any] = ["action": stage, "pending_ms": pending > 0 ? (now - pending) * 1000 : 0]
         let persist = persistence.shouldWrite(now: now, action: stage, worst: worst, unfinished: !enqueue)
         if enqueue { pending = now; pendingEpoch = Self.epoch; pendingStage = stage }
         if persist { sequence += 1 }
@@ -109,6 +119,11 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
                 self.lock.unlock()
             }
             CFRunLoopWakeUp(main)
+        }
+        if sampleEarly {
+            var receipt = earlyReceipt; receipt["work"] = UIWorkTrace.shared.snapshot()
+            write(receipt, earlyName + "-work.json")
+            sample(earlyName, seconds: 1)
         }
         if sampleStall {
             write(UIWorkTrace.shared.snapshot(), "first-stall-work.json")
