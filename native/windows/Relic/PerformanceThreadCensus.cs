@@ -42,7 +42,7 @@ internal static class PerformanceThreadCensus
 
     private static string Describe(int id)
     {
-        var handle = OpenThread(0x0800 /* THREAD_QUERY_LIMITED_INFORMATION */, false, (uint)id);
+        var handle = OpenThread(0x0840 /* THREAD_QUERY_INFORMATION and _LIMITED_ */, false, (uint)id);
         if (handle == IntPtr.Zero) return "?";
         try
         {

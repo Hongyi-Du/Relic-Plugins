@@ -340,10 +340,12 @@ public sealed partial class MainWindow
                 PerformanceTrace.Count("conversation.programmatic_direct_manipulation", latestRequest);
                 return;
             }
+            stream.UserPanning = true;
             BeginUserPan("direct_manipulation", manipulationStartOffset);
         };
         chatScroll.DirectManipulationCompleted += (_, _) =>
         {
+            stream.UserPanning = false;
             conversationScrollInput.CompleteDirectManipulation(); manipulationRequest = -1;
             if (panRequest == latestRequest && panOrg == org && panMember == member
                 && chatScroll.VerticalOffset > panStartOffset + 1

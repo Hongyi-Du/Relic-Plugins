@@ -201,21 +201,23 @@ internal sealed class NativeChatList : Grid
         {
             Viewport.ViewChanged -= ViewChanged;
             Viewport.SizeChanged -= ViewSizeChanged;
-            Viewport.DirectManipulationStarted -= ManipulationStarted;
-            Viewport.DirectManipulationCompleted -= ManipulationCompleted;
         }
         Viewport = viewport; viewport.IsTabStop = true;
         viewport.ViewChanged += ViewChanged; viewport.SizeChanged += ViewSizeChanged;
-        viewport.DirectManipulationStarted += ManipulationStarted;
-        viewport.DirectManipulationCompleted += ManipulationCompleted;
         ViewportReady?.Invoke(viewport);
         QueuePositionCheck();
     }
 
-    private bool manipulating;
+    // Set by the conversation for a touch or touchpad pan it attributed to the
+    // person. The ScrollViewer also raises DirectManipulationStarted for the
+    // list's own scrolls, so that event alone cannot say whose gesture it is.
+    private bool userPanning;
+    internal bool UserPanning
+    {
+        get => userPanning;
+        set { userPanning = value; if (value) pendingShift = 0; }
+    }
     private double pendingShift;
-    private void ManipulationStarted(object? sender, object args) { manipulating = true; pendingShift = 0; }
-    private void ManipulationCompleted(object? sender, object args) => manipulating = false;
 
     // ItemsStackPanel's KeepItemsInView did this itself (and failed fast, see
     // the panel template): a row that lies entirely above the viewport and is
@@ -228,7 +230,7 @@ internal sealed class NativeChatList : Grid
     // change after layout); otherwise they are from before it (a removal).
     private void KeepRowsOnScreen(FrameworkElement element, double delta, bool changed)
     {
-        if (Math.Abs(delta) < .25 || manipulating || Viewport is not { } viewport || !element.IsLoaded
+        if (Math.Abs(delta) < .25 || userPanning || Viewport is not { } viewport || !element.IsLoaded
             || position is { Kind: PositionKind.Latest }) return;
         var bounds = Bounds(element, viewport);
         var bottomBefore = changed ? bounds.Bottom - delta : bounds.Bottom;
@@ -239,7 +241,7 @@ internal sealed class NativeChatList : Grid
     {
         if (pendingShift == 0 || Viewport is not { } viewport) return;
         var shift = pendingShift; pendingShift = 0;
-        if (manipulating) return;
+        if (userPanning) return;
         PerformanceTrace.Count(TraceName + ".list.keep_rows_on_screen", shift);
         viewport.ChangeView(null, Math.Clamp(viewport.VerticalOffset + shift, 0, viewport.ScrollableHeight), null, true);
     }
