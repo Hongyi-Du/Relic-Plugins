@@ -1,5 +1,14 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+当前候选把首次原生List创建与首批数据接入分到连续显示回合；后续聊天切换保留同一
+表格。几何通知若原生viewport已在底部，则不重复scrollTo；首次、End和新数据定位保留。
+新增flipped/nonflipped原生0→73→0pt观测，扩展真实List宽度重排/历史位置测试。
+这一修复针对重复定位与冷启动事务，需下一轮CI，不能以代码存在代替性能通过。
+2dfd2bf person-shape压力：idle也PASS，单核1.19434%、162.641MiB/8线程；其他阶段仍FAIL。
+其中open362.847ms、switch433.290ms、workflows304.959ms、history268.923ms、monkey427.738ms。
+2dfd2bf large首次264.180ms超标时尚无正文挂载，不能把后续消息布局144ms归因于该次停顿。
+最新整窗已检查：S:\Codex\Outputs\Relic-native-visual\window-2dfd2bf\macos\。
+
 2dfd2bf 的 Native apps41547206375、Python41547206382、整窗41547206346均PASS。
 large压力41547206354：idle PASS，单核CPU1.29877%、171.906MiB/9线程峰值，
 内存持平、末段线程8→6；其余阶段仍FAIL，主线程264–374ms，完整场景未完成。

@@ -13,6 +13,7 @@ import SwiftUI
     var positionObservation: (() -> [String: Any])?
     struct Geometry: Equatable {
         let height: CGFloat, viewportHeight: CGFloat, width: CGFloat, topGap: CGFloat
+        var bottomGap: CGFloat { max(0, height - viewportHeight - topGap) }
     }
     var geometryChanged: ((Geometry) -> Void)?
     var observedHeight: CGFloat = 0

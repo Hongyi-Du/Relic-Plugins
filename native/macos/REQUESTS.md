@@ -1,4 +1,10 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+Mac next candidate separates cold native List creation from first-page adoption
+and skips redundant geometry-triggered scrollTo when actual bottomGap<=1. First
+navigation/End/new-content seeks and real history assertions remain. Native
+geometry/reflow tests added. e4aa723 date/tooltip CI is still running; not proof.
+2dfd2bf person-shape idle also PASS1.19434%one-core/162.641MiB/8threads; remaining
+phases fail269–433ms. Whole-window41547206346 downloaded/inspected. No new API.
 2dfd2bf Native41547206375, Python41547206382, whole-window41547206346 PASS.
 Large pressure41547206354 idle PASS 1.29877%one-core/171.906MiB/9threads peak;
 other phases still fail264–374ms. Mac is removing repeated date formatting from
