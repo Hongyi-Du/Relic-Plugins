@@ -276,8 +276,7 @@ public sealed partial class MainWindow
             // Left alignment keeps a short name's badge immediately after it;
             // an Auto name column instead expands outside the available row.
             var heading = new Grid { ColumnSpacing = 6, HorizontalAlignment = HorizontalAlignment.Left, UseLayoutRounding = false }; heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-            var name = new NativeLabel(title, FontFamilies.UI, 13.3, 550, words.Language, 17.955,
-                characterEllipsis: true, accessibleText: true) { Foreground = Ink };
+            var name = SidebarLine(title, 13.3, 550, 17.955, Ink);
             heading.Children.Add(name);
             OverviewBadgeView? tag = null;
             if (secretary && !secretarySetup) tag = SidebarTag(OverviewRoleName(who, T("common.secretary")), true);
@@ -290,8 +289,7 @@ public sealed partial class MainWindow
                 // Both group and private previews use this actual single-line
                 // production renderer. Keep full text in its native Text peer;
                 // the existing row tooltip and row selection remain unchanged.
-                var sub = new NativeLabel(subtitle, FontFamilies.UI, 12, 400, words.Language, 16.2,
-                    characterEllipsis: true, accessibleText: true) { Foreground = Muted };
+                var sub = SidebarLine(subtitle, 12, 400, 16.2, Muted);
                 text.Children.Add(sub);
             }
             Grid.SetColumn(text, 1); row.Children.Add(text);
@@ -401,7 +399,16 @@ public sealed partial class MainWindow
     private TextBlock SidebarText(string value, double size = 12.5, bool muted = false, ushort weight = 400, double lineHeight = 0)
     {
         var text = OverviewText(value, size, muted, weight, lineHeight); text.UseLayoutRounding = false;
-        NativeGlyphWarmup.Attach(text, root.XamlRoot); return text;
+        return text;
+    }
+    // One trimmed line of a sidebar row, drawn by the system text renderer: no glyph preparation, surface or paint
+    // callback per row, and the full text stays in its accessible Text.
+    private TextBlock SidebarLine(string value, double size, ushort weight, double lineHeight, Brush foreground)
+    {
+        var line = OverviewText(value, size, false, weight, lineHeight);
+        line.TextWrapping = TextWrapping.NoWrap; line.TextTrimming = TextTrimming.CharacterEllipsis; line.MaxLines = 1;
+        line.IsTextSelectionEnabled = false; line.UseLayoutRounding = false; line.Foreground = foreground;
+        return line;
     }
     private static void BindSidebarRowName(ListViewItem row, UIElement content)
     {
@@ -455,14 +462,13 @@ public sealed partial class MainWindow
     private PersonPicture SidebarOrgFace(JsonNode organization)
     {
         var badge = OverviewOrgBadge(organization, organization.Text("kind") == "subgroup");
-        if (badge is NativeOrganizationAvatarPaint paint) NativeGlyphWarmup.Attach(paint.Initial, root.XamlRoot);
         return SidebarPicture(organization.Text("name"), badge, 22);
     }
     private Grid SidebarFace(string who, string url, string state, bool secretary)
     {
         var label = who.Length > 0 ? Display(who) : T("common.group_chat");
         var painted = who.Length == 0 && !secretary ? ChatAvatar(false) : secretary && url.Length == 0 ? ChatAvatar(true) : AvatarPaint(url, label, 28);
-        if (painted is Border face) { face.CornerRadius = new CornerRadius(8); if (face.Child is TextBlock initial) { initial.FontSize = 12; initial.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; NativeGlyphWarmup.Attach(initial, root.XamlRoot); } }
+        if (painted is Border face) { face.CornerRadius = new CornerRadius(8); if (face.Child is TextBlock initial) { initial.FontSize = 12; initial.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; } }
         var result = new Grid { Width = 28, Height = 28 }; result.Children.Add(SidebarPicture(label, painted, 28));
         if (state is not ("" or "idle"))
         {

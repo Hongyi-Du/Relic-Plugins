@@ -26,7 +26,9 @@ public sealed partial class MainWindow
     private readonly List<(MenuFlyoutItem Item, Action Pick)> mentionChoices = new();
     private int mentionIndex;
     private bool pickingMention;
-    private const int chatLimit = 1000;
+    // The latest messages a chat opens with and every refresh reads again; older ones arrive page by page as the
+    // person scrolls up. A thousand made each refresh of a busy chat read and compare megabytes.
+    private const int chatLimit = 200;
     private bool chatMore, olderHistory;
     private bool loadingOlder, keepLatest = true;
     private readonly ScrollInputIntent conversationScrollInput = new();
@@ -707,11 +709,14 @@ public sealed partial class MainWindow
         {
             var time = DateTimeOffset.TryParse(item.Text("at"), out var at) ? at.ToLocalTime().ToString("HH:mm") : "";
             var label = new MessageHeaderRow { Spacing = 6, HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left };
-            NativeLabel Who(string value, double size, bool bold = false, bool mono = false)
+            // The system text renderer: a header costs no glyph preparation, surface or paint callback of its own.
+            TextBlock Who(string value, double size, bool bold = false, bool mono = false)
             {
-                return new NativeLabel(value, mono ? "Cascadia Code" : FontFamilies.UI,
-                    size, (ushort)(bold ? 600 : 400), words.Language, size * 1.3, accessibleText: true, wrapWholeWords: true, primaryFontLineSpacing: true)
-                { Foreground = bold ? Paint("5A5853", "B8B5AE") : Muted, VerticalAlignment = VerticalAlignment.Bottom };
+                var text = OverviewText(value, size, false, (ushort)(bold ? 600 : 400), size * 1.3);
+                if (mono) text.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code");
+                text.TextWrapping = TextWrapping.WrapWholeWords; text.IsTextSelectionEnabled = false;
+                text.Foreground = bold ? Paint("5A5853", "B8B5AE") : Muted; text.VerticalAlignment = VerticalAlignment.Bottom;
+                return text;
             }
             label.Children.Add(Who(item.Text("fromLabel").Length > 0 ? item.Text("fromLabel") : Display(from), 12.5, true));
             if (!inThread && member.Length == 0 && snap.Rows("members").Any(m => m.Text("name") == from))

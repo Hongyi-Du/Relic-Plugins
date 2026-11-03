@@ -45,6 +45,8 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock appTitle = new() { FontSize = 12.5, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
     private Button? sendButton;
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    // Other organizations' changes only touch their sidebar rows: read the organization list at most this often.
+    private readonly DispatcherTimer sidebarTimer = new() { Interval = TimeSpan.FromMilliseconds(1500) };
     private bool refreshing, pending, closing, ready, sending, sendingThread;
     private TaskCompletionSource? refreshCompletion;
     private string renderedView = "";
@@ -173,10 +175,11 @@ public sealed partial class MainWindow : Window
         AddShortcut((VirtualKey)188, VirtualKeyModifiers.Control, Settings);
         AddShortcut(VirtualKey.F, VirtualKeyModifiers.Control, () => { search.Focus(FocusState.Keyboard); return Task.CompletedTask; });
         refreshTimer.Tick += async (_, _) => { refreshTimer.Stop(); await Run(Refresh); };
+        sidebarTimer.Tick += async (_, _) => { sidebarTimer.Stop(); await Run(RefreshSidebar); };
         Closed += async (_, e) =>
         {
             if (closing) return;
-            e.Handled = true; SaveViewState(); SaveWindowPlacement(); placementTimer.Stop(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop(); plainTimer.Stop();
+            e.Handled = true; SaveViewState(); SaveWindowPlacement(); placementTimer.Stop(); closing = true; ready = false; lifetime.Cancel(); refreshTimer.Stop(); sidebarTimer.Stop(); plainTimer.Stop();
             await viewStateWriter.DisposeAsync(); await windowStateWriter.DisposeAsync();
             await StopVoice(); await host.DisposeAsync(); api?.Dispose(); Close();
         };
@@ -224,7 +227,7 @@ public sealed partial class MainWindow : Window
                             foreach (var id in ev.Rows("ids")) { var key = ev.Text("org") + "/" + id.Text(); if (!plain.ContainsKey(key)) { plainPending.Remove(key); plainFailed.Add(key); } }
                         }
                         if (ev.Text("org") == org && ev.Text("type") == "digest") { digestPending = false; if (ev["digest"] != null) digest = ev["digest"]!.DeepClone(); if (ev.Text("error").Length > 0) Note(T("digest.failed", ("error", ev.Text("error")))); }
-                        Schedule();
+                        Route(ev);
                         }
                         finally { handled.TrySetResult(); }
                     })) handled.TrySetCanceled(lifetime.Token);
@@ -244,6 +247,58 @@ public sealed partial class MainWindow : Window
         root.KeyboardAccelerators.Add(accelerator);
     }
     private void Schedule() { pending = true; if (!refreshTimer.IsEnabled) refreshTimer.Start(); }
+    private void ScheduleSidebar() { if (!sidebarTimer.IsEnabled) sidebarTimer.Start(); }
+    // The server announces a change of any organization about once a second while its members work (each tool call is
+    // activity). Only a change of the open organization needs the open chat and inspector read again; another
+    // organization's change can only alter its sidebar row. A reconnect or an unknown event still reads everything.
+    private void Route(JsonNode ev)
+    {
+        var target = ev.Text("org");
+        switch (ev.Text("type"))
+        {
+            case "orgs":
+                ScheduleSidebar();
+                return;
+            case "live":
+                if (target.Length > 0 && target != org) return;  // another organization's streamed output
+                Schedule();
+                return;
+            case "org" or "decision" or "digest" or "plain":
+                if (target.Length > 0 && target != org) { ScheduleSidebar(); return; }
+                Schedule();
+                return;
+            default:
+                Schedule();
+                return;
+        }
+    }
+    // Another organization changed: read the organization list only and redraw the sidebar when it differs.
+    private async Task RefreshSidebar()
+    {
+        if (api == null || closing) return;
+        if (refreshing) { ScheduleSidebar(); return; }
+        var fresh = (await api.Get("/api/orgs")).Rows();
+        if (closing) return;
+        var current = orgs;
+        if (await Task.Run(() => JsonNode.DeepEquals(current, fresh), lifetime.Token)) return;
+        if (refreshing || !ReferenceEquals(orgs, current)) { ScheduleSidebar(); return; }
+        orgs = fresh;
+        using (PerformanceTrace.Measure("DrawSide")) DrawSide();
+    }
+    // What a message row shows of the members: who they are and how they look, never what they are doing now. A
+    // working member's state changes every few seconds and must not rebuild every row of the open chat.
+    private static readonly string[] memberLooks = ["name", "display", "label", "title", "avatar", "avatar_url", "color",
+        "role", "leader", "secretary", "harness", "kind"];
+    private static string MemberPresentationIdentity(JsonNode? snapshot)
+    {
+        var identity = new System.Text.StringBuilder();
+        foreach (var member in snapshot.Rows("members"))
+        {
+            foreach (var key in memberLooks) identity.Append(member?[key]?.ToJsonString() ?? "").Append('\u001f');
+            identity.Append('\u001e');
+        }
+        return identity.ToString();
+    }
     private async Task Refresh()
     {
         if (api == null || closing) return;
@@ -325,7 +380,7 @@ public sealed partial class MainWindow : Window
                     Chat: chatChanged,
                     Detail: snapshotChanged || !JsonNode.DeepEquals(oldThread, nextThread),
                     Identities: chatChanged ? MessagePresentationIdentities(nextMessages) : null,
-                    MemberIdentity: snapshotChanged ? nextSnap["members"]?.ToJsonString() ?? "" : null);
+                    MemberIdentity: snapshotChanged ? MemberPresentationIdentity(nextSnap) : null);
             }, lifetime.Token);
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             if (changes.Identities != null) messagePresentationIdentities = changes.Identities;
@@ -336,21 +391,22 @@ public sealed partial class MainWindow : Window
             var presentationChanged = currentPresentation != renderedPresentationVersion;
             using (PerformanceTrace.Measure("DrawMenu")) if (viewChanged || presentationChanged) DrawMenu();
             using (PerformanceTrace.Measure("DrawToolbar")) if (changes.Side || changes.Chat || changes.Detail || newCopy != null || viewChanged || presentationChanged) DrawToolbar();
-            await YieldPresentation();
-            if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             using (PerformanceTrace.Measure("DrawSide"))
             {
                 if (changes.Side || organizationChanged || sidebarStructureChanged || presentationChanged) { DrawSide(); sidebarStructureChanged = false; }
                 else if (viewChanged) UpdateSidebarSelection();
             }
-            await YieldPresentation();
-            if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             if ((changes.Chat || viewChanged || presentationChanged) && !await DrawConversationAsync()) { pending = true; return; }
-            await YieldPresentation();
-            if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             // Overview is organization data. A private-chat selection changes
             // its sidebar highlight, not its member/task/protocol controls.
-            using (PerformanceTrace.Measure("DrawDetail")) if (changes.Detail || organizationChanged || presentationChanged || (viewChanged && pane != "overview")) DrawDetail();
+            var detailChanged = changes.Detail || organizationChanged || presentationChanged || (viewChanged && pane != "overview");
+            if (detailChanged)
+            {
+                // The chat comes first; the inspector follows a frame later, so no single frame carries both.
+                await YieldPresentation();
+                if (org != selectedOrg || member != selectedMember) { pending = true; return; }
+            }
+            using (PerformanceTrace.Measure("DrawDetail")) if (detailChanged) DrawDetail();
             renderedView = org + "/" + member;
             renderedPresentationVersion = currentPresentation;
             if (pane == "workspace" && changes.Detail) await Workspace();
@@ -371,12 +427,16 @@ public sealed partial class MainWindow : Window
         while (reveal.Length > 0 && ancestors.Add(reveal)) { sidebarStructureChanged |= folded.Remove(reveal); reveal = orgs.FirstOrDefault(o => o.Text("id") == reveal).Text("parent"); }
         SaveViewState();
         LayoutColumns();
+        // A selected chat opens at its latest message. Its first draw starts that one scroll intent; a second request
+        // here would restart positioning that is already under way.
+        keepLatest = true;
+        var requested = latestRequest;
         await Refresh();
         if (org != id || member != who) return;
         if (renderedView != id + "/" + who) await Refresh();
         if (org != id || member != who) return;
         if (different && digestOpen) await LoadDigest(false);
-        ScrollToLatest();
+        if (latestRequest == requested) ScrollToLatest();
     }
     private void DrawMenu() => BuildMenus();
     private async Task YieldPresentation()
