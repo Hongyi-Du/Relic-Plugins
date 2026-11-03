@@ -153,6 +153,10 @@ struct ConversationStream: View {
         let selection: String, version: Int, enabled: Bool, window: String, request: Int
     }
     private var latestID: String? { m.displayLiveItems.isEmpty ? presented.last?.id : "live-end" }
+    /// The height a newly shown chat's latest rows must fill: the List's own
+    /// viewport once it has been measured, not the whole window, so the
+    /// update that adopts another chat's rows inserts fewer table rows.
+    private var fillHeight: CGFloat { keyboard.observedViewportHeight > 100 ? keyboard.observedViewportHeight : m.windowSize.height }
     private var shownRange: Range<Int> { window.range(in: presented, selection: m.selection.key) }
 
     var body: some View {
@@ -196,7 +200,12 @@ struct ConversationStream: View {
                             .listRowSeparator(.hidden).listRowBackground(Color.clear)
                         }
                         if hasLive {
-                            LiveTurnView().padding(.bottom, 24).frame(maxWidth: 880).frame(maxWidth: .infinity)
+                            // Built in a turn of its own, as the latest row, not
+                            // in the update that adopts another chat's rows.
+                            ProgressiveRow(estimatedHeight: 96, workLabel: UIWorkTrace.enabled ? "row.conversation.live" : nil,
+                                           weight: RowMountQueue.budget) { LiveTurnView() }
+                                .environment(\.rowMountPriority, 20)
+                                .padding(.bottom, 24).frame(maxWidth: 880).frame(maxWidth: .infinity)
                                 .background(mount).id("live-end")
                                 .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
@@ -257,7 +266,7 @@ struct ConversationStream: View {
                     let anotherChat = !presentedKey.hasPrefix(m.selection.key + "#")
                     UIWorkTrace.untilNextTurn(anotherChat ? "stream.adopt-chat" : "stream.adopt")
                     presented = m.streamRows; presentedKey = key
-                    let tail = ConversationWindow.tailCount(of: presented, filling: m.windowSize.height)
+                    let tail = ConversationWindow.tailCount(of: presented, filling: fillHeight)
                     if anotherChat, window.anchor == nil, window.selection == m.selection.key, window.count > tail {
                         window.count = tail
                     }
@@ -331,7 +340,7 @@ struct ConversationStream: View {
                         request(.start, window: end < all.count ? ConversationWindow.pinned(0..<end, in: all, selection: key) : ConversationWindow.showing(0..<end, in: all, selection: key))
                     } else {
                         followsLatest = true; pinsTop = false
-                        request(.latest, window: ConversationWindow(selection: key, count: ConversationWindow.tailCount(of: all, filling: m.windowSize.height)))
+                        request(.latest, window: ConversationWindow(selection: key, count: ConversationWindow.tailCount(of: all, filling: fillHeight)))
                     }
                 }
                 keyboard.geometryChanged = { geometry in
@@ -472,7 +481,7 @@ struct ConversationStream: View {
             // The newest rows are outside the window: show them first, then
             // scroll after the List has received that bounded collection.
             pinsTop = false
-            request(.latest, window: ConversationWindow(selection: m.selection.key, count: ConversationWindow.tailCount(of: all, filling: m.windowSize.height))); return
+            request(.latest, window: ConversationWindow(selection: m.selection.key, count: ConversationWindow.tailCount(of: all, filling: fillHeight))); return
         }
         if let id = latestID { proxy.scrollTo(id, anchor: .bottom) }
     }
