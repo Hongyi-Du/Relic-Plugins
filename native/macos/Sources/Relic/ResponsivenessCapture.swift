@@ -51,7 +51,7 @@ import RelicCore
             await settle()
             // Framework initialization is complete; all organization loading,
             // layout, parsing and events are included from this point onward.
-            UIWorkTrace.observeDisplayPasses()
+            UIWorkTrace.observeRunLoop()
             watchdog.begin()
             current.startupStage = { watchdog.action("startup:" + $0) }
             await current.start()

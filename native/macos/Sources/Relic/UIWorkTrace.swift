@@ -81,26 +81,41 @@ final class UIWorkTrace: @unchecked Sendable {
                          : entry.name + " " + String(entry.calls) + "x"
         }
     }
-    /// CI only. Times each pass of the main run loop's display work, from the
-    /// first to the last observer before the run loop waits: SwiftUI's graph
-    /// update, AppKit's layout and drawing, and Core Animation's commit. A
-    /// probe that waited behind a long pass then lists "runloop.display" next
-    /// to the named regions' layouts and the labels that ran inside it, and a
-    /// stall outside any pass shows that its work came from a queued job.
-    @MainActor static func observeDisplayPasses() {
-        guard enabled, !observingDisplay else { return }
-        observingDisplay = true
-        var token: Int?
-        let first = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.min) { _, _ in
-            end(token); token = begin("runloop.display")
+    /// CI only. Splits the main run loop's time into named parts, so a probe
+    /// that waited names the part that held it:
+    /// - runloop.observers.<stage>: every observer of that stage, first to
+    ///   last. AppKit flushes the display there (Core Animation's commit runs
+    ///   the window's layout, SwiftUI's update and drawing), at whichever
+    ///   stage this macOS uses.
+    /// - runloop.after.<stage>: the work that follows that stage's observers.
+    ///   After "woke" that is timers, the main queue (main-actor jobs) and
+    ///   ports such as events; after "sources", run loop blocks and sources,
+    ///   and the same work as after "woke" when the loop goes on without sleeping.
+    /// The thread's sleep after "waiting" is not counted.
+    @MainActor static func observeRunLoop() {
+        guard enabled, !observingRunLoop else { return }
+        observingRunLoop = true
+        let stages: [(CFRunLoopActivity, String)] = [(.entry, "entry"), (.beforeTimers, "timers"), (.beforeSources, "sources"),
+                                                    (.beforeWaiting, "waiting"), (.afterWaiting, "woke"), (.exit, "exit")]
+        var observerNames: [CFOptionFlags: String] = [:], afterNames: [CFOptionFlags: String] = [:]
+        for (activity, name) in stages {
+            observerNames[activity.rawValue] = "runloop.observers." + name
+            if activity != .beforeWaiting && activity != .exit { afterNames[activity.rawValue] = "runloop.after." + name }
         }
-        let last = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { _, _ in
-            end(token); token = nil
+        var observers: Int?, work: Int?
+        let all = CFRunLoopActivity.allActivities.rawValue
+        let first = CFRunLoopObserverCreateWithHandler(nil, all, true, CFIndex.min) { _, activity in
+            end(work); work = nil
+            end(observers); observers = observerNames[activity.rawValue].flatMap { begin($0) }
+        }
+        let last = CFRunLoopObserverCreateWithHandler(nil, all, true, CFIndex.max) { _, activity in
+            end(observers); observers = nil
+            work = afterNames[activity.rawValue].flatMap { begin($0) }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), first, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), last, .commonModes)
     }
-    @MainActor private static var observingDisplay = false
+    @MainActor private static var observingRunLoop = false
     /// Scopes still open now, oldest first, with how long each has been open.
     func openScopes() -> [String] {
         lock.lock(); defer { lock.unlock() }
