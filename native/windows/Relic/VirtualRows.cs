@@ -630,7 +630,9 @@ internal sealed class VirtualRows : Grid
                     built++;
                 }
                 finally { Interlocked.Decrement(ref PendingBuilds); PresentationPreparation.NotifyCompletion(); }
-                if (built >= 4 || System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 4) break;
+                // Sidebar and inspector rows are cheap: four per 16 ms tick kept an
+                // organization switch waiting several frames for its own rows.
+                if (built >= 32 || System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 12) break;
             }
             if (pending.Count == 0) pumpTimer!.Stop();
         }

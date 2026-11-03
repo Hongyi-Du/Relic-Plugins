@@ -57,12 +57,13 @@ public sealed partial class MainWindow
                 var action = Volatile.Read(ref performanceAction);
                 var pending = activeProbe is { IsCompletedSuccessfully: false } ? pendingSince : 0;
                 // Probe the UI at the original 40 ms cadence. Only healthy
-                // file publication is batched: 160 ms leaves one probe turn
-                // of headroom within a 200 ms healthy heartbeat interval.
-                // A pending probe, its recovery, a new maximum or an action
-                // change is published on the very next observation.
+                // file publication is batched: every 500 ms is well inside the
+                // harness's 2 s staleness limit and keeps the probe's own file
+                // writes out of the measured idle CPU. A pending probe, its
+                // recovery, a new maximum or an action change is still
+                // published on the very next observation.
                 if (!force && pending == 0 && !publishedPending && worst <= publishedWorst
-                    && action == publishedAction && Stopwatch.GetElapsedTime(lastPublished).TotalMilliseconds < 160) return;
+                    && action == publishedAction && Stopwatch.GetElapsedTime(lastPublished).TotalMilliseconds < 500) return;
                 await Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
                     max_ui_stall_ms = worst * 1000d / Stopwatch.Frequency,
                     pending_since_unix_ms = pending,

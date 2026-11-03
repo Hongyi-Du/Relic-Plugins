@@ -273,7 +273,9 @@ internal sealed class NativeChatList : Grid
             finally { Interlocked.Decrement(ref pendingBuilds); PresentationPreparation.NotifyCompletion(); }
             // Bound both elapsed construction and count. Cheap event rows do
             // not each need an entire frame; rich rows retain an input yield.
-            if (built >= 4 || System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 4) break;
+            // A 12 ms budget still leaves each frame far below the 250 ms limit,
+            // and the visible tail of a chat is built in one or two frames.
+            if (built >= 8 || System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 12) break;
         }
         if (builds.Count == 0) pump.Stop();
         QueuePositionCheck();

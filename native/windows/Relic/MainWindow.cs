@@ -401,19 +401,27 @@ public sealed partial class MainWindow : Window
             // Overview is organization data. A private-chat selection changes
             // its sidebar highlight, not its member/task/protocol controls.
             var detailChanged = changes.Detail || organizationChanged || presentationChanged || (viewChanged && pane != "overview");
-            if (detailChanged)
-            {
-                // The chat comes first; the inspector follows a frame later, so no single frame carries both.
-                await YieldPresentation();
-                if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-            }
-            using (PerformanceTrace.Measure("DrawDetail")) if (detailChanged) DrawDetail();
             renderedView = org + "/" + member;
             renderedPresentationVersion = currentPresentation;
-            if (pane == "workspace" && changes.Detail) await Workspace();
-            if (refreshChart != null && changes.Detail) await refreshChart();
+            // The chat comes first. The inspector fills in once the chat has settled, apart from this refresh, so its
+            // rows never sit in front of the chat the person asked for and the next click never waits for them.
+            if (detailChanged) _ = Run(() => DrawDetailAfterChat(selectedOrg, selectedMember, changes.Detail));
         }
         finally { refreshing = false; completed.TrySetResult(); if (pending) Schedule(); MonitorTick(); }
+    }
+    private int detailRequest;
+    private async Task DrawDetailAfterChat(string selectedOrg, string selectedMember, bool detailData)
+    {
+        var request = ++detailRequest;
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        await YieldPresentation();  // at least one frame between the chat and the inspector
+        while (!closing && request == detailRequest && waited.Elapsed < TimeSpan.FromSeconds(1)
+            && !(ConversationContentReady() && (!keepLatest || stream.IsLastPositionSettled)))
+            await YieldPresentation();
+        if (closing || request != detailRequest || org != selectedOrg || member != selectedMember) return;
+        using (PerformanceTrace.Measure("DrawDetail")) DrawDetail();
+        if (pane == "workspace" && detailData) await Workspace();
+        if (refreshChart != null && detailData) await refreshChart();
     }
     private async Task Select(string id, string who = "", bool fromHistory = false)
     {
@@ -426,6 +434,8 @@ public sealed partial class MainWindow : Window
         RestoreChat(); if (!fromHistory) PushHistory();
         var reveal = id; var ancestors = new HashSet<string>();
         while (reveal.Length > 0 && ancestors.Add(reveal)) { sidebarStructureChanged |= folded.Remove(reveal); reveal = orgs.FirstOrDefault(o => o.Text("id") == reveal).Text("parent"); }
+        // A narrow window shows the inspector over the chat; opening a chat brings the chat itself to the front.
+        if (root.ActualWidth <= ResponsiveLayout.InspectorOverlayWidth) panelOpen = false;
         SaveViewState();
         LayoutColumns();
         // A selected chat opens at its latest message. Its first draw starts that one scroll intent; a second request
