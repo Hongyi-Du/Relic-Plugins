@@ -19,6 +19,14 @@
 - A seat's reply can name members of an organization above or below (`<org id>/<member>`) who are not in the
   thread. They get a copy, and the reply stays in the thread. Organizations out of reach are still refused, now with
   the reason.
+- A monitor of who is working on the computer and what it costs. The App server counts tokens per session from the
+  Claude Code and Codex transcripts (read once, incrementally; only per-minute and per-hour sums in usage.sqlite3).
+  - Stop ends Relic's processes for a session, makes the Relic hook refuse its tool calls so its turn ends, turns
+    off wake-ups for all its seats and pauses the Codex automations that start it. Typing to the session releases
+    it; Resume restores only what Stop changed. Stop all also pauses every Codex automation and every
+    organization's wake-ups.
+  - Token statistics by session, agent or organization for today, 24 hours, 7, 30 or 90 days, per period and
+    cumulative. API: `GET /api/monitor`, `GET /api/usage`, `POST /api/monitor/stop|resume`.
 
 自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
 没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。
@@ -31,6 +39,14 @@
 
 席位回帖时，可以写给帖子以外的上下级组织成员（`<组织编号>/<成员>`）：对方收到一份副本，回帖仍留在原帖里。
 够不着的组织照样拒绝，并说明原因。
+
+新增运行监控：看这台电脑上谁在工作、用了多少 token。App 服务从 Claude Code 和 Codex 的会话记录里统计，只读新增
+部分，usage.sqlite3 里只存每分钟和每小时的小计。
+- 「停止」结束 Relic 为这个会话启动的进程，让钩子拒绝它的工具调用、这一轮马上结束，关掉它所有席位的自动唤醒，
+  并暂停会唤醒它的 Codex 定时任务。你在那个会话里打字就能继续用它；「恢复」只重新打开停止时关掉的东西。
+  「全部停止」还暂停所有 Codex 定时任务和每个组织的自动唤醒。
+- Token 统计可按会话、代理或组织，看今天、24 小时、7 天、30 天、90 天的分段数和累计数。
+- 接口：`GET /api/monitor`、`GET /api/usage`、`POST /api/monitor/stop|resume`。
 
 ## v0.7.1-beta.1 — 2026-10-29
 
