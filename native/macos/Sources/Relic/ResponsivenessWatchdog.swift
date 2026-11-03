@@ -41,6 +41,10 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     /// Diagnostic runs only. Early-stall samples slow the actions before the
     /// one a phase studies; the workflows phase samples its first dialog instead.
     var samplesEarlyStalls = true
+    /// Diagnostic runs only: the stage whose start arms a two-second sample,
+    /// so a known heavy action is sampled from its click, not from its 250 ms.
+    var armedStage: String?
+    private var sampledArmed = false
     private var persistence = HeartbeatPersistence()
 
     init(output: URL) { self.output = output }
@@ -61,12 +65,15 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // from a failed probe, which sees only the end of a 300 ms stall.
         let sampleDialog = diagnostic && !sampledDialog && name.hasSuffix(":dialog")
         if sampleDialog { sampledDialog = true }
+        let sampleArmed = diagnostic && !sampledArmed && armedStage != nil && name == armedStage
+        if sampleArmed { sampledArmed = true }
         lock.unlock()
         // Diagnostic-only sampling begins before the cold native view layout.
         // Starting sample after a 250 ms failure misses a 300 ms stall entirely.
         // Normal acceptance retains its original workload and watchdog limit.
         if sample { queue.async { self.sample("startup-diagnostic", seconds: 8) } }
         if sampleDialog { queue.async { self.sample("first-dialog", seconds: 2) } }
+        if sampleArmed { queue.async { self.sample("armed-action", seconds: 2) } }
     }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
     func recordActions(_ receipt: [String: Any]) {
@@ -177,7 +184,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // diagnostic overhead. The acceptance probes are completely separate.
         // The first dialog's 2 s at 3 ms resolves a 300 ms stall and still
         // finishes symbolicating within the 30 s diagnostic retention.
-        let interval = name == "startup-diagnostic" ? "10" : name == "first-dialog" ? "3" : "1"
+        let interval = name == "startup-diagnostic" ? "10" : name == "first-dialog" ? "3" : name == "armed-action" ? "2" : "1"
         sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), interval, "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
         let log = output.appendingPathComponent(name + ".sampler.log")
         FileManager.default.createFile(atPath: log.path, contents: nil)

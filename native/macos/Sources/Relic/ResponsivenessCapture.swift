@@ -62,6 +62,14 @@ import RelicCore
             // after the large group chat, panes and menus before it. The
             // sampler arms when the phase reaches that dialog.
             let plan = manifest["plan"].rows
+            // Diagnostic runs sample the last organization opened by pointer
+            // (the largest in the large profile) from its click on.
+            if env["RELIC_PERF_DIAGNOSTIC"] == "true", phase == .openEveryChat,
+               let last = plan.last(where: { $0["kind"].text == "organization" }) {
+                watchdog.armedStage = last["id"].text + ":organization"
+                watchdog.samplesEarlyStalls = false
+                armedActionID = last["id"].text
+            }
             for action in plan {
                 defer {
                     watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
@@ -180,6 +188,17 @@ import RelicCore
     }
 
     private static var diagnosedDialog = false
+    private static var armedActionID: String?
+    /// /usr/bin/sample prints its first line once it is attached; act only then.
+    private static func waitForSampler(_ name: String, output: URL) async throws {
+        let log = output.appendingPathComponent(name + ".sampler.log")
+        let deadline = ProcessInfo.processInfo.systemUptime + 6
+        while ProcessInfo.processInfo.systemUptime < deadline,
+              !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(150))
+    }
     private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL, phase: PerformancePhase = .legacy) async throws -> [String: Any] {
         let env = ProcessInfo.processInfo.environment
         let started = ProcessInfo.processInfo.systemUptime, kind = action["kind"].text
@@ -187,6 +206,7 @@ import RelicCore
         m.appMenu = nil; m.sheet = nil
         switch kind {
         case "organization", "group", "private":
+            if action["id"].text == armedActionID { armedActionID = nil; try await waitForSampler("armed-action", output: output) }
             if phase.usesPointerNavigation { return await PerformanceNavigation.open(action, phase: phase, model: m, window: window) }
             try await m.select(action["org"].text, kind == "private" ? action["member"].text : "")
             try await settleConversation(m)
