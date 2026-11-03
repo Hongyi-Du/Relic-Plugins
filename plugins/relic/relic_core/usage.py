@@ -157,16 +157,22 @@ def _prompt(line, kind):
             content = next((p for p in parts if _TAGGED.sub("", p).strip()), "")
     else:
         payload = record.get("payload") or {}
-        if payload.get("type") != "user_message":
+        if payload.get("type") == "user_message":
+            content = payload.get("message")
+        elif payload.get("type") == "message" and payload.get("role") == "user":  # how `codex exec` records its prompt
+            parts = [part.get("text", "") for part in payload.get("content") or []
+                     if isinstance(part, dict) and part.get("type") == "input_text"]
+            content = next((p for p in parts if _TAGGED.sub("", p).strip() and not p.lstrip().startswith(_INJECTED)), "")
+        else:
             return None
-        content = payload.get("message")
     text = " ".join(_TAGGED.sub("", str(content or "")).split())
-    if not text or text.startswith("<"):  # a command, a tool result or injected context, not a prompt
+    if not text or text.startswith("<") or text.startswith(_INJECTED):  # a command, a tool result or injected context
         return None
-    return text[:PROMPT]
+    return text.lstrip("#> ").strip()[:PROMPT] or None
 
 
 _TAGGED = re.compile(r"^(\s*<([\w-]+)[^>]*>.*?</\2>)+", re.S)  # injected blocks in front of what was asked
+_INJECTED = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>")
 
 
 class Ledger:
@@ -240,7 +246,7 @@ class Ledger:
         if size < start:  # rewritten: start over
             start, recent = 0, collections.deque(maxlen=RECENT)
         marker, parse = (b'"usage"', _claude) if kind == "claude" else (b'"token_count"', _codex)
-        asked = b'"user"' if kind == "claude" else b'"user_message"'
+        asked = (b'"user"',) if kind == "claude" else (b'"user_message"', b'"role":"user"')
         minutes, hours = {}, {}
         first, read, rest = None, 0, b""
         prompt = "" if start or sub else None  # the session's first prompt names it; read once, from the start
@@ -265,7 +271,7 @@ class Ledger:
                         except ValueError:
                             first = {}
                     for line in lines:
-                        if prompt is None and asked in line:
+                        if prompt is None and any(mark in line for mark in asked):
                             prompt = _prompt(line, kind)
                         if marker not in line:
                             continue
