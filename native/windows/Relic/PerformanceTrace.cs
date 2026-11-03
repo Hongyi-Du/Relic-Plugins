@@ -37,6 +37,18 @@ internal static class PerformanceTrace
             if (++trackedAdds % 4096 == 0) foreach (var entries in tracked.Values) entries.RemoveAll(entry => !entry.IsAlive);
         }
     }
+    internal static Dictionary<string, int> AliveCounts() => Enabled ? Alive() : [];
+    // The tracked objects of each kind still alive, for a CI description of
+    // what outlived full collections. The lists themselves stay weak.
+    internal static Dictionary<string, List<object>> AliveObjects()
+    {
+        var alive = new Dictionary<string, List<object>>();
+        if (!Enabled) return alive;
+        lock (tracked)
+            foreach (var (kind, list) in tracked)
+                alive[kind] = list.Select(entry => entry.Target).OfType<object>().ToList();
+        return alive;
+    }
     private static Dictionary<string, int> Alive()
     {
         lock (tracked)

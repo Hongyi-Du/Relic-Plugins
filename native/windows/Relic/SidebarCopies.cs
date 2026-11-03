@@ -298,7 +298,7 @@ public sealed partial class MainWindow
                 text.Children.Add(sub);
             }
             Grid.SetColumn(text, 1); row.Children.Add(text);
-            if (!secretary && who.Length > 0) { var record = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who); ToolTipService.SetToolTip(row, who + (record.Text("role").Length > 0 ? " · " + record.Text("role") : "")); }
+            if (!secretary && who.Length > 0) { var record = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who); SidebarToolTip(row, who + (record.Text("role").Length > 0 ? " · " + record.Text("role") : "")); }
             var info = new StackPanel { Spacing = 3, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Padding = new Thickness(0, 1, 0, 0), UseLayoutRounding = false };
             var head = snap["chats"]?[key]; var at = head?["last"].Text("at") ?? "";
             if (!secretary && who.Length > 0 && head == null) at = snap.Rows("members").FirstOrDefault(m => m.Text("name") == who).Text("doing_at");
@@ -343,7 +343,7 @@ public sealed partial class MainWindow
                 var arrowHit = new Border { Child = arrow, Padding = new Thickness(3), Margin = new Thickness(-3), CornerRadius = new CornerRadius(5), VerticalAlignment = VerticalAlignment.Center, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
                 arrowHit.PointerPressed += (_, e) => { if (foldable && e.GetCurrentPoint(arrowHit).Properties.IsLeftButtonPressed) { e.Handled = true; Fold(); } }; row.Children.Add(arrowHit);
                 var badge = SidebarOrgFace(item!); badge.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(badge, 1); row.Children.Add(badge);
-                var label = SidebarText(item.Text("name"), 13.44, weight: 600, lineHeight: 18.144); label.IsTextSelectionEnabled = false; label.MaxLines = 2; label.TextTrimming = TextTrimming.CharacterEllipsis; label.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(label, 2); row.Children.Add(label); ToolTipService.SetToolTip(row, item.Text("name") + (item.Text("purpose").Length > 0 ? "\n" + item.Text("purpose") : ""));
+                var label = SidebarText(item.Text("name"), 13.44, weight: 600, lineHeight: 18.144); label.IsTextSelectionEnabled = false; label.MaxLines = 2; label.TextTrimming = TextTrimming.CharacterEllipsis; label.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(label, 2); row.Children.Add(label); SidebarToolTip(row, item.Text("name") + (item.Text("purpose").Length > 0 ? "\n" + item.Text("purpose") : ""));
                 if (!selected && item.Text("last_at").Length > 0) { var time = SidebarText(ShortWhen(item.Text("last_at")), 11.5, true); time.IsTextSelectionEnabled = false; time.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(time, 3); row.Children.Add(time); }
                 var context = new MenuFlyout(); var chart = new MenuFlyoutItem { Text = T("appmenu.org_chart") }; chart.Click += async (_, _) => await Run(() => ShowChart(id)); context.Items.Add(chart); row.ContextFlyout = context;
                 if (item.Text("status") is not ("" or "active")) row.Opacity = .55;
@@ -405,6 +405,14 @@ public sealed partial class MainWindow
     {
         var text = OverviewText(value, size, muted, weight, lineHeight); text.UseLayoutRounding = false;
         return text;
+    }
+    // A sidebar row's tooltip opens to its right, over the chat. Above the
+    // pointer (the default) it covered the row above, and a click there went
+    // to the tooltip's own window instead: the chat never opened.
+    private static void SidebarToolTip(FrameworkElement row, string text)
+    {
+        ToolTipService.SetToolTip(row, text);
+        ToolTipService.SetPlacement(row, Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Right);
     }
     // One trimmed line of a sidebar row, drawn by the system text renderer: no glyph preparation, surface or paint
     // callback per row, and the full text stays in its accessible Text.

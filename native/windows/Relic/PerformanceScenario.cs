@@ -158,7 +158,7 @@ public sealed partial class MainWindow
             var after = await Settled(); var managedAfter = GC.GetTotalMemory(false);
             PerformanceTrace.Note("leak.probe", new { name, count, heap_before = before, heap_after = after,
                 heap_per_step = (after - before) / (double)count, managed_per_step = (managedAfter - managedBefore) / (double)count,
-                ms = Math.Round(clock.Elapsed.TotalMilliseconds) });
+                ms = Math.Round(clock.Elapsed.TotalMilliseconds), alive = PerformanceTrace.AliveCounts() });
         }
         await Measure("baseline", 12, _ => Task.CompletedTask);
         await Measure("toolbar", 12, _ => { DrawToolbar(); return Task.CompletedTask; });
@@ -193,6 +193,57 @@ public sealed partial class MainWindow
             if (index % 2 == 0) await Select(otherOrg); else await Select(homeOrg, homeMember);
             await WaitForMarkdown();
         });
+        await Settled();
+        PerformanceTrace.Note("leak.survivors", DescribeSurvivors());
+    }
+
+    // CI-only: the tracked rows that outlived full collections while out of
+    // the window's tree, grouped by what they are, to find what holds them.
+    private JsonObject DescribeSurvivors()
+    {
+        var result = new JsonObject();
+        foreach (var (kind, objects) in PerformanceTrace.AliveObjects())
+        {
+            var groups = new Dictionary<string, int>(); var attached = 0;
+            foreach (var item in objects)
+            {
+                if (item is not FrameworkElement element) continue;
+                DependencyObject top = element; var depth = 0; var inRoot = false;
+                for (var parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(element); parent != null;
+                    parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(parent))
+                { inRoot |= ReferenceEquals(parent, root); top = parent; depth++; }
+                if (inRoot) { attached++; continue; }
+                var (text, watching, sidebarRows) = SurvivorContent(element);
+                var key = element.GetType().Name + " parent=" + (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(element)?.GetType().Name ?? "none")
+                    + " top=" + top.GetType().Name + " depth=" + depth + " loaded=" + element.IsLoaded
+                    + " id=" + Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(element)
+                    + " rows=" + sidebarRows + " watching=" + watching + " text=" + text;
+                groups[key] = groups.GetValueOrDefault(key) + 1;
+            }
+            var detached = new JsonObject();
+            foreach (var (key, count) in groups.OrderByDescending(group => group.Value).Take(12)) detached[key] = count;
+            result[kind] = new JsonObject { ["alive"] = objects.Count, ["attached"] = attached, ["detached"] = detached };
+        }
+        return result;
+    }
+
+    // The first text in an element's subtree, and how many sidebar rows it
+    // holds with property callbacks still registered.
+    private static (string Text, int Watching, int SidebarRows) SurvivorContent(DependencyObject node)
+    {
+        var queue = new Queue<DependencyObject>(); queue.Enqueue(node);
+        string? text = null; var watching = 0; var rows = 0; var seen = 0;
+        while (queue.Count > 0 && seen++ < 400)
+        {
+            var current = queue.Dequeue();
+            if (current is NativeSidebarRow row) { rows++; watching += row.Watching; }
+            text ??= current switch { TextBlock block when block.Text.Length > 0 => block.Text,
+                NativeLabel label when label.Text.Length > 0 => label.Text, _ => null };
+            for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(current); index++)
+                queue.Enqueue(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(current, index));
+        }
+        text ??= "";
+        return (text.Length > 32 ? text[..32] : text, watching, rows);
     }
 
     private async Task PerformanceYield()

@@ -47,6 +47,8 @@ internal sealed class NativeChatList : Grid
         // The row the seek went to has been seen near the view: the seek's
         // own view change has happened (see SeekLanded).
         internal bool SeekLanded;
+        // CI evidence: what the last check that did nothing waited for.
+        internal string? Waiting;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
 
@@ -585,6 +587,18 @@ internal sealed class NativeChatList : Grid
         return first is { IsLoaded: true } ? Bounds(first, viewport).Top : double.NegativeInfinity;
     }
 
+    // Whether every realized row from `from` down to the reading row has been
+    // built. An unbuilt row still has its estimated height: a walk judged 13 ms
+    // after the seek, before the rows above the reading row were built, put it
+    // 378 px above its place once they turned out shorter, and every upward
+    // correction from there was absorbed.
+    private bool RowsBuilt(int from, int index)
+    {
+        for (var i = Math.Max(0, from); i < index; i++)
+            if (TryGetRealizedRow(i) is { IsLoaded: true, Child: null }) return false;
+        return true;
+    }
+
     // A restore waits for events (layout, a built row, a finished view
     // change). Check again shortly in case none comes, and give up on a
     // restore that has not settled after a few seconds, so an older page or
@@ -594,13 +608,33 @@ internal sealed class NativeChatList : Grid
     {
         if (intent.Kind == PositionKind.Latest) return false;
         if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.StartedAt).TotalSeconds < 4) { ScheduleConfirmation(); return false; }
+        PerformanceTrace.Note(TraceName + ".position.timeout", new { waiting = intent.Waiting, key = intent.Key,
+            seek = intent.SeekIndex, intent.Walks, intent.Reseeks, intent.Corrections, intent.SeekLanded, intent.CorrectionPending });
         TracePosition(intent, "failed.timeout"); EndPosition(intent, false);
         return true;
     }
 
     // CI-only evidence of how a position intent ended; Count is a no-op otherwise.
-    private void TracePosition(Position intent, string step) =>
+    private void TracePosition(Position intent, string step)
+    {
+        intent.Waiting = null;
         PerformanceTrace.Count(TraceName + ".position." + intent.Kind.ToString().ToLowerInvariant() + "." + step, intent.Corrections);
+    }
+
+    // CI evidence of what a check that did nothing was waiting for, once per
+    // change: a restore that timed out showed no step after its correction.
+    private void TraceWait(Position intent, string reason)
+    {
+        if (intent.Kind == PositionKind.Latest || intent.Waiting == reason) return;
+        TracePosition(intent, "wait." + reason);
+        intent.Waiting = reason;
+    }
+
+    // Which part of the content a restore is still waiting for.
+    private static string ContentWait() =>
+        PendingBuilds > 0 ? "content.chat_rows" : VirtualRows.PendingBuilds > 0 ? "content.other_rows"
+        : NativeLabel.PendingPreparations > 0 ? "content.labels" : NativePathText.PendingPreparations > 0 ? "content.path_text"
+        : NativeGlyphWarmup.PendingPreparations > 0 ? "content.glyphs" : "content.markdown_or_model";
 
     private void CheckPosition()
     {
@@ -648,7 +682,7 @@ internal sealed class NativeChatList : Grid
         if (intent.CorrectionPending)
         {
             if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.CorrectionAt).TotalMilliseconds < 400)
-            { if (intent.Kind != PositionKind.Latest) ScheduleConfirmation(); return; }
+            { if (intent.Kind != PositionKind.Latest) { ScheduleConfirmation(); TraceWait(intent, "correction"); } return; }
             TracePosition(intent, "correction_unfinished");
             intent.CorrectionPending = false; intent.CorrectionCompleted = true;
         }
@@ -669,7 +703,7 @@ internal sealed class NativeChatList : Grid
             // after the seek, re-seeks, then absorbed upward corrections) was
             // wrong. Wait for the move; seek the reading row itself only if it
             // never comes.
-            if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 1000) return;
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 1000) { TraceWait(intent, "seek_unlanded"); return; }
             intent.SeekedRow = true; TracePosition(intent, "seek_row.unlanded");
             list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
             return;
@@ -686,8 +720,11 @@ internal sealed class NativeChatList : Grid
             // The rows realized must be the ones from the seek on: right after
             // the seek the panel still holds the rows of the view before it (once
             // the list's first rows, and the walk went down from there).
+            // Judge them only once they are built: until then they have their
+            // estimated heights (see RowsBuilt).
+            var built = RowsBuilt(intent.SeekIndex, index);
             Border? last = null;
-            for (var i = index - 1; i >= Math.Max(0, intent.SeekIndex) && last == null; i--)
+            for (var i = index - 1; built && i >= Math.Max(0, intent.SeekIndex) && last == null; i--)
                 if (TryGetRealizedRow(i) is { IsLoaded: true } realized) last = realized;
             if (last != null && intent.Walks < 8 && Bounds(last, viewport) is var lastBounds
                 && lastBounds.Bottom >= viewport.ViewportHeight && lastBounds.Bottom > Math.Max(intent.Top, 0) + 1)
@@ -696,12 +733,19 @@ internal sealed class NativeChatList : Grid
                 RequestOffset(viewport, viewport.VerticalOffset + lastBounds.Bottom - Math.Max(intent.Top, 0));
                 return;
             }
-            if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 1000) return;
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 1000)
+            { TraceWait(intent, !built ? "rows_unbuilt" : "row_unrealized"); return; }
             intent.SeekedRow = true; TracePosition(intent, "seek_row");
             list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
             return;
         }
-        if (host == null || !ReadyHost(host) || !intent.IsReady()) return;
+        if (host == null) { TraceWait(intent, "row_unrealized"); return; }
+        if (!ReadyHost(host)) { TraceWait(intent, host.Child == null ? "row_unbuilt" : "row_unmeasured"); return; }
+        if (!intent.IsReady()) { TraceWait(intent, ContentWait()); return; }
+        // Rows between the seek and the reading row that are still unbuilt will
+        // change height and move it: correct only from built rows.
+        if (intent.Kind == PositionKind.Reading && !RowsBuilt(intent.SeekIndex >= 0 ? intent.SeekIndex : index, index))
+        { TraceWait(intent, "rows_unbuilt"); return; }
         var bounds = Bounds(host, viewport);
         var visible = bounds.Bottom > 0 && bounds.Top < viewport.ViewportHeight;
         // A restored reading position aims within half a pixel, inside the 1 px
@@ -750,6 +794,7 @@ internal sealed class NativeChatList : Grid
             // waiting for a geometry change that never comes is not a retry.
             if (intent.CorrectionCompleted && intent.Kind != PositionKind.Latest)
             { TracePosition(intent, "failed.same_geometry"); EndPosition(intent, false); }
+            else TraceWait(intent, "same_geometry");
             return;
         }
         if (!landed) TracePosition(intent, "not_landed");

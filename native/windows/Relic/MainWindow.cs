@@ -390,13 +390,20 @@ public sealed partial class MainWindow : Window
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                 snap = snapshot; snapOrg = org;
                 var loadedMessages = messages;
-                var mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
+                // While the person reads (not following the latest message) or an
+                // older page loads, keep the rows already shown and add the new
+                // ones. Replacing them with the newest window dropped its oldest
+                // message when a new one arrived: the message the person was
+                // reading at the top vanished, then came back above the next page.
+                var keepShown = olderHistory || (loadingOlder || !keepLatest)
+                    && ReachesShown(loadedMessages, chat.Rows("items"), chat.Flag("more"));
+                var mergedMessages = keepShown ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
                 // An older page can arrive while the merge runs on a worker;
                 // committing the merge of the list as it was dropped that page.
                 while (org == selectedOrg && member == selectedMember && !ReferenceEquals(messages, loadedMessages))
                 {
                     loadedMessages = messages;
-                    mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
+                    mergedMessages = keepShown ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
                 }
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                 messages = mergedMessages;
@@ -575,6 +582,18 @@ public sealed partial class MainWindow : Window
     }
     private async Task Post(string action, object value) { await api!.Post(PathFor(action), value); await Refresh(); }
 
+    // Whether a chat's newest page still reaches back to the messages shown
+    // (or holds the chat's start), so adding it to them leaves no gap. After a
+    // long absence it may not; the page then replaces them, as when following.
+    private static bool ReachesShown(JsonArray shown, JsonArray newest, bool more)
+    {
+        long? shownNewest = null, pageOldest = null;
+        foreach (var row in shown)
+            if (long.TryParse(row.Text("id"), out var id) && (shownNewest == null || id > shownNewest)) shownNewest = id;
+        foreach (var row in newest)
+            if (long.TryParse(row.Text("id"), out var id) && (pageOldest == null || id < pageOldest)) pageOldest = id;
+        return !more || shownNewest == null || pageOldest == null || pageOldest <= shownNewest;
+    }
     private void DrawDetail()
     {
         detail.Children.Clear();

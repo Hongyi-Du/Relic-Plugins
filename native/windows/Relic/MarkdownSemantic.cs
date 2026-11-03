@@ -24,8 +24,11 @@ internal static class MarkdownSemantic
             throw new ArgumentException("Fenced code registration must identify its actual Border.Child and ScrollViewer.Content.");
         var content = new FencedCode(scroller, text);
         fencedCodes.Add(container, content);
-        container.Loaded += (_, _) => mountedFencedCodes[container] = content;
-        container.Unloaded += (_, _) => mountedFencedCodes.Remove(container);
+        // Loaded and Unloaded can arrive out of order (see NativeSidebarRow):
+        // hold the block only while it is really loaded, or a late Loaded kept
+        // it in this static map for good.
+        container.Loaded += (_, _) => { if (container.IsLoaded) mountedFencedCodes[container] = content; };
+        container.Unloaded += (_, _) => { if (!container.IsLoaded) mountedFencedCodes.Remove(container); };
         if (container.IsLoaded) mountedFencedCodes[container] = content;
         return container;
     }

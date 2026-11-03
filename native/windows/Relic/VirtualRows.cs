@@ -22,8 +22,10 @@ internal sealed class VirtualRows : Grid
     internal double Spacing { get => ((StackLayout)repeater.Layout).Spacing; set => ((StackLayout)repeater.Layout).Spacing = value; }
     internal int Realized => factory.Realized;
     internal static int PendingBuilds => RowFactory.PendingBuilds;
-    internal string TraceName { get; set; } = "rows";
     private readonly RowFactory factory = new();
+    private string traceName = "rows";
+    // CI memory checkpoints count each list's built rows apart (see BuildNow).
+    internal string TraceName { get => traceName; set { traceName = value; factory.TrackKind = "VirtualRow." + value; } }
     private int revision, committed = -1;
     private bool commitQueued;
     private sealed record BringRequest(int Revision, int Index, FrameworkElement Element,
@@ -595,6 +597,7 @@ internal sealed class VirtualRows : Grid
         private static Microsoft.UI.Dispatching.DispatcherQueueTimer? pumpTimer;
         internal static int PendingBuilds;
         internal int Realized { get; private set; }
+        internal string TrackKind = "VirtualRow.rows";
         public UIElement GetElement(ElementFactoryGetArgs args)
         {
             var host = empty.Count > 0 ? empty.Pop() : new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -641,7 +644,7 @@ internal sealed class VirtualRows : Grid
             if (host.Child != null || host.Tag is not Row row) return;
             using var timing = PerformanceTrace.Measure("row.build");
             host.Child = row.Build(); host.MinHeight = 0;
-            PerformanceTrace.Track("VirtualRow", host.Child);
+            PerformanceTrace.Track(TrackKind, host.Child);
         }
         public void RecycleElement(ElementFactoryRecycleArgs args)
         {

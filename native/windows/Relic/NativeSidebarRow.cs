@@ -24,6 +24,8 @@ internal sealed class NativeSidebarRow : ListViewItem
     private string? lastItemStatus;
 
     internal OverviewBadgeView? BoundUnreadBadge => unreadBadge;
+    // CI evidence: property callbacks this row holds on its badge's ancestors.
+    internal int Watching => observers.Count;
     internal NativeSidebarOrganizationState? OrganizationState => organization?.Current;
 
     internal NativeSidebarRow()
