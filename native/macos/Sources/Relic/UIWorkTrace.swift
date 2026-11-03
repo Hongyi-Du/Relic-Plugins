@@ -92,30 +92,47 @@ final class UIWorkTrace: @unchecked Sendable {
     ///   ports such as events; after "sources", run loop blocks and sources,
     ///   and the same work as after "woke" when the loop goes on without sleeping.
     /// The thread's sleep after "waiting" is not counted.
+    ///
+    /// Only parts of at least a millisecond are recorded, so "calls" counts
+    /// those parts: each observer callout reads the clock once and takes no
+    /// lock otherwise. The full version of this timer, a scope begun and
+    /// ended for every part, raised the idle phase's CPU from about 0.9% to
+    /// 1.1-1.6%; the capture also leaves it off in the idle phase.
     @MainActor static func observeRunLoop() {
         guard enabled, !observingRunLoop else { return }
         observingRunLoop = true
-        let stages: [(CFRunLoopActivity, String)] = [(.entry, "entry"), (.beforeTimers, "timers"), (.beforeSources, "sources"),
-                                                    (.beforeWaiting, "waiting"), (.afterWaiting, "woke"), (.exit, "exit")]
-        var observerNames: [CFOptionFlags: String] = [:], afterNames: [CFOptionFlags: String] = [:]
-        for (activity, name) in stages {
-            observerNames[activity.rawValue] = "runloop.observers." + name
-            if activity != .beforeWaiting && activity != .exit { afterNames[activity.rawValue] = "runloop.after." + name }
+        func names(_ activity: CFRunLoopActivity) -> (observers: String?, after: String?) {
+            switch activity {
+            case .entry: return ("runloop.observers.entry", "runloop.after.entry")
+            case .beforeTimers: return ("runloop.observers.timers", "runloop.after.timers")
+            case .beforeSources: return ("runloop.observers.sources", "runloop.after.sources")
+            case .beforeWaiting: return ("runloop.observers.waiting", nil)
+            case .afterWaiting: return ("runloop.observers.woke", "runloop.after.woke")
+            default: return ("runloop.observers.exit", nil)
+            }
         }
-        var observers: Int?, work: Int?
+        var part: String?, started = uptime
+        func close(_ now: Double) {
+            if let name = part, now - started >= 0.001 { record(name, ms: (now - started) * 1000) }
+        }
         let all = CFRunLoopActivity.allActivities.rawValue
         let first = CFRunLoopObserverCreateWithHandler(nil, all, true, CFIndex.min) { _, activity in
-            end(work); work = nil
-            end(observers); observers = observerNames[activity.rawValue].flatMap { begin($0) }
+            let now = uptime; close(now); part = names(activity).observers; started = now
         }
         let last = CFRunLoopObserverCreateWithHandler(nil, all, true, CFIndex.max) { _, activity in
-            end(observers); observers = nil
-            work = afterNames[activity.rawValue].flatMap { begin($0) }
+            let now = uptime; close(now); part = names(activity).after; started = now
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), first, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), last, .commonModes)
     }
     @MainActor private static var observingRunLoop = false
+    /// Adds one finished part of the given length, without a begun scope.
+    static func record(_ name: String, ms: Double) {
+        guard enabled else { return }
+        let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
+        let previous = trace.totals[name] ?? (0, 0, 0)
+        trace.totals[name] = (previous.count + 1, previous.ms + ms, max(previous.maximum, ms))
+    }
     /// Scopes still open now, oldest first, with how long each has been open.
     func openScopes() -> [String] {
         lock.lock(); defer { lock.unlock() }

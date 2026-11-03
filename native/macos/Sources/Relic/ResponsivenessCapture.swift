@@ -33,6 +33,11 @@ import RelicCore
             let watchdog = ResponsivenessWatchdog(output: output); monitor = watchdog
             watchdog.samplesStartup = phase != .workflows
             watchdog.samplesEarlyStalls = phase != .workflows
+            // Diagnostic switch, history and monkey runs sample 20 s
+            // of the phase instead: sample starts about 20 s late, so the
+            // early-stall and first-stall samples held unrelated later work.
+            let samplesPhase = env["RELIC_PERF_DIAGNOSTIC"] == "true" && [.switchChats, .history, .monkey].contains(phase)
+            if samplesPhase { watchdog.samplesStartup = false; watchdog.samplesEarlyStalls = false; watchdog.samplesFirstStall = false }
             for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
             let fixture = manifest["fixture"]
             let suite = "Relic.Responsiveness." + UUID().uuidString
@@ -51,7 +56,8 @@ import RelicCore
             await settle()
             // Framework initialization is complete; all organization loading,
             // layout, parsing and events are included from this point onward.
-            UIWorkTrace.observeRunLoop()
+            // The idle phase measures CPU; it does not need the run loop timer.
+            if phase != .idle { UIWorkTrace.observeRunLoop() }
             if watchdog.sampleStartupNow() {
                 startupSamplerSeen = try await waitForSampler("startup-diagnostic", output: output)
             }
@@ -73,6 +79,9 @@ import RelicCore
                 watchdog.armedStage = last["id"].text + ":organization"
                 watchdog.samplesEarlyStalls = false
                 armedActionID = last["id"].text
+            }
+            if samplesPhase, watchdog.samplePhaseNow(seconds: 20) {
+                phaseSamplerSeen = try await waitForSampler("phase", output: output)
             }
             for action in plan {
                 defer {
@@ -179,6 +188,8 @@ import RelicCore
                 catch { errors.append(String(describing: error)) }
             }
         }
+        // Diagnostic only: keep the process until the phase sample is written.
+        if phaseSamplerSeen != nil, let output = captureOutput { try? await waitForSample("phase", output: output) }
         let independentTruth = !phase.usesPointerNavigation || receipts.filter { ["organization", "group", "private"].contains($0["kind"] as? String ?? "") }
             .allSatisfy { $0["amendment9_eligible"] as? Bool == true }
         monitor?.finish(["phase": phase.rawValue, "fixture_profile": fixtureProfile, "profile": fixtureProfile,
@@ -187,14 +198,15 @@ import RelicCore
                          "random_actions": randomActions, "seed": seed, "idle_interval": idleInterval,
                          "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState,
                          "reading_position": ReadingPositionTrace.summary(),
-                         "startup_sampler_seen_after_ms": startupSamplerSeen.map { $0 as Any } ?? NSNull()])
+                         "startup_sampler_seen_after_ms": startupSamplerSeen.map { $0 as Any } ?? NSNull(),
+                         "phase_sampler_seen_after_ms": phaseSamplerSeen.map { $0 as Any } ?? NSNull()])
         model?.stop(); activeWindow?.orderOut(nil); activeWindow?.contentView = nil; activeWindow?.close()
         display?.restore(); NSApp.terminate(nil)
     }
 
     private static var diagnosedDialog = false
     private static var armedActionID: String?
-    private static var startupSamplerSeen: Double?
+    private static var startupSamplerSeen: Double?, phaseSamplerSeen: Double?
     /// Diagnostic runs only: wait until a sample just started is actually
     /// sampling. Its first line comes long before its first sample (about
     /// 20 s on the CI runners), so the samples that began work 150 ms after

@@ -44,6 +44,8 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     /// Diagnostic runs only. Early-stall samples slow the actions before the
     /// one a phase studies; the workflows phase samples its first dialog instead.
     var samplesEarlyStalls = true
+    /// Diagnostic runs with a whole-phase sample skip the first-stall sample.
+    var samplesFirstStall = true
     /// Diagnostic runs only: the stage whose start arms a two-second sample,
     /// so a known heavy action is sampled from its click, not from its 250 ms.
     var armedStage: String?
@@ -63,6 +65,12 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     /// first request. sample takes its first sample many seconds after it
     /// starts (about 20 s on the CI runners); the capture waits until it
     /// sees it sampling before it begins the startup it should cover.
+    /// Diagnostic runs only: one long sample of the phase's actions.
+    func samplePhaseNow(seconds: Int) -> Bool {
+        guard diagnostic else { return false }
+        queue.async { self.sample("phase", seconds: seconds) }
+        return true
+    }
     func sampleStartupNow() -> Bool {
         lock.lock()
         let sample = diagnostic && samplesStartup && !sampledStartup
@@ -118,7 +126,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let probeRunLoop = runLoopPending == 0
         if probeRunLoop { runLoopPending = now }
         let enqueue = pending == 0
-        let sampleStall = worst > 250 && !sampledStall
+        let sampleStall = worst > 250 && !sampledStall && samplesFirstStall
         if sampleStall { sampledStall = true }
         // Diagnostic runs only: a sample that starts after a 250 ms failure
         // sees idle time. Start while a main-thread block is still growing,
@@ -200,7 +208,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // acceptance probes are completely separate.
         // The first dialog's 16 s at 3 ms resolves a 300 ms stall; the dialog
         // action waits until sample has written it.
-        let interval = name == "startup-diagnostic" ? "5" : name == "first-dialog" ? "3" : name == "armed-action" ? "2" : "1"
+        let interval = name == "startup-diagnostic" ? "5" : name == "first-dialog" ? "3" : name == "phase" ? "4" : name == "armed-action" ? "2" : "1"
         sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), interval, "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
         let log = output.appendingPathComponent(name + ".sampler.log")
         FileManager.default.createFile(atPath: log.path, contents: nil)
