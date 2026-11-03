@@ -31,6 +31,9 @@ public sealed partial class MainWindow
     private const int chatLimit = 200;
     private bool chatMore, olderHistory;
     private bool loadingOlder, keepLatest = true;
+    // While an older page loads and its reading position is restored, the list's own offset adjustments can start
+    // native direct manipulation. Without new input since the load began, that is not the person panning.
+    private long? historySeekGeneration;
     private readonly ScrollInputIntent conversationScrollInput = new();
     private NativeTouchpadInput? conversationTouchpadInput;
     private int chatPages = 1;
@@ -324,7 +327,7 @@ public sealed partial class MainWindow
             // DM start in either delivery order, never with pointer motion alone.
             manipulationOrg = org; manipulationMember = member; manipulationRequest = latestRequest;
             manipulationStartOffset = chatScroll.VerticalOffset;
-            if (!conversationScrollInput.BeginDirectManipulation(stream.PendingSeekInputGeneration,
+            if (!conversationScrollInput.BeginDirectManipulation(stream.PendingSeekInputGeneration ?? historySeekGeneration,
                 conversationTouchpadInput?.IsAvailable == true))
             {
                 PerformanceTrace.Count("conversation.programmatic_direct_manipulation", latestRequest);
@@ -642,6 +645,7 @@ public sealed partial class MainWindow
     {
         if (loadingOlder || !chatMore || org.Length == 0 || api == null) return;
         loadingOlder = true; keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
+        historySeekGeneration = conversationScrollInput.Generation;
         PerformanceTrace.Count("conversation.history.request", latestRequest);
         stream.StopFollowingLast();
         try
@@ -680,7 +684,7 @@ public sealed partial class MainWindow
                 () => !closing && !keepLatest && request == latestRequest && org == selectedOrg && member == selectedMember,
                 ConversationContentReady);
         }
-        finally { loadingOlder = false; }
+        finally { loadingOlder = false; historySeekGeneration = null; }
     }
     private UIElement Message(JsonNode item, bool inThread, bool continued = false)
     {

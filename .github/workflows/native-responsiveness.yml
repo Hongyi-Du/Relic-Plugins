@@ -72,6 +72,15 @@ jobs:
         run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/performance-windows
       - name: Prepare the isolated CI desktop
         run: ./scripts/visual/windows-display.ps1
+      - name: Keep a full dump if the native client crashes
+        # A stowed WinUI exception leaves only an exit code; the dump is analysed
+        # on this runner after a failure and is never uploaded.
+        run: |
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\Relic.exe'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value "$env:GITHUB_WORKSPACE\performance\crash-dumps" -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 2 -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 2 -Force | Out-Null
       - name: Measure exhaustive and seeded interaction against synthetic large data
         env:
           RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
@@ -91,6 +100,24 @@ jobs:
         run: |
           Get-ChildItem performance/windows -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'stacks') } | ForEach-Object {
             python -X utf8 scripts/performance/resolve_symbols.py --exe native-build/diagnostics-native/Release/Relic.NativeStack.exe --output $_.FullName
+          }
+      - name: Record Windows crash reports and analyse crash dumps after a failure
+        if: ${{ failure() }}
+        continue-on-error: true
+        timeout-minutes: 12
+        run: |
+          New-Item -ItemType Directory -Force performance/windows | Out-Null
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddHours(-2) } -ErrorAction SilentlyContinue |
+            Where-Object { ($_.ProviderName -in @('Application Error', '.NET Runtime', 'Windows Error Reporting')) -and ($_.Message -match 'Relic') } |
+            Select-Object -First 20 | ForEach-Object { "[$($_.TimeCreated.ToString('o'))] $($_.ProviderName) $($_.Id)`n$($_.Message)`n" } |
+            Out-File -Encoding utf8 performance/windows/crash-events.txt
+          $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+          if (-not (Test-Path $cdb)) { "cdb.exe is not installed on this runner" | Out-File -Encoding utf8 performance/windows/crash-analysis-unavailable.txt }
+          Get-ChildItem performance/crash-dumps -Filter *.dmp -ErrorAction SilentlyContinue | Select-Object -First 2 | ForEach-Object {
+            if (Test-Path $cdb) {
+              & $cdb -z $_.FullName -c '.symfix c:\symcache; .reload; !analyze -v; .ecxr; kb 40; q' 2>&1 |
+                Out-File -Encoding utf8 (Join-Path 'performance/windows' ($_.BaseName + '-analyze.txt'))
+            }
           }
       - uses: actions/upload-artifact@v4
         if: always()

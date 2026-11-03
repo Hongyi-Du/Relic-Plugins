@@ -375,10 +375,14 @@ internal sealed class NativeChatList : Grid
             { checkQueued = false; CheckPosition(); })) checkQueued = false;
     }
 
+    // CI-only evidence of how a position intent ended; Count is a no-op otherwise.
+    private void TracePosition(Position intent, string step) =>
+        PerformanceTrace.Count(TraceName + ".position." + intent.Kind.ToString().ToLowerInvariant() + "." + step, intent.Corrections);
+
     private void CheckPosition()
     {
         if (position is not { } intent || Viewport is not { } viewport) return;
-        if (!intent.IsCurrent() || intent.View != ViewIdentity) { StopFollowingLast(); return; }
+        if (!intent.IsCurrent() || intent.View != ViewIdentity) { TracePosition(intent, "stale"); StopFollowingLast(); return; }
         var index = intent.Kind == PositionKind.Latest ? entries.Count - 1
             : intent.Kind == PositionKind.First ? 0 : entries.ToList().FindIndex(entry => entry.Row.Key == intent.Key);
         if (index < 0 || index >= entries.Count) { StopFollowingLast(); return; }
@@ -402,6 +406,7 @@ internal sealed class NativeChatList : Grid
             var existingBounds = existing is { IsLoaded: true } ? Bounds(existing, viewport) : default;
             if (existing == null || existingBounds.Bottom <= 0 || existingBounds.Top >= viewport.ViewportHeight)
             {
+                TracePosition(intent, "seek");
                 list.ScrollIntoView(entry, intent.Kind == PositionKind.Latest ? ScrollIntoViewAlignment.Default : ScrollIntoViewAlignment.Leading);
                 return;
             }
@@ -418,7 +423,7 @@ internal sealed class NativeChatList : Grid
             : visible && Math.Abs(bounds.Top - intent.Top) <= 1 && (intent.Kind != PositionKind.First || viewport.VerticalOffset <= 1);
         if (settled)
         {
-            intent.Settled = true; intent.Completion.TrySetResult(true);
+            intent.Settled = true; TracePosition(intent, "settled"); intent.Completion.TrySetResult(true);
             if (intent.Kind != PositionKind.Latest) position = null;
             return;
         }
@@ -431,7 +436,7 @@ internal sealed class NativeChatList : Grid
             // cannot restore the reading position. Release the pending page;
             // waiting for a geometry change that never comes is not a retry.
             if (intent.CorrectionCompleted && intent.Kind != PositionKind.Latest)
-            { intent.Completion.TrySetResult(false); position = null; }
+            { TracePosition(intent, "failed.same_geometry"); intent.Completion.TrySetResult(false); position = null; }
             return;
         }
         if (intent.Corrections >= 3)
@@ -441,7 +446,7 @@ internal sealed class NativeChatList : Grid
             // caller and CI retain the actual anchor evidence; false is not
             // a successful restore. Follow-latest remains visibly unsettled.
             if (intent.Kind != PositionKind.Latest)
-            { intent.Completion.TrySetResult(false); position = null; }
+            { TracePosition(intent, "failed.corrections"); intent.Completion.TrySetResult(false); position = null; }
             return;
         }
         intent.LastGeometry = geometry; intent.Corrections++;
@@ -455,9 +460,10 @@ internal sealed class NativeChatList : Grid
         {
             // No legal viewport offset can preserve this prepared anchor to
             // the existing one-DIP tolerance. Do not await an impossible move.
-            intent.Completion.TrySetResult(false); position = null; return;
+            TracePosition(intent, "failed.out_of_range"); intent.Completion.TrySetResult(false); position = null; return;
         }
         intent.CorrectionPending = true; intent.CorrectionCompleted = false;
+        TracePosition(intent, "correct");
         if (!viewport.ChangeView(null, clamped, null, true))
         {
             intent.CorrectionPending = false; intent.CorrectionCompleted = true;
