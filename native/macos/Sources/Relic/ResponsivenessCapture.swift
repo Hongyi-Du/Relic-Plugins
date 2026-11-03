@@ -31,6 +31,7 @@ import RelicCore
             try await Task.sleep(for: .milliseconds(250))
             seed = manifest["seed"].integer
             let watchdog = ResponsivenessWatchdog(output: output); monitor = watchdog
+            watchdog.samplesStartup = phase != .workflows
             for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
             let fixture = manifest["fixture"]
             let suite = "Relic.Responsiveness." + UUID().uuidString
@@ -158,7 +159,9 @@ import RelicCore
         display?.restore(); NSApp.terminate(nil)
     }
 
+    private static var diagnosedDialog = false
     private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL, phase: PerformancePhase = .legacy) async throws -> [String: Any] {
+        let env = ProcessInfo.processInfo.environment
         let started = ProcessInfo.processInfo.systemUptime, kind = action["kind"].text
         var result = action.object
         m.appMenu = nil; m.sheet = nil
@@ -180,6 +183,11 @@ import RelicCore
         case "menu":
             m.appMenu = action["name"].text; await settle(); m.appMenu = nil; await settle()
         case "dialog":
+            // Diagnostic runs sample the first dialog from its start. Give the
+            // sampler time to attach before the cold presentation begins.
+            if env["RELIC_PERF_DIAGNOSTIC"] == "true", !diagnosedDialog {
+                diagnosedDialog = true; try await Task.sleep(for: .milliseconds(600))
+            }
             switch action["name"].text {
             case "settings": m.sheet = .settings
             case "about": m.settingsSection = "about"; m.sheet = .settings

@@ -27,6 +27,10 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var stalls: [[String: Any]] = []
     private var sampledStall = false
     private var sampledStartup = false
+    private var sampledDialog = false
+    /// Diagnostic runs only. A phase that studies a later action can skip the
+    /// startup sample, whose overhead can fail the phase before that action.
+    var samplesStartup = true
     private var persistence = HeartbeatPersistence()
 
     init(output: URL) { self.output = output }
@@ -39,15 +43,20 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         source = timer; timer.resume()
     }
     func action(_ name: String) {
+        let diagnostic = ProcessInfo.processInfo.environment["RELIC_PERF_DIAGNOSTIC"] == "true"
         lock.lock(); stage = name
-        let sample = !sampledStartup && name == "startup:publish"
-            && ProcessInfo.processInfo.environment["RELIC_PERF_DIAGNOSTIC"] == "true"
+        let sample = !sampledStartup && name == "startup:publish" && diagnostic && samplesStartup
         if sample { sampledStartup = true }
+        // The first dialog of a run opens cold. Sample it from its start, not
+        // from a failed probe, which sees only the end of a 300 ms stall.
+        let sampleDialog = diagnostic && !sampledDialog && name.hasSuffix(":dialog")
+        if sampleDialog { sampledDialog = true }
         lock.unlock()
         // Diagnostic-only sampling begins before the cold native view layout.
         // Starting sample after a 250 ms failure misses a 300 ms stall entirely.
         // Normal acceptance retains its original workload and watchdog limit.
         if sample { queue.async { self.sample("startup-diagnostic", seconds: 8) } }
+        if sampleDialog { queue.async { self.sample("first-dialog", seconds: 3) } }
     }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
     func recordActions(_ receipt: [String: Any]) {
