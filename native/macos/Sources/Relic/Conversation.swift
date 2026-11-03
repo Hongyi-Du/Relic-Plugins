@@ -84,10 +84,15 @@ struct RichText: View {
     @State private var prepared: PreparedMarkdown?
     @State private var presentedBlocks = 0
     private var parsed: PreparedMarkdown? { prepared?.source == text ? prepared : nil }
-    private var blocks: [MarkdownBlock] { parsed?.blocks ?? [] }
-    private func attributed(_ value: String) -> AttributedString { parsed?.inline(value) ?? AttributedString(value) }
-    private func list(_ block: MarkdownBlock) -> [MarkdownListItem] { parsed?.list(block) ?? [] }
-    private func table(_ block: MarkdownBlock) -> [[String]] { parsed?.table(block) ?? [] }
+    // The content below is built only after `parsed` found that `prepared`
+    // belongs to this text, and the task replaces it only with this text's
+    // parse. The block and cell helpers therefore read it directly: comparing
+    // a long non-ASCII source again for every block and table cell (Unicode
+    // canonical comparison) cost a large chat's switch most of its time.
+    private var blocks: [MarkdownBlock] { prepared?.blocks ?? [] }
+    private func attributed(_ value: String) -> AttributedString { prepared?.inline(value) ?? AttributedString(value) }
+    private func list(_ block: MarkdownBlock) -> [MarkdownListItem] { prepared?.list(block) ?? [] }
+    private func table(_ block: MarkdownBlock) -> [[String]] { prepared?.table(block) ?? [] }
     var body: some View {
         let _ = UIWorkTrace.count("body.richtext")
         Group {
@@ -298,12 +303,14 @@ struct RichText: View {
                 }.padding(.leading, item.indented ? 18 : 0)
             } }
         case "table":
+            // Measure the columns once per table, not again for every cell.
+            let rows = table(block), widths = tableWidths(block), header = NativeMarkdown.tableHasHeader(block)
             ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
-                ForEach(Array(table(block).enumerated()), id: \.offset) { index, row in GridRow {
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in GridRow {
                     ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
-                        SelectableText(value: attributed(cell), weight: index == 0 && NativeMarkdown.tableHasHeader(block) ? .semibold : .regular, pointSize: baseSize * 0.93, lineHeight: textLineHeight * 0.93)
-                            .padding(.horizontal, 8).padding(.vertical, 3.5).frame(width: tableWidths(block)[column], alignment: .leading)
-                            .modifier(RecordedSurface(background: index == 0 && NativeMarkdown.tableHasHeader(block) ? RelicStyle.ink.opacity(0.04) : .clear, border: RelicStyle.border, edges: EdgeInsets(top: 1, leading: 1, bottom: index == table(block).count - 1 ? 1 : 0, trailing: column == row.count - 1 ? 1 : 0), kind: "card"))
+                        SelectableText(value: attributed(cell), weight: index == 0 && header ? .semibold : .regular, pointSize: baseSize * 0.93, lineHeight: textLineHeight * 0.93)
+                            .padding(.horizontal, 8).padding(.vertical, 3.5).frame(width: widths[column], alignment: .leading)
+                            .modifier(RecordedSurface(background: index == 0 && header ? RelicStyle.ink.opacity(0.04) : .clear, border: RelicStyle.border, edges: EdgeInsets(top: 1, leading: 1, bottom: index == rows.count - 1 ? 1 : 0, trailing: column == row.count - 1 ? 1 : 0), kind: "card"))
                             .accessibilityLabel(String(attributed(cell).characters))
                     }
                 } }
