@@ -482,6 +482,7 @@ internal sealed class NativeChatList : Grid
         Commit(); StopFollowingLast();
         if (entries.Count == 0 || !isCurrent()) return Task.FromResult(false);
         var intent = position = new(kind, key, top, isCurrent, isReady, ViewIdentity, CaptureSeekInputGeneration());
+        SetRestoreCache(kind == PositionKind.Reading);
         // A chat that was just filled starts at its top. Ask for its last row
         // before the first layout, so the panel realizes the newest rows rather
         // than building the oldest ones first and seeking afterwards.
@@ -608,6 +609,18 @@ internal sealed class NativeChatList : Grid
         var i = index - 1;
         while (i >= 0 && TryGetRealizedRow(i) is { IsLoaded: true } earlier) { first = earlier; i--; }
         return first is { IsLoaded: true } ? Bounds(first, viewport).Top : double.NegativeInfinity;
+    }
+
+    // The panel keeps half a view of rows realized around the view: building
+    // more of them slowed every chat open. It places the thousands of rows it
+    // has not realized by the average of those few, so where they include a
+    // 2000 px message that average (and with it where the realized rows sit)
+    // swings: a sought reading row moved six rows out of the view in one
+    // layout, with no view change, and was lost. While a reading position is
+    // restored, keep two views of rows around it.
+    private void SetRestoreCache(bool restoring)
+    {
+        if (list.ItemsPanelRoot is ItemsStackPanel panel) panel.CacheLength = restoring ? 2 : .5;
     }
 
     // CI evidence: where the panel stands relative to a row being restored.
@@ -943,7 +956,7 @@ internal sealed class NativeChatList : Grid
     private void EndPosition(Position intent, bool restored)
     {
         intent.Completion.TrySetResult(restored);
-        if (ReferenceEquals(position, intent)) position = null;
+        if (ReferenceEquals(position, intent)) { position = null; SetRestoreCache(false); }
         if (intent.Kind != PositionKind.Latest) PositionEnded?.Invoke();
     }
 
