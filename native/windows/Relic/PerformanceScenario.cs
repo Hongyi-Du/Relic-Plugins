@@ -23,6 +23,7 @@ public sealed partial class MainWindow
     private void StartPerformanceProbe()
     {
         if (!PerformanceEnabled) return;
+        PerformanceGcEvents.Start();
         performanceManifest = JsonNode.Parse(System.IO.File.ReadAllText(Environment.GetEnvironmentVariable("RELIC_PERF_MANIFEST")!))!;
         System.IO.Directory.CreateDirectory(PerformanceOutput);
         performanceCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
