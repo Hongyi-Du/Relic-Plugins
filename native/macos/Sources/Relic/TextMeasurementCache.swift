@@ -61,8 +61,37 @@ final class PassageMeasurementCache {
         }
         let key = Key(width: width, lines: lines)
         if let cached = results[key] { return cached }
-        let result = NativeTextStyle.contentSize(value, available: width, maximumLines: lines)
+        let result = SharedPassageSizes.shared.size(value, width: width, lines: lines) {
+            NativeTextStyle.contentSize(value, available: width, maximumLines: lines)
+        }
         if results.count >= 16 { results.removeAll(keepingCapacity: true) }
         results[key] = result; return result
+    }
+}
+
+/// Rows are recreated when a chat is reopened or its bounded window moves.
+/// Their passages keep the same text and widths, so reuse the measured size
+/// instead of laying out the same paragraphs again. Bounded by source size.
+final class SharedPassageSizes {
+    static let shared = SharedPassageSizes()
+    private final class Key: NSObject {
+        let text: NSAttributedString, width: CGFloat, lines: Int
+        init(_ text: NSAttributedString, width: CGFloat, lines: Int) { self.text = text; self.width = width; self.lines = lines }
+        override var hash: Int { (text.string as NSString).hash ^ width.hashValue &* 31 ^ lines }
+        override func isEqual(_ object: Any?) -> Bool {
+            guard let other = object as? Key else { return false }
+            return width == other.width && lines == other.lines && text.isEqual(to: other.text)
+        }
+    }
+    private let values = NSCache<Key, NSValue>()
+    init() { values.countLimit = 2048; values.totalCostLimit = 8 * 1024 * 1024 }
+    func size(_ value: NSAttributedString, width: CGFloat, lines: Int, measure: () -> CGSize) -> CGSize {
+        if let cached = values.object(forKey: Key(value, width: width, lines: lines)) { return cached.sizeValue }
+        let result = measure()
+        let cost = value.length * 2 + 64
+        if cost <= values.totalCostLimit {
+            values.setObject(NSValue(size: result), forKey: Key(NSAttributedString(attributedString: value), width: width, lines: lines), cost: cost)
+        }
+        return result
     }
 }

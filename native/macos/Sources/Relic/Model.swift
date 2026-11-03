@@ -425,13 +425,23 @@ import Combine
     }
     private func changeSelection(_ next: ChatSelection, record: Bool, clearContent: Bool) {
         let sameOrganization = organization == next.org && !next.org.isEmpty
-        inputSuggestions = nil
+        // Every Observation write invalidates each view that read the field,
+        // even when the value is unchanged: all mounted messages read the
+        // plain-language state, the inspector its mode, the sidebar the folds.
+        // A chat switch writes only the fields whose values actually change.
+        if inputSuggestions != nil { inputSuggestions = nil }
         mentionEditor?.closeMentions()
         activeSpeech?.stop()
         plainTask?.cancel(); plainTask = nil; plainQueue = []
-        persistDraft(); organization = next.org; member = next.member
-        let saved = drafts[next.key] ?? ChatDraft(); draft = saved.text; quote = saved.quote; recipients = saved.recipients
-        quoteAuthor = saved.quoteAuthor ?? ""; quoteText = saved.quoteText ?? ""
+        persistDraft()
+        if organization != next.org { organization = next.org }
+        if member != next.member { member = next.member }
+        let saved = drafts[next.key] ?? ChatDraft()
+        if draft != saved.text { draft = saved.text }
+        if quote != saved.quote { quote = saved.quote }
+        if recipients != saved.recipients { recipients = saved.recipients }
+        if quoteAuthor != (saved.quoteAuthor ?? "") { quoteAuthor = saved.quoteAuthor ?? "" }
+        if quoteText != (saved.quoteText ?? "") { quoteText = saved.quoteText ?? "" }
         if clearContent {
             messages = []; streamRows = []
             // Direct resets still discard the old chat. Network navigation
@@ -439,19 +449,38 @@ import Combine
             if !sameOrganization { snapshot = Node() }
             liveItems = []; liveStatus = Node(); conversation = Node()
         }
-        moreChat = false; historyPagesLoaded = 0
-        selectedText = ""; selectedAuthor = ""; selectedTextView = nil
-        threadID = ""; threadData = Node(); if pane == "thread" { pane = "overview" }
-        file = Node(); fileImage = nil; plain = [:]; plainOne = []; plainPending = []; plainFailed = []; digest = Node(); digestPending = false
-        plainMode = defaults.bool(forKey: "plain." + next.org); digestOpen = defaults.bool(forKey: "digest." + next.org)
-        overviewMode = defaults.string(forKey: "overview.mode") ?? "direct"
+        if moreChat { moreChat = false }
+        if historyPagesLoaded != 0 { historyPagesLoaded = 0 }
+        if !selectedText.isEmpty { selectedText = "" }
+        if !selectedAuthor.isEmpty { selectedAuthor = "" }
+        selectedTextView = nil
+        if !threadID.isEmpty { threadID = "" }
+        if !threadData.object.isEmpty { threadData = Node() }
+        if pane == "thread" { pane = "overview" }
+        if !file.object.isEmpty { file = Node() }
+        if fileImage != nil { fileImage = nil }
+        if !plain.isEmpty { plain = [:] }
+        if !plainOne.isEmpty { plainOne = [] }
+        if !plainPending.isEmpty { plainPending = [] }
+        if !plainFailed.isEmpty { plainFailed = [] }
+        if !digest.object.isEmpty { digest = Node() }
+        if digestPending { digestPending = false }
+        let nextPlain = defaults.bool(forKey: "plain." + next.org), nextDigest = defaults.bool(forKey: "digest." + next.org)
+        if plainMode != nextPlain { plainMode = nextPlain }
+        if digestOpen != nextDigest { digestOpen = nextDigest }
+        let nextOverview = defaults.string(forKey: "overview.mode") ?? "direct"
+        if overviewMode != nextOverview { overviewMode = nextOverview }
         if record { history.visit(next) }
         if let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: "selection") }
-        recent.removeAll { $0 == next }; recent.insert(next, at: 0); recent = Array(recent.prefix(12))
-        if let data = try? JSONEncoder().encode(recent) { defaults.set(data, forKey: "recent") }
-        var ancestor = next.org, seen: Set<String> = []
-        while !ancestor.isEmpty, seen.insert(ancestor).inserted { folded.remove(ancestor); ancestor = organizations.first { $0["id"].text == ancestor }?["parent"].text ?? "" }
-        defaults.set(Array(folded), forKey: "folded")
+        var updatedRecent = recent
+        updatedRecent.removeAll { $0 == next }; updatedRecent.insert(next, at: 0); updatedRecent = Array(updatedRecent.prefix(12))
+        if updatedRecent != recent {
+            recent = updatedRecent
+            if let data = try? JSONEncoder().encode(recent) { defaults.set(data, forKey: "recent") }
+        }
+        var updatedFolds = folded, ancestor = next.org, seen: Set<String> = []
+        while !ancestor.isEmpty, seen.insert(ancestor).inserted { updatedFolds.remove(ancestor); ancestor = organizations.first { $0["id"].text == ancestor }?["parent"].text ?? "" }
+        if updatedFolds != folded { folded = updatedFolds; defaults.set(Array(folded), forKey: "folded") }
     }
     func select(_ org: String, _ member: String = "", record: Bool = true) async throws {
         let next = ChatSelection(org, member)
@@ -485,7 +514,11 @@ import Combine
         guard !selected.org.isEmpty else { return }
         let query = selected.member.isEmpty ? "/chat?kind=group&limit=1000"
             : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=1000"
-        async let snapshotRequest = get(selected.path("?lang=" + words.language))
+        // Like the reference, a chat switch inside the open organization only
+        // loads that chat. Event-driven refreshes keep this snapshot current;
+        // re-reading the whole organization doubled the server work per click.
+        let current: Node? = selected.org == organization && snapshot["org"]["id"].text == selected.org ? snapshot : nil
+        async let snapshotRequest = organizationSnapshot(current, path: selected.path("?lang=" + words.language))
         async let chatRequest = get(selected.path(query))
         let snap = try await snapshotRequest
         let who = snap["members"].rows.first { $0["name"].text == selected.member } ?? Node()
@@ -545,6 +578,10 @@ import Combine
     private func optionalChatResource(_ enabled: Bool, path: String) async throws -> Node {
         if enabled { return try await get(path) }
         return Node()
+    }
+    private func organizationSnapshot(_ current: Node?, path: String) async throws -> Node {
+        if let current { return current }
+        return try await get(path)
     }
     func navigate(_ delta: Int) { guard let next = history.move(delta) else { return }; run { try await self.select(next.org, next.member, record: false) } }
     func loadOlder() async throws {

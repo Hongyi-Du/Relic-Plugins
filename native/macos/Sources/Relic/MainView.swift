@@ -53,7 +53,9 @@ struct MainView: View {
                     inspector.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
                 }
             }
-        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading).modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
+        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+        .background(alignment: .topLeading) { if !m.ready { NativeWarmup() } }
+        .modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }
         .task(id: organizationKey) {
             // Materialize the window regions once. A different organization's

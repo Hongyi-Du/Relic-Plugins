@@ -114,6 +114,9 @@ public enum Tree {
 public enum Timeline {
     private final class DateParsers {
         let fractional = ISO8601DateFormatter(), seconds = ISO8601DateFormatter()
+        // Sidebar and header rows re-read the same few timestamps on every
+        // update; remember recent parses instead of running both formatters.
+        var parsed: [String: Date] = [:]
         init() { fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; seconds.formatOptions = [.withInternetDateTime] }
     }
     public static func date(_ node: Node) -> Date? {
@@ -124,7 +127,12 @@ public enum Timeline {
         let parsers: DateParsers
         if let existing = Thread.current.threadDictionary[key] as? DateParsers { parsers = existing }
         else { parsers = DateParsers(); Thread.current.threadDictionary[key] = parsers }
-        return parsers.fractional.date(from: node.text) ?? parsers.seconds.date(from: node.text)
+        let text = node.text
+        if let known = parsers.parsed[text] { return known }
+        guard let value = parsers.fractional.date(from: text) ?? parsers.seconds.date(from: text) else { return nil }
+        if parsers.parsed.count >= 4096 { parsers.parsed.removeAll(keepingCapacity: true) }
+        parsers.parsed[text] = value
+        return value
     }
     public static func activeLive(_ items: [Node], status: Node, decisions: [Node]) -> [Node] {
         let sorted = items.sorted { $0["seq"].integer < $1["seq"].integer }

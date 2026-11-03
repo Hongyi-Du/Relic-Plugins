@@ -25,7 +25,7 @@ struct Avatar: View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
             else if secretaryStyle { ReferenceIcon(name: "sec", size: 16, color: RelicStyle.violet, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { ReferenceLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), lines: 0, alignment: .center, owner: identity).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { PlainLabel(String(m.name(member).prefix(1)).uppercased(), size: fontSize, weight: 650, color: member == "human" ? RelicStyle.background : RelicStyle.avatar(member, background: false, dark: scheme == .dark), lineHeight: fontSize * 1.2).frame(maxWidth: .infinity, maxHeight: .infinity) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: max(0, radius - borderWidth))).padding(borderWidth)
             .modifier(RecordedSurface(background: secretaryStyle ? RelicStyle.violetSoft : member == "human" ? RelicStyle.ink : RelicStyle.avatar(member, background: true, dark: scheme == .dark),
                 border: borderWidth > 0 ? RelicStyle.background : .clear, borderWidth: borderWidth, radius: radius, kind: "avatar", owner: identity))
@@ -99,8 +99,11 @@ struct RichText: View {
             // A prepared message enters once; it does not change height after
             // every pair of paragraphs while the person is trying to read it.
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(blocks.prefix(presentedBlocks).enumerated()), id: \.offset) { index, block in
-                    blockView(block).padding(.top, blockGap(index))
+                // Consecutive paragraphs, headings and list items share one
+                // native text view; a long message no longer creates and
+                // measures a separate TextKit view for every paragraph.
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    segmentView(segment).padding(.top, blockGap(segment.first))
                 }
                 if presentedBlocks < blocks.count {
                     // An unprepared document has one placeholder until its
@@ -141,6 +144,100 @@ struct RichText: View {
             }
             return .systemAction
         })
+    }
+    private enum Segment {
+        case text(Range<Int>), block(Int)
+        var first: Int {
+            switch self {
+            case .text(let range): return range.lowerBound
+            case .block(let index): return index
+            }
+        }
+    }
+    private static let mergedKinds: Set<String> = ["text", "head", "list"]
+    private var segments: [Segment] {
+        var result: [Segment] = [], open: Int?
+        let count = min(presentedBlocks, blocks.count)
+        for index in 0..<count {
+            if Self.mergedKinds.contains(blocks[index].kind) { if open == nil { open = index } }
+            else {
+                if let start = open { result.append(.text(start..<index)); open = nil }
+                result.append(.block(index))
+            }
+        }
+        if let start = open { result.append(.text(start..<count)) }
+        return result
+    }
+    @ViewBuilder private func segmentView(_ segment: Segment) -> some View {
+        switch segment {
+        case .text(let range):
+            SelectableText(value: AttributedString(), pointSize: baseSize, lineHeight: textLineHeight,
+                           fileLinkTooltip: m.t("chat.path_preview"), rendered: mergedText(range))
+        case .block(let index): blockView(blocks[index])
+        }
+    }
+    /// One attributed passage for a run of text, heading and list blocks.
+    /// Each block keeps its own font and the same vertical gap as before.
+    private func mergedText(_ range: Range<Int>) -> NSAttributedString {
+        let result = NSMutableAttributedString(), tooltip = m.t("chat.path_preview")
+        for index in range {
+            let block = blocks[index]
+            let piece: NSMutableAttributedString
+            switch block.kind {
+            case "head":
+                piece = NSMutableAttributedString(attributedString: NativeTextStyle.render(
+                    attributed(block.text.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)),
+                    size: document ? baseSize * 1.02 : baseSize, weight: .bold,
+                    lineHeight: textLineHeight * (document ? 1.02 : 1), fileLinkTooltip: tooltip))
+            case "list": piece = listText(block, tooltip: tooltip)
+            default:
+                piece = NSMutableAttributedString(attributedString: NativeTextStyle.render(
+                    attributed(block.text), size: baseSize, lineHeight: textLineHeight, fileLinkTooltip: tooltip))
+            }
+            if index > range.lowerBound, result.length > 0, piece.length > 0 {
+                result.append(NSAttributedString(string: "\n", attributes: result.attributes(at: result.length - 1, effectiveRange: nil)))
+                Self.setSpacingBefore(blockGap(index), in: piece)
+            }
+            result.append(piece)
+        }
+        return result
+    }
+    private func listText(_ block: MarkdownBlock, tooltip: String) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
+        let font = RelicStyle.nativeFont(baseSize, weight: 400)
+        for item in list(block) {
+            let indent: CGFloat = item.indented ? 18 : 0
+            let text = NSMutableAttributedString(attributedString: NativeTextStyle.render(
+                attributed(item.text), size: baseSize, lineHeight: textLineHeight, fileLinkTooltip: tooltip))
+            guard let base = (text.length > 0 ? text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) : nil) as? NSParagraphStyle,
+                  let continuation = base.mutableCopy() as? NSMutableParagraphStyle,
+                  let first = base.mutableCopy() as? NSMutableParagraphStyle else { continue }
+            continuation.headIndent = indent + 22; continuation.firstLineHeadIndent = indent + 22
+            first.headIndent = indent + 22; first.firstLineHeadIndent = indent
+            first.tabStops = [NSTextTab(textAlignment: .left, location: indent + 22)]
+            let marker = NSAttributedString(string: item.marker + "\t", attributes: [
+                .font: font, .foregroundColor: NSColor(RelicStyle.ink), .paragraphStyle: first, .tracking: 0,
+                .baselineOffset: NativeLineMetrics.baselineOffset(font: font, lineHeight: first.minimumLineHeight)])
+            let entry = NSMutableAttributedString(attributedString: marker)
+            entry.append(text)
+            entry.addAttribute(.paragraphStyle, value: continuation, range: NSRange(location: 0, length: entry.length))
+            let firstEnd = (entry.string as NSString).range(of: "\n").location
+            entry.addAttribute(.paragraphStyle, value: first,
+                               range: NSRange(location: 0, length: firstEnd == NSNotFound ? entry.length : firstEnd + 1))
+            if result.length > 0 {
+                result.append(NSAttributedString(string: "\n", attributes: result.attributes(at: result.length - 1, effectiveRange: nil)))
+            }
+            result.append(entry)
+        }
+        return result
+    }
+    /// The gap belongs to the block's first paragraph only, not its soft lines.
+    private static func setSpacingBefore(_ gap: CGFloat, in piece: NSMutableAttributedString) {
+        guard gap > 0, let style = piece.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle,
+              let spaced = style.mutableCopy() as? NSMutableParagraphStyle else { return }
+        spaced.paragraphSpacingBefore = gap
+        let firstEnd = (piece.string as NSString).range(of: "\n").location
+        piece.addAttribute(.paragraphStyle, value: spaced, range: NSRange(location: 0, length: firstEnd == NSNotFound ? piece.length : firstEnd + 1))
     }
     private func blockMargins(_ block: MarkdownBlock, last: Bool) -> (top: CGFloat, bottom: CGFloat) {
         switch block.kind {
@@ -358,14 +455,16 @@ struct MessageView: View {
                 else { MemberCardButton(member: item["from"].text) { Avatar(member: item["fromParent"].text.isEmpty ? item["from"].text : item["fromParent"].text, size: inThread ? 30 : 36) }.buttonStyle(.plain).accessibilityLabel("").accessibilitySortPriority(1) }
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     if !continued { FlowLayout(spacing: 6, centerRows: true, rowAlignment: mine ? .trailing : .leading) {
-                        ReferenceLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25, lines: 0)
-                        if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { ReferenceLabel(item["from"].text, size: 11, color: RelicStyle.muted, lineHeight: 14.3, lines: 0, monospaced: true) }
-                        if item["type"].text == "receipt" { ReferenceLabel(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })]), size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0) }
-                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { ReferenceLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0).nativeHelp(recipientLabel) }
+                        // Plain text: these labels are rebuilt with every row
+                        // the conversation window admits.
+                        PlainLabel(item["fromLabel"].text.isEmpty ? m.name(item["from"].text) : item["fromLabel"].text, size: 12.5, weight: 600, color: RelicStyle.secondary, lineHeight: 16.25)
+                        if item["type"].text != "receipt" && m.member.isEmpty && !inThread && m.members.contains(where: { $0["name"].text == item["from"].text }) { PlainLabel(item["from"].text, size: 11, color: RelicStyle.muted, lineHeight: 14.3, monospaced: true) }
+                        if item["type"].text == "receipt" { PlainLabel(m.t("msg.auto_receipt_to", ["names": m.list(item["to"].rows.map { m.name($0.text) })]), size: 12, color: RelicStyle.muted, lineHeight: 15.6) }
+                        else if m.member.isEmpty && !inThread && !item["to"].rows.isEmpty { PlainLabel(recipientLabel, size: 12, color: RelicStyle.muted, lineHeight: 15.6).help(recipientLabel) }
                         let currentTimestamp = timestampContext?.isCurrent(language: m.words.language, now: m.displayNow) ?? false
                         let time = (currentTimestamp ? clockLabel : nil) ?? m.clock(item["at"])
-                        ReferenceLabel(time, size: 12, color: RelicStyle.muted, lineHeight: 15.6, lines: 0)
-                            .nativeHelp((currentTimestamp ? dayTooltip : nil) ?? (m.day(item["at"]) + " " + time)).fixedSize()
+                        PlainLabel(time, size: 12, color: RelicStyle.muted, lineHeight: 15.6)
+                            .help((currentTimestamp ? dayTooltip : nil) ?? (m.day(item["at"]) + " " + time)).fixedSize()
                     } }
                     MessageBodyContent(item: item, inThread: inThread, wantsPlain: wantsPlain, preparedBody: preparedBody)
                     if item["from"].text == "human" && !item["read_by"].isNull && !item["to"].isNull {

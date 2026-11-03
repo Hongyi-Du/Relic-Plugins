@@ -135,7 +135,9 @@ extension Model {
     func lastLine(_ member: String = "") -> String {
         let last = snapshot["chats"][member.isEmpty ? "group" : "member:" + member]["last"]
         if last["body"].text.isEmpty { return "" }
-        let body = last["body"].text
+        // The preview shows about 70 characters; never run its regular
+        // expressions over a whole long message on every sidebar update.
+        let body = String(last["body"].text.prefix(2000))
             .replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"(?m)^>.*\n+"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
