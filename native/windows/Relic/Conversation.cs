@@ -662,7 +662,7 @@ public sealed partial class MainWindow
         var request = latestRequest;
         var before = messages.FirstOrDefault(m => long.TryParse(m.Text("id"), out _)).Text("id");
         if (before.Length == 0) { chatMore = false; return; }
-        var page = await api!.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=1000&before=" + Client.Segment(before)));
+        var page = await api!.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit + "&before=" + Client.Segment(before)));
         if (org != selectedOrg || member != selectedMember) return;
         var current = messages;
         var prepared = await Task.Run(() =>

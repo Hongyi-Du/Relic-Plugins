@@ -207,15 +207,13 @@ internal sealed class NativeChatList : Grid
         committed = revision; committedView = ViewIdentity; committedPresentationContext = PresentationContext;
         var wanted = next.ToHashSet();
         // ItemsStackPanel reconciles every single-item change on its next layout
-        // pass. An older page (a thousand inserts into the rows on screen) or a new
-        // chat (a clear, then every row) both cost that pass, and with several
-        // thousand items ModernCollectionBasePanel failed fast in
-        // ContainerManager::PlaceInValidElements (E_UNEXPECTED, CI crash dump).
-        // A large change replaces the collection in one reset instead; the reading
-        // or latest position intent positions the new list as before.
-        var current = entries.ToHashSet();
-        var changes = next.Count(entry => !current.Contains(entry)) + entries.Count(entry => !wanted.Contains(entry));
-        if (!sameView || changes > 64)
+        // pass. Another chat replaces the collection in one reset instead of a
+        // clear and an insert per row; its latest position intent places it.
+        // Older pages stay incremental: rows inserted above the visible ones keep
+        // the reading position in place (KeepItemsInView) without a far
+        // ScrollIntoView, which is where ModernCollectionBasePanel failed fast
+        // (ContainerManager::PlaceInValidElements, E_UNEXPECTED) on long lists.
+        if (!sameView)
         {
             entries = new ObservableCollection<Entry>(next);
             list.ItemsSource = entries;
