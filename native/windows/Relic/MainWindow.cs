@@ -212,6 +212,9 @@ public sealed partial class MainWindow : Window
                 try { AppNotificationManager.Default.Register(); }
                 catch { notificationsAvailable = false; Note(T("settings.notify_unsupported")); }
                 VisualStartup("loading organization and conversation");
+                // The first chat and sidebar are the first text-heavy layout:
+                // let the font warm-up finish first (see StartupFontWarmup.Ready).
+                using (PerformanceTrace.Measure("startup.fonts.wait")) await StartupFontWarmup.Ready(TimeSpan.FromSeconds(2.5));
                 ApplyAppearance(); DrawMenu(); StartPerformanceProbe(); await Refresh();
                 // The successfully opened startup conversation is the first
                 // navigation entry, so the first later selection can go back.

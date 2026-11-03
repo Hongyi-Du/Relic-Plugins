@@ -8,10 +8,21 @@ internal static class StartupFontWarmup
 {
     private const string Sample = "Relic Aa 0123 … · — 组织成员群聊秘书消息任务协议需要你决定已读";
 
+    // Finishes when the warm-up does (or failed); see Ready.
+    internal static Task Completion { get; private set; } = Task.CompletedTask;
+
+    // Waits for the warm-up without blocking the UI thread, at most the given
+    // time. On a machine whose font cache is cold (the first launch after a
+    // reboot; every first launch on a fresh CI machine) the warm-up took up to
+    // 3.3 s, and the first chat and sidebar measured their text on the UI
+    // thread meanwhile: the window froze for 0.6-0.9 s. Waiting here keeps
+    // the window responsive; on a warm machine the warm-up is done already.
+    internal static Task Ready(TimeSpan most) => Task.WhenAny(Completion, Task.Delay(most));
+
     internal static void Start()
     {
         var languages = new[] { "zh-CN", System.Globalization.CultureInfo.CurrentUICulture.Name }.Distinct().ToArray();
-        _ = Task.Run(() =>
+        Completion = Task.Run(() =>
         {
             using var timing = PerformanceTrace.Measure("startup.fonts.worker");
             foreach (var language in languages)
