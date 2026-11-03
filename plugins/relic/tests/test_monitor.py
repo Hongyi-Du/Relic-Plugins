@@ -326,6 +326,24 @@ class StopAndResume(Base):
         self.assertEqual(state["status"], "stopped")
         self.assertIn("stopped by the person", state["error"])
 
+    def test_stop_cancels_a_turn_the_app_runs_instead_of_ending_the_app(self):
+        # The App's hub records its own process for the turns it runs; ending that pid ended the App.
+        runner.runs_dir().mkdir(parents=True, exist_ok=True)
+        state = {"status": "running", "pid": os.getpid(), "started": time.time(), "via": "relic-app"}
+        runner.write_state(self.org, "head", state)
+        cancelled = []
+        with mock.patch.object(monitor, "_kill_tree", return_value=True) as kill:
+            done = monitor.stop(self.store, SESSION, cancel_turn=lambda org, member: cancelled.append((org, member)))
+        kill.assert_not_called()
+        self.assertEqual(cancelled, [(self.org, "head")])
+        self.assertEqual(done["cancelled"], [[self.org, "head"]])
+        self.assertEqual(done["killed"], [])
+        self.assertEqual(runner.run_state(self.org, "head")["status"], "running")  # the App ends its own turn
+        # Without a way to cancel, an App turn is still never ended by its process.
+        with mock.patch.object(monitor, "_kill_tree", return_value=True) as kill:
+            monitor.stop(self.store, SESSION)
+        kill.assert_not_called()
+
     def test_stop_all_turns_off_every_organization_and_automation_and_resume_all_restores_them(self):
         path = self.automation()
         self.store.set_auto_wake(self.cabinet, False)  # already off: Resume all leaves it off
