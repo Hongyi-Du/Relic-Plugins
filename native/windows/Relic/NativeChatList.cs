@@ -30,6 +30,7 @@ internal sealed class NativeChatList : Grid
         internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal Entry? RequestedEntry;
         internal int Corrections;
+        internal long ConfirmAfter;
         internal bool Settled;
         internal bool CorrectionPending, CorrectionCompleted;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
@@ -367,6 +368,20 @@ internal sealed class NativeChatList : Grid
         if (!dispatcher.TryEnqueue(() => { Interlocked.Exchange(ref completionQueued, 0); QueuePositionCheck(); }))
             Interlocked.Exchange(ref completionQueued, 0);
     }
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? confirmTimer;
+    // One check after the confirmation delay, in case nothing else (a build,
+    // a size or view change) asks for one before then.
+    private void ScheduleConfirmation()
+    {
+        if (confirmTimer == null)
+        {
+            confirmTimer = dispatcher.CreateTimer();
+            confirmTimer.Interval = TimeSpan.FromMilliseconds(130); confirmTimer.IsRepeating = false;
+            confirmTimer.Tick += (_, _) => QueuePositionCheck();
+        }
+        confirmTimer.Stop(); confirmTimer.Start();
+    }
+
     private void QueuePositionCheck()
     {
         if (position == null || checkQueued) return;
@@ -424,16 +439,32 @@ internal sealed class NativeChatList : Grid
         if (host == null || !ReadyHost(host) || !intent.IsReady()) return;
         var bounds = Bounds(host, viewport);
         var visible = bounds.Bottom > 0 && bounds.Top < viewport.ViewportHeight;
+        // A restored reading position aims within half a pixel, inside the 1 px
+        // the person (and CI) would notice.
         var settled = intent.Kind == PositionKind.Latest
             ? visible && Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1
-            : visible && Math.Abs(bounds.Top - intent.Top) <= 1 && (intent.Kind != PositionKind.First || viewport.VerticalOffset <= 1);
+            : visible && Math.Abs(bounds.Top - intent.Top) <= .5 && (intent.Kind != PositionKind.First || viewport.VerticalOffset <= 1);
         if (settled)
         {
+            if (intent.Kind != PositionKind.Latest)
+            {
+                // Rows realized by the last view change can still build and
+                // resize after this check. Hold the restored position until it
+                // is still in place a few frames later, so late layout cannot
+                // move it after the restore reported success.
+                var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (intent.ConfirmAfter == 0)
+                {
+                    intent.ConfirmAfter = now + System.Diagnostics.Stopwatch.Frequency / 8;
+                    TracePosition(intent, "confirming"); ScheduleConfirmation(); return;
+                }
+                if (now < intent.ConfirmAfter) return;
+            }
             intent.Settled = true; TracePosition(intent, "settled"); intent.Completion.TrySetResult(true);
             if (intent.Kind != PositionKind.Latest) position = null;
             return;
         }
-        intent.Settled = false;
+        intent.Settled = false; intent.ConfirmAfter = 0;
         var geometry = (viewport.ViewportWidth, viewport.ViewportHeight, host.ActualWidth, host.ActualHeight,
             Math.Round((bounds.Top + viewport.VerticalOffset) * 64) / 64);
         if (intent.LastGeometry == geometry)
@@ -445,7 +476,9 @@ internal sealed class NativeChatList : Grid
             { TracePosition(intent, "failed.same_geometry"); intent.Completion.TrySetResult(false); position = null; }
             return;
         }
-        if (intent.Corrections >= 3)
+        // Three corrections reach the target; two more cover drift found while
+        // confirming it. Each one still needs a changed geometry.
+        if (intent.Corrections >= (intent.Kind == PositionKind.Latest ? 3 : 5))
         {
             // A failed reading restoration must release the in-flight page,
             // so the person can still navigate and request another page. The

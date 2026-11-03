@@ -113,10 +113,27 @@ jobs:
             Out-File -Encoding utf8 performance/windows/crash-events.txt
           $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
           if (-not (Test-Path $cdb)) { "cdb.exe is not installed on this runner" | Out-File -Encoding utf8 performance/windows/crash-analysis-unavailable.txt }
+          # Windows Error Reporting may still be writing a full dump; wait until
+          # WerFault has exited and the file size has stopped changing.
+          for ($i = 0; $i -lt 60 -and (Get-Process WerFault -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 2 }
           Get-ChildItem performance/crash-dumps -Filter *.dmp -ErrorAction SilentlyContinue | Select-Object -First 2 | ForEach-Object {
+            $size = -1
+            for ($i = 0; $i -lt 30 -and $size -ne (Get-Item $_.FullName).Length; $i++) { $size = (Get-Item $_.FullName).Length; Start-Sleep -Seconds 2 }
+            "dump $($_.Name) bytes $size" | Out-File -Encoding utf8 -Append performance/windows/crash-events.txt
             if (Test-Path $cdb) {
               & $cdb -z $_.FullName -c '.symfix c:\symcache; .reload; !analyze -v; .ecxr; kb 40; q' 2>&1 |
                 Out-File -Encoding utf8 (Join-Path 'performance/windows' ($_.BaseName + '-analyze.txt'))
+            }
+          }
+          # Name the faulting function from the event even without a usable dump:
+          # open the faulting image itself in cdb and look the offset up.
+          $fault = Get-Content performance/windows/crash-events.txt -ErrorAction SilentlyContinue | Out-String
+          if ((Test-Path $cdb) -and $fault -match 'Fault offset: (0x[0-9a-fA-F]+)' ) {
+            $offset = $Matches[1]
+            if ($fault -match 'Faulting module path: (.+\.dll)') {
+              $image = $Matches[1].Trim(); $module = [IO.Path]::GetFileNameWithoutExtension($image) -replace '\.', '_'
+              & $cdb -z $image -c ".symfix c:\symcache; .reload /f; ln $module+$offset; u $module+$offset L8; q" 2>&1 |
+                Out-File -Encoding utf8 performance/windows/crash-fault-symbol.txt
             }
           }
       - uses: actions/upload-artifact@v4
