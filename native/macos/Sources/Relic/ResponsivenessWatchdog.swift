@@ -25,6 +25,11 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var stage = "startup"
     private var pendingStage = "startup"
     private var stalls: [[String: Any]] = []
+    /// Probes that waited more than 120 ms, with the traced work still open
+    /// when each was answered: which actions come close to the 250 ms limit,
+    /// how often, and under what work. Written whenever it grows.
+    private var nearStalls: [[String: Any]] = []
+    private var nearStallsWritten = 0
     private var sampledStall = false
     private var sampledStartup = false
     private var sampledDialog = false
@@ -108,7 +113,10 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage,
             "max_runloop_stall_ms": runLoopWorst, "runloop_pings": runLoopPings]
         let observations = stalls
+        let near = nearStalls.count != nearStallsWritten ? nearStalls : nil
+        if near != nil { nearStallsWritten = nearStalls.count }
         lock.unlock()
+        if let near { write(["probes_over_120ms": near], "near-stalls.json") }
         if probeRunLoop {
             // Supplemental observation only: the existing DispatchQueue probe
             // and its unchanged 250 ms gate remain authoritative. Compare actual
@@ -144,6 +152,11 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
                     if self.stalls.count >= 512 { self.stalls.removeFirst() }
                     self.stalls.append(["started_unix_ms": self.pendingEpoch, "milliseconds": delay,
                                        "started_action": self.pendingStage, "completed_action": self.stage])
+                }
+                if delay > 120, self.nearStalls.count < 400 {
+                    self.nearStalls.append(["started_unix_ms": self.pendingEpoch, "milliseconds": (delay * 10).rounded() / 10,
+                                            "started_action": self.pendingStage, "completed_action": self.stage,
+                                            "open_work": UIWorkTrace.shared.openScopes()])
                 }
                 self.pending = 0; self.pendingEpoch = 0; self.pings += 1
                 self.lock.unlock()

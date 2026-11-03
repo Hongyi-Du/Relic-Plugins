@@ -58,6 +58,13 @@ final class UIWorkTrace: @unchecked Sendable {
         let previous = trace.totals[scope.name] ?? (0, 0, 0)
         trace.totals[scope.name] = (previous.count + 1, previous.ms + ms, max(previous.maximum, ms))
     }
+    /// Scopes still open now, oldest first, with how long each has been open.
+    func openScopes() -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        let now = Self.uptime
+        return active.values.sorted { $0.started < $1.started }
+            .map { $0.name + " " + String(Int((now - $0.started) * 1000)) + " ms" }
+    }
     func snapshot() -> [String: Any] {
         lock.lock(); defer { lock.unlock() }
         let now = Self.uptime
