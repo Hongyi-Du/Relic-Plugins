@@ -405,10 +405,7 @@ def ex_officio(store, seat):
 
 def unread_counts(store, org_id):
     """Unread messages per member (what each member has not read yet)."""
-    out = {}
-    for member, messages in store.unread_by_member(org_id).items():
-        out[member] = len(messages)
-    return out
+    return store.unread_counts(org_id)
 
 
 def decisions(store, org, hub=None, lang=None):

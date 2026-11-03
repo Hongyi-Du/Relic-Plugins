@@ -369,6 +369,12 @@ public sealed partial class MainWindow : Window
             CopyNotifications(newCopy); DrawCopies();
             if (org.Length > 0 && !orgs.Any(x => x.Text("id") == org)) { org = ""; member = ""; }
             if (org.Length == 0 && orgs.Count > 0) { org = orgs[0].Text("id"); selectedOrg = org; }
+            // A click while this refresh was in flight makes everything below
+            // stale. Leave now rather than after the selected organization's
+            // snapshot (several hundred ms for a large one): the click's own
+            // refresh is waiting for this one to finish.
+            if (org != selectedOrg || member != selectedMember)
+            { if (timed) PerformanceTrace.Count("refresh.stale.after_orgs", 1); pending = true; return; }
             if (org.Length > 0)
             {
                 var reuse = earlySnapshot != null && org == requestedOrg && member == requestedMember;
@@ -442,7 +448,8 @@ public sealed partial class MainWindow : Window
                 if (changes.Side || organizationChanged || sidebarStructureChanged || presentationChanged) { DrawSide(); sidebarStructureChanged = false; }
                 else if (viewChanged) UpdateSidebarSelection();
             }
-            if ((changes.Chat || viewChanged || presentationChanged) && !await DrawConversationAsync()) { pending = true; return; }
+            if ((changes.Chat || viewChanged || presentationChanged) && !await DrawConversationAsync())
+            { if (timed) PerformanceTrace.Count("refresh.draw_superseded", 1); pending = true; return; }
             // Overview is organization data. A private-chat selection changes
             // its sidebar highlight, not its member/task/protocol controls.
             var detailChanged = changes.Detail || organizationChanged || presentationChanged || (viewChanged && pane != "overview");

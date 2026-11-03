@@ -1976,6 +1976,19 @@ class Store:
                                                        "reply_to": reply_to})
         return out
 
+    def unread_counts(self, org_id):
+        """{member: number of unread messages}: the lengths of unread_by_member(org_id), without loading message
+        bodies or building an entry for every unread message (the organization snapshot needs only the counts)."""
+        with self.db() as db:
+            rows = db.execute("SELECT id, sender, recipients FROM messages WHERE org_id=?", (org_id,)).fetchall()
+            read = {(r[0], r[1]) for r in db.execute("SELECT message_id, member FROM reads WHERE org_id=?", (org_id,))}
+        counts = {}
+        for mid, sender, recipients in rows:
+            for member in json.loads(recipients):
+                if member != sender and (mid, member) not in read:
+                    counts[member] = counts.get(member, 0) + 1
+        return counts
+
     def sent_since(self, org_id, member, since, skip_prefix=None):
         """Recipients of the messages a member sent at or after `since` (an ISO time from now()); bodies starting with
         skip_prefix (automatic receipts) are left out."""
