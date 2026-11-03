@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -61,8 +62,8 @@ public sealed class Client : IDisposable
     public async Task<JsonNode> Get(string path, CancellationToken ct = default)
     {
         var connection = http;
-        try { using var response = await connection.GetAsync(path, ct); return await Decode(response, ct); }
-        catch (HttpRequestException) { if (!await RefreshRecord(ct) && ReferenceEquals(connection, http)) throw; using var retry = await http.GetAsync(path, ct); return await Decode(retry, ct); }
+        try { using var response = await connection.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, ct); return await Decode(response, ct); }
+        catch (HttpRequestException) { if (!await RefreshRecord(ct) && ReferenceEquals(connection, http)) throw; using var retry = await http.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, ct); return await Decode(retry, ct); }
     }
     public async Task<JsonNode> Post(string path, object body, CancellationToken ct = default)
     {
@@ -81,13 +82,37 @@ public sealed class Client : IDisposable
             using var retry = await http.PostAsync(path, retryContent, ct); return await Decode(retry, ct);
         }
     }
-    private static async Task<JsonNode> Decode(HttpResponseMessage response, CancellationToken ct)
+    // Read the body into a pooled buffer and parse it once, off the UI thread.
+    // Buffering the content and then decoding it to a string put several copies
+    // of every large chat or snapshot on the large-object heap; each overflow of
+    // that heap's budget is a full collection, which also pauses the UI thread.
+    private static Task<JsonNode> Decode(HttpResponseMessage response, CancellationToken ct) => Task.Run(async () =>
     {
-        var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        var value = await Task.Run(() => JsonNode.Parse(json) ?? new JsonObject(), ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) throw new HttpRequestException(value.Text("error"), null, response.StatusCode);
-        return value;
-    }
+        var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        await using (stream.ConfigureAwait(false))
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(16 * 1024); var length = 0;
+            try
+            {
+                while (true)
+                {
+                    if (length == buffer.Length)
+                    {
+                        var larger = ArrayPool<byte>.Shared.Rent(buffer.Length * 2);
+                        buffer.AsSpan(0, length).CopyTo(larger);
+                        ArrayPool<byte>.Shared.Return(buffer); buffer = larger;
+                    }
+                    var read = await stream.ReadAsync(buffer.AsMemory(length), ct).ConfigureAwait(false);
+                    if (read == 0) break;
+                    length += read;
+                }
+                var value = JsonNode.Parse(buffer.AsSpan(0, length)) ?? new JsonObject();
+                if (!response.IsSuccessStatusCode) throw new HttpRequestException(value.Text("error"), null, response.StatusCode);
+                return value;
+            }
+            finally { ArrayPool<byte>.Shared.Return(buffer); }
+        }
+    }, ct);
     public async Task Events(Func<JsonNode, Task> receive, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
