@@ -120,8 +120,9 @@ public sealed partial class MainWindow
         // last: right after a dialog closed, the next click on a menu or
         // toolbar button in the title bar was lost twice (runs 41668161153
         // and 41695428000) while the cached rects still matched.
+        // GetRegionRects gives null, not an empty array, while none are set.
         if (titlebarInteractiveRects.SequenceEqual(next)
-            && titlebarInput.GetRegionRects(NonClientRegionKind.Passthrough).SequenceEqual(next)) return;
+            && (titlebarInput.GetRegionRects(NonClientRegionKind.Passthrough) ?? []).SequenceEqual(next)) return;
         titlebarInput.SetRegionRects(NonClientRegionKind.Passthrough, next);
         titlebarInteractiveRects = next;
     }
