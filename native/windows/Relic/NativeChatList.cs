@@ -44,7 +44,7 @@ internal sealed class NativeChatList : Grid
         Padding = new Thickness(0), BorderThickness = new Thickness(0), UseLayoutRounding = false,
         IsTabStop = false
     };
-    private readonly ObservableCollection<Entry> entries = [];
+    private ObservableCollection<Entry> entries = [];
     private readonly Dictionary<Border, Mounted> mounted = [];
     private readonly Dictionary<string, string> identities = [];
     private readonly Queue<BuildWork> builds = [];
@@ -205,8 +205,39 @@ internal sealed class NativeChatList : Grid
         }
         identities.Clear();
         committed = revision; committedView = ViewIdentity; committedPresentationContext = PresentationContext;
-        if (!sameView) entries.Clear();
         var wanted = next.ToHashSet();
+        // ItemsStackPanel reconciles every single-item change on its next layout
+        // pass. An older page (a thousand inserts into the rows on screen) or a new
+        // chat (a clear, then every row) both cost that pass, and with several
+        // thousand items ModernCollectionBasePanel failed fast in
+        // ContainerManager::PlaceInValidElements (E_UNEXPECTED, CI crash dump).
+        // A large change replaces the collection in one reset instead; the reading
+        // or latest position intent positions the new list as before.
+        var current = entries.ToHashSet();
+        var changes = next.Count(entry => !current.Contains(entry)) + entries.Count(entry => !wanted.Contains(entry));
+        if (!sameView || changes > 64)
+        {
+            entries = new ObservableCollection<Entry>(next);
+            list.ItemsSource = entries;
+            foreach (var (host, binding) in mounted.ToArray())
+                if (!wanted.Contains(binding.Entry)) Release(host);
+            // The new collection has no realized target yet: aim the current
+            // position intent again from the start.
+            if (position is { } intent)
+            {
+                intent.RequestedEntry = null; intent.LastGeometry = null; intent.Corrections = 0;
+                intent.CorrectionPending = false; intent.CorrectionCompleted = false; intent.ConfirmAfter = 0;
+            }
+            // Containers the list discarded without a recycle notification would
+            // keep stale bindings; drop those that are no longer in the tree.
+            dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                foreach (var (host, _) in mounted.ToArray()) if (!host.IsLoaded) Release(host);
+            });
+            PerformanceTrace.Count(TraceName + ".list.reset", next.Count);
+            ConfigurePresenter(); QueuePositionCheck();
+            return;
+        }
         for (var index = entries.Count - 1; index >= 0; index--)
             if (!wanted.Contains(entries[index])) entries.RemoveAt(index);
         var existing = entries.ToHashSet();
