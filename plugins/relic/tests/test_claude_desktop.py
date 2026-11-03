@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -328,6 +329,8 @@ class LocalTransport(unittest.TestCase):
             with self.subTest(outcome=outcome):
                 path = gui.request_path(self.oid, "claude-reviewer")
                 path.unlink(missing_ok=True)
+                for folder in runner.runs_dir().glob("claude-gui-*"):  # each case starts with no request in flight
+                    shutil.rmtree(folder)
                 def route(request, config, folder):
                     gui._write(folder / "delivery.json", {"outcome": outcome, "records": []})
                     return outcome
@@ -336,8 +339,12 @@ class LocalTransport(unittest.TestCase):
                     self.run_turn(route_mock)
                 self.assertEqual(caught.exception.outcome, outcome)
                 self.assertTrue(caught.exception.possible)
-                with self.assertRaises(gui.TransportError):
+                with self.assertRaises(gui.TransportError) as again:
                     self.run_turn(route_mock)
+                # The session still owes the first request its Stop: nothing more is sent, and the wake-up waits.
+                self.assertEqual(again.exception.outcome, "blocked")
+                self.assertFalse(again.exception.possible)
+                self.assertTrue(wake.no_turn(again.exception))
                 self.assertEqual(route_mock.call_count, 1)
 
     def test_matching_real_gui_hook_receipt_is_the_only_success_path(self):
@@ -406,8 +413,13 @@ class LocalTransport(unittest.TestCase):
         receipt = self.store.history(self.oid)[-1]["body"]
         self.assertIn("not complete", receipt)
         self.assertNotIn("turn finished", receipt)
-        state, _ = self.main(route)
-        self.assertEqual(state["status"], "incomplete")
+        state, finish = self.main(route)
+        # Nothing is sent while the first request has no Stop: the wake-up is handed back to wait (as for a busy
+        # chat), without another receipt.
+        self.assertEqual(state["delivery"], "blocked")
+        self.assertFalse(state["delivery_possible"])
+        self.assertIn(gui.gui_receipt.WAITING, finish.call_args[0][3])
+        self.assertEqual(self.store.history(self.oid)[-1]["body"], receipt)
         self.assertEqual(route.call_count, 1)
 
     def test_main_finishes_only_after_gui_public_stop_receipt(self):
