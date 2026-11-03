@@ -521,6 +521,10 @@ public sealed partial class MainWindow : Window
         while (!closing && request == detailRequest && waited.Elapsed < TimeSpan.FromSeconds(1)
             && !(ConversationContentReady() && (!keepLatest || stream.IsLastPositionSettled)))
             await YieldPresentation();
+        // Let the ready chat present itself first. The inspector's text
+        // preparation began in the same turn the chat became ready, and the
+        // chat counted as still preparing past its one-second open.
+        if (ConversationContentReady()) { await YieldPresentation(); await YieldPresentation(); }
         if (closing || request != detailRequest || org != selectedOrg || member != selectedMember) return;
         using (PerformanceTrace.Measure("DrawDetail")) DrawDetail();
         if (pane == "workspace" && detailData) await Workspace();

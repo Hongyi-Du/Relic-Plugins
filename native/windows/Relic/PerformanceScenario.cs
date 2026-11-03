@@ -198,13 +198,14 @@ public sealed partial class MainWindow
         // The sidebar's organization rows outlived full collections after
         // being replaced. Mount and remove one part of such a row at a time
         // and count which of them survive.
-        async Task Parts(string name, Func<FrameworkElement> make)
+        async Task Parts(string name, Func<FrameworkElement> make, Func<FrameworkElement, Task>? mounted = null)
         {
             var made = new List<WeakReference>();
             for (var index = 0; index < 12; index++)
             {
                 var element = make(); made.Add(new WeakReference(element));
                 inspector.Children.Add(element); await PerformanceYield();
+                if (mounted != null) { await mounted(element); await PerformanceYield(); }
                 inspector.Children.Remove(element); await PerformanceYield();
             }
             await Settled();
@@ -256,51 +257,19 @@ public sealed partial class MainWindow
         await Release("sidebar_redraw", DrawSide);
         await Release("sidebar_cleared", () => { side.Children.Clear(); side.Commit(); });
         DrawSide();
-        // Each redraw (and the clear) kept exactly one more row: the one under
-        // the pointer, it seems. Check with the real pointer: rows removed with
-        // the pointer over them or not, and redraws with and without it.
-        async Task UnderPointer(string name, bool hover)
+        // Each redraw (and the clear) kept exactly one more row, with or
+        // without the pointer on it. Rows that were selected, focused or
+        // clicked before their removal, as the opened organization's row is:
+        static ListViewItem FirstItem(FrameworkElement element) => (ListViewItem)((ListView)element).Items[0];
+        FrameworkElement ProbeList() { var list = SidebarList(SidebarText("Probe")); list.Width = 200; list.Height = 34; return list; }
+        await Parts("list_row_selected", () => { var list = ProbeList(); ((ListView)list).SelectedItem = FirstItem(list); return list; });
+        await Parts("list_row_focused", ProbeList, element => { FirstItem(element).Focus(FocusState.Programmatic); return Task.CompletedTask; });
+        await Parts("list_row_clicked", ProbeList, async element =>
         {
-            var made = new List<WeakReference>();
-            for (var index = 0; index < 12; index++)
-            {
-                var element = SidebarList(SidebarText("Probe")); element.Width = 200; element.Height = 34;
-                made.Add(new WeakReference(element));
-                inspector.Children.Add(element); await PerformanceYield();
-                if (hover) { await CaptureHover(element); await PerformanceYield(); }
-                inspector.Children.Remove(element); await PerformanceYield();
-            }
-            await CaptureHover(chatScroll); await PerformanceYield(); await Settled();
-            PerformanceTrace.Note("leak.pointer", new { name, made = made.Count, alive = made.Count(entry => entry.IsAlive) });
-        }
-        await UnderPointer("list_row_away", false);
-        await UnderPointer("list_row_hovered", true);
-        NativeSidebarRow? VisibleSidebarRow()
-        {
-            var queue = new Queue<DependencyObject>(); queue.Enqueue(side);
-            while (queue.Count > 0)
-            {
-                var node = queue.Dequeue();
-                if (node is NativeSidebarRow { IsLoaded: true, ActualHeight: > 0 } found) return found;
-                for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node); index++)
-                    queue.Enqueue(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(node, index));
-            }
-            return null;
-        }
-        async Task ReleaseAsync(string name, Func<Task> release)
-        {
-            await Settled(); var before = DetachedSidebarRows();
-            await release(); await PerformanceYield(); await Settled(); var after = DetachedSidebarRows();
-            PerformanceTrace.Note("leak.release", new { name, before, after });
-        }
-        await ReleaseAsync("pointer_away", () => CaptureHover(chatScroll));
-        await ReleaseAsync("redraw_away", () => { DrawSide(); return Task.CompletedTask; });
-        await ReleaseAsync("hover_redraw", async () =>
-        {
-            if (VisibleSidebarRow() is { } target) { await CaptureHover(target); await PerformanceYield(); }
-            DrawSide();
+            await CaptureHover(element); CapturePointerButton(true);
+            try { await Task.Delay(40); } finally { CapturePointerButton(false); }
         });
-        await ReleaseAsync("then_away", () => CaptureHover(chatScroll));
+        await CaptureHover(chatScroll); await PerformanceYield();
     }
 
     // CI-only: the tracked rows that outlived full collections while out of
@@ -323,7 +292,9 @@ public sealed partial class MainWindow
                 var key = element.GetType().Name + " parent=" + (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(element)?.GetType().Name ?? "none")
                     + " top=" + top.GetType().Name + " depth=" + depth + " loaded=" + element.IsLoaded
                     + " id=" + Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(element)
-                    + " rows=" + sidebarRows + " watching=" + watching + " text=" + text;
+                    + " rows=" + sidebarRows + " watching=" + watching
+                    + " selected=" + (element is ListView { SelectedItem: not null })
+                    + " focus=" + ((element as ListView)?.Items.FirstOrDefault() as Control)?.FocusState + " text=" + text;
                 groups[key] = groups.GetValueOrDefault(key) + 1;
             }
             var detached = new JsonObject();
