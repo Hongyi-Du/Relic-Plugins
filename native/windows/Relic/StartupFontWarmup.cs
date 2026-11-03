@@ -23,6 +23,16 @@ internal static class StartupFontWarmup
                         try { NativeGlyphRasterPreparation.Prepare(new(Sample, FontFamilies.UI, language, size, weight, 0, 5, 1, false), CancellationToken.None).Dispose(); }
                         catch (Exception) { }
                     }
+            // Paths, commands and logs use Cascadia Code (settings, workspace,
+            // trace); icons use the symbol font. Their first measure was cold too:
+            // the settings dialog once spent 800 ms measuring its content.
+            foreach (var (family, text) in new[] { ("Cascadia Code", "Relic aA 0123 {}()[]<>/\\:._-~ 组织"),
+                ("Segoe Fluent Icons, Segoe MDL2 Assets", "\uE713\uE8BB\uE9D9\uE71A\uE77B\uE81C\uE8B7\uE73A") })
+                foreach (var size in new[] { 11.5f, 13f })
+                {
+                    try { NativeGlyphRasterPreparation.Prepare(new(text, family, languages[0], size, 400, 0, 5, 1, false), CancellationToken.None).Dispose(); }
+                    catch (Exception) { }
+                }
         });
     }
 }

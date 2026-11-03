@@ -36,6 +36,9 @@ internal sealed class NativeChatList : Grid
         // Where the last correction asked the viewport to go. A ViewChanged
         // from an earlier scroll can arrive before that correction lands.
         internal double? CorrectionTarget;
+        // The seek went to a row above the reading row (see SeekTarget), and
+        // whether the reading row itself was then sought as a fallback.
+        internal bool SeekedAbove, SeekedRow;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
 
@@ -502,6 +505,21 @@ internal sealed class NativeChatList : Grid
             { checkQueued = false; CheckPosition(); })) checkQueued = false;
     }
 
+    // A reading row goes back below the rows above it (its old place on screen
+    // is usually some way down). Seeking the row itself put it at the top, and
+    // each correction then scrolled up into rows the panel had only estimated;
+    // the panel's estimate correction moved the rows with the view and undid
+    // the scroll (five corrections of 406 px left the row where it was). Seek
+    // a row above it instead, by our own height estimates, so the corrections
+    // scroll down through rows that are already placed.
+    private Entry SeekTarget(Position intent, int index)
+    {
+        if (intent.Kind != PositionKind.Reading || intent.Top <= 0) return entries[index];
+        var seek = index; var above = 0d;
+        while (seek > 0 && above < intent.Top + 120) { seek--; above += entries[seek].Row.Estimate + spacing; }
+        return entries[seek];
+    }
+
     // CI-only evidence of how a position intent ended; Count is a no-op otherwise.
     private void TracePosition(Position intent, string step) =>
         PerformanceTrace.Count(TraceName + ".position." + intent.Kind.ToString().ToLowerInvariant() + "." + step, intent.Corrections);
@@ -527,14 +545,17 @@ internal sealed class NativeChatList : Grid
             if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
             intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
             intent.CorrectionPending = false; intent.CorrectionCompleted = false; intent.CorrectionTarget = null;
+            intent.SeekedAbove = false; intent.SeekedRow = false;
             // The platform realizes the target; this does not construct or
             // manually position an off-viewport item in an ItemsRepeater.
             var existing = TryGetRealizedRow(index);
             var existingBounds = existing is { IsLoaded: true } ? Bounds(existing, viewport) : default;
             if (existing == null || existingBounds.Bottom <= 0 || existingBounds.Top >= viewport.ViewportHeight)
             {
-                TracePosition(intent, "seek");
-                list.ScrollIntoView(entry, intent.Kind == PositionKind.Latest ? ScrollIntoViewAlignment.Default : ScrollIntoViewAlignment.Leading);
+                var seekEntry = SeekTarget(intent, index);
+                intent.SeekedAbove = !ReferenceEquals(seekEntry, entry);
+                TracePosition(intent, intent.SeekedAbove ? "seek_above" : "seek");
+                list.ScrollIntoView(seekEntry, intent.Kind == PositionKind.Latest ? ScrollIntoViewAlignment.Default : ScrollIntoViewAlignment.Leading);
                 return;
             }
         }
@@ -548,6 +569,14 @@ internal sealed class NativeChatList : Grid
         using (PerformanceTrace.Measure(TraceName + ".list.layout_before_check")) list.UpdateLayout();
         if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
         var host = TryGetRealizedRow(index);
+        if (host == null && intent.SeekedAbove && !intent.SeekedRow)
+        {
+            // The rows above were taller than estimated and the reading row is
+            // not among the realized ones: seek it directly, once.
+            intent.SeekedRow = true; TracePosition(intent, "seek_row");
+            list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
+            return;
+        }
         if (host == null || !ReadyHost(host) || !intent.IsReady()) return;
         var bounds = Bounds(host, viewport);
         var visible = bounds.Bottom > 0 && bounds.Top < viewport.ViewportHeight;
@@ -630,7 +659,9 @@ internal sealed class NativeChatList : Grid
         if (intent.Kind == PositionKind.Reading)
             PerformanceTrace.Note(TraceName + ".position.reading.detail", new { corrections = intent.Corrections,
                 offset = viewport.VerticalOffset, target = clamped, maximum = viewport.ScrollableHeight,
-                top = bounds.Top, height = bounds.Height, want = intent.Top, realized = mounted.Count, pending = PendingBuilds });
+                top = bounds.Top, height = bounds.Height, want = intent.Top, realized = mounted.Count, pending = PendingBuilds,
+                index, first_cache = (list.ItemsPanelRoot as ItemsStackPanel)?.FirstCacheIndex,
+                first_visible = (list.ItemsPanelRoot as ItemsStackPanel)?.FirstVisibleIndex });
         if (!viewport.ChangeView(null, clamped, null, true))
         {
             intent.CorrectionPending = false; intent.CorrectionCompleted = true;
