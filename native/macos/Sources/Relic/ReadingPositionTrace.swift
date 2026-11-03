@@ -37,13 +37,16 @@ import AppKit
         guard let current = pending else { return }
         pending = nil; verifying = current
         record(current, kind: current.kind, scroll: scroll)
-        // "kind/displayed": once more on the main queue's next turn, after the
-        // display flush that ran this update has laid out and committed the
-        // rows. The measurement above can see row views AppKit has not moved
-        // yet in the same layout pass; this one is what the frame showed.
-        DispatchQueue.main.async {
+        // "kind/displayed": once more when the run loop next leaves a run or is
+        // about to wait, after the observers that flush the display (SwiftUI's
+        // update, then Core Animation's commit) have run for this update. The
+        // measurement above can see row views and a scroll offset that the
+        // same pass still changes; this one is what the committed frame shows.
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
+                                                         false, CFIndex.max) { _, _ in
             MainActor.assumeIsolated { record(current, kind: current.kind + "/displayed", scroll: scroll) }
         }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
     /// The stream's next update, after any scroll of its own was requested.
