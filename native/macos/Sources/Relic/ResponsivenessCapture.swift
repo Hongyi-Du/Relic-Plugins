@@ -51,6 +51,7 @@ import RelicCore
             await settle()
             // Framework initialization is complete; all organization loading,
             // layout, parsing and events are included from this point onward.
+            UIWorkTrace.observeDisplayPasses()
             watchdog.begin()
             current.startupStage = { watchdog.action("startup:" + $0) }
             await current.start()
@@ -199,6 +200,17 @@ import RelicCore
         }
         try await Task.sleep(for: .milliseconds(150))
     }
+    /// Diagnostic runs only: wait until sample has written its file, so the
+    /// phase cannot end while it is still symbolicating, and the actions
+    /// after it run without the sampler's own load.
+    private static func waitForSample(_ name: String, output: URL) async throws {
+        let log = output.appendingPathComponent(name + ".sampler.log")
+        let deadline = ProcessInfo.processInfo.systemUptime + 45
+        while ProcessInfo.processInfo.systemUptime < deadline,
+              !((try? String(contentsOf: log, encoding: .utf8))?.contains("written to file") ?? false) {
+            try await Task.sleep(for: .milliseconds(250))
+        }
+    }
     private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL, phase: PerformancePhase = .legacy) async throws -> [String: Any] {
         let env = ProcessInfo.processInfo.environment
         let started = ProcessInfo.processInfo.systemUptime, kind = action["kind"].text
@@ -225,7 +237,8 @@ import RelicCore
         case "dialog":
             // Diagnostic runs sample the first dialog from its start. Give the
             // sampler time to attach before the cold presentation begins.
-            if env["RELIC_PERF_DIAGNOSTIC"] == "true", !diagnosedDialog {
+            let sampled = env["RELIC_PERF_DIAGNOSTIC"] == "true" && !diagnosedDialog
+            if sampled {
                 // /usr/bin/sample prints its first line once it is attached.
                 // Open the dialog only then, or the sample misses its first frame.
                 diagnosedDialog = true
@@ -253,6 +266,10 @@ import RelicCore
             result["close_requested_unix_ms"] = Date().timeIntervalSince1970 * 1000
             m.sheet = nil; try await settleConversation(m); result["responder_after"] = responder(window)
             result["closed_unix_ms"] = Date().timeIntervalSince1970 * 1000
+            // The dialogs come last in the workflows phase. Without this wait
+            // the phase ended while sample was still symbolicating, and the
+            // runner collected no first-dialog sample.
+            if sampled { try await waitForSample("first-dialog", output: output) }
         case "scroll-history":
             try await m.select(action["org"].text); try await settleConversation(m)
             while m.moreChat {

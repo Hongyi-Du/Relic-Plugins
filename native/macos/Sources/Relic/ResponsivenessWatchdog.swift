@@ -24,6 +24,9 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var pings = 0, sequence = 0
     private var stage = "startup"
     private var pendingStage = "startup"
+    /// The traced work totals when the pending probe was sent: a probe that
+    /// waits over 120 ms lists the work that ran meanwhile, finished or not.
+    private var pendingWork: [String: (calls: Int, ms: Double)] = [:]
     private var stalls: [[String: Any]] = []
     /// Probes that waited more than 120 ms, with the traced work still open
     /// when each was answered: which actions come close to the 250 ms limit,
@@ -114,7 +117,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let earlyName = "early-stall-" + String(earlySamples)
         let earlyReceipt: [String: Any] = ["action": stage, "pending_ms": pending > 0 ? (now - pending) * 1000 : 0]
         let persist = persistence.shouldWrite(now: now, action: stage, worst: worst, unfinished: !enqueue)
-        if enqueue { pending = now; pendingEpoch = Self.epoch; pendingStage = stage }
+        if enqueue { pending = now; pendingEpoch = Self.epoch; pendingStage = stage; pendingWork = UIWorkTrace.shared.counts() }
         if persist { sequence += 1 }
         let receipt: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage,
@@ -163,7 +166,8 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
                 if delay > 120, self.nearStalls.count < 400 {
                     self.nearStalls.append(["started_unix_ms": self.pendingEpoch, "milliseconds": (delay * 10).rounded() / 10,
                                             "started_action": self.pendingStage, "completed_action": self.stage,
-                                            "open_work": UIWorkTrace.shared.openScopes()])
+                                            "open_work": UIWorkTrace.shared.openScopes(),
+                                            "work_during": UIWorkTrace.shared.work(since: self.pendingWork)])
                 }
                 self.pending = 0; self.pendingEpoch = 0; self.pings += 1
                 self.lock.unlock()

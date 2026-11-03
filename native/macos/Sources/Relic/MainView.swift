@@ -41,15 +41,15 @@ struct MainView: View {
         // Each sits inside its region's frame: a stack probing how far the
         // region can grow asks the frame, which answers from its own width,
         // instead of a custom layout that must measure the whole region.
-        AlignmentBoundary { VStack(spacing: 0) {
+        AlignmentBoundary(trace: "window") { VStack(spacing: 0) {
             AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready && !m.error.isEmpty { Button(m.t("appmenu.reload")) { Task { await m.start() } } }
-            AlignmentBoundary { HStack(spacing: 0) {
-                if m.sidebarOpen { AlignmentBoundary { Sidebar(revealMembers: revealPhase >= 1) }.frame(width: sidebarWidth, height: regionHeight).measuredRegion("sidebar", createsAccessibilityContainer: false) }
+            AlignmentBoundary(trace: "panes") { HStack(spacing: 0) {
+                if m.sidebarOpen { AlignmentBoundary(trace: "sidebar") { Sidebar(revealMembers: revealPhase >= 1) }.frame(width: sidebarWidth, height: regionHeight).measuredRegion("sidebar", createsAccessibilityContainer: false) }
                 if revealPhase < 2 { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else {
-                    AlignmentBoundary { ChatView() }.frame(width: chatWidth, height: regionHeight).measuredRegion("conversation", createsAccessibilityContainer: false)
+                    AlignmentBoundary(trace: "chat") { ChatView() }.frame(width: chatWidth, height: regionHeight).measuredRegion("conversation", createsAccessibilityContainer: false)
                         .disabled(loadingOrganization)
                         .overlay {
                             if loadingOrganization {
@@ -66,7 +66,7 @@ struct MainView: View {
                 }
             } }.frame(maxHeight: .infinity).overlay(alignment: .trailing) {
                 if revealPhase >= 3 && m.panelOpen {
-                    AlignmentBoundary { inspector }.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
+                    AlignmentBoundary(trace: "inspector") { inspector }.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
                 }
             }
         } }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)

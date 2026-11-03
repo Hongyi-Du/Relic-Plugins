@@ -5,7 +5,7 @@ import Foundation
 /// has finished symbolicating its stack.
 final class UIWorkTrace: @unchecked Sendable {
     static let shared = UIWorkTrace()
-    private static let enabled = ProcessInfo.processInfo.environment["RELIC_PERF_MANIFEST"] != nil
+    static let enabled = ProcessInfo.processInfo.environment["RELIC_PERF_MANIFEST"] != nil
     private let lock = NSLock()
     private var ordinal = 0
     private var active: [Int: (name: String, started: Double, main: Bool)] = [:]
@@ -65,6 +65,33 @@ final class UIWorkTrace: @unchecked Sendable {
         let previous = trace.totals[scope.name] ?? (0, 0, 0)
         trace.totals[scope.name] = (previous.count + 1, previous.ms + ms, max(previous.maximum, ms))
     }
+    /// The traced work since `before`, most time first: what ran on the main
+    /// thread while a probe waited, even when it ended before the answer.
+    func work(since before: [String: (calls: Int, ms: Double)], limit: Int = 16) -> [String] {
+        delta(since: before).map { (name: $0.key, calls: $0.value["calls"] as? Int ?? 0, ms: $0.value["ms"] as? Double ?? 0) }
+            .sorted { $0.ms != $1.ms ? $0.ms > $1.ms : $0.calls > $1.calls }
+            .prefix(limit).map { $0.ms > 0 ? "\($0.name) \($0.calls)/\($0.ms) ms" : "\($0.name) \($0.calls)x" }
+    }
+    /// CI only. Times each pass of the main run loop's display work, from the
+    /// first to the last observer before the run loop waits: SwiftUI's graph
+    /// update, AppKit's layout and drawing, and Core Animation's commit. A
+    /// probe that waited behind a long pass then lists "runloop.display" next
+    /// to the named regions' layouts and the labels that ran inside it, and a
+    /// stall outside any pass shows that its work came from a queued job.
+    @MainActor static func observeDisplayPasses() {
+        guard enabled, !observingDisplay else { return }
+        observingDisplay = true
+        var token: Int?
+        let first = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.min) { _, _ in
+            end(token); token = begin("runloop.display")
+        }
+        let last = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { _, _ in
+            end(token); token = nil
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), first, .commonModes)
+        CFRunLoopAddObserver(CFRunLoopGetMain(), last, .commonModes)
+    }
+    @MainActor private static var observingDisplay = false
     /// Scopes still open now, oldest first, with how long each has been open.
     func openScopes() -> [String] {
         lock.lock(); defer { lock.unlock() }
