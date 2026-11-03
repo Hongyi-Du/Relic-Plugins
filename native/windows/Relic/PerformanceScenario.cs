@@ -164,6 +164,28 @@ public sealed partial class MainWindow
         await Measure("toolbar", 12, _ => { DrawToolbar(); return Task.CompletedTask; });
         await Measure("sidebar", 12, _ => { DrawSide(); return Task.CompletedTask; });
         await Measure("detail", 12, _ => { DrawDetail(); return Task.CompletedTask; });
+        // The inspector redraw left about 0.4 MB per call. Single controls it
+        // builds, each mounted for a frame and removed again.
+        async Task Mount(Func<FrameworkElement> make)
+        {
+            var element = make(); inspector.Children.Add(element);
+            await PerformanceYield();
+            inspector.Children.Remove(element);
+        }
+        await Measure("shadow", 12, step => Mount(() =>
+        {
+            var panel = new NativeShadowPanel(new Border { Width = 80, Height = 24, CornerRadius = new CornerRadius(6) });
+            panel.SetShadows([new NativeShadowLayer(0, 1, 2, Windows.UI.Color.FromArgb(255, 20, 18, 15), .06f)]);
+            return panel;
+        }));
+        await Measure("selectorbar", 12, step => Mount(() =>
+        {
+            var bar = new SelectorBar();
+            foreach (var text in new[] { "A", "B", "C" }) bar.Items.Add(new SelectorBarItem { Text = text });
+            return bar;
+        }));
+        await Measure("tabs", 12, step => Mount(() => DetailsTabs(new[] { ("a", "A"), ("b", "B"), ("c", "C") }, "a", value => Task.CompletedTask)));
+        await Measure("toggle", 12, step => Mount(() => OverviewSwitch("x", true, false, value => Task.CompletedTask)));
         var homeOrg = org; var homeMember = member;
         var otherOrg = orgs.Select(item => item.Text("id")).FirstOrDefault(id => id.Length > 0 && id != homeOrg) ?? homeOrg;
         await Measure("switch", 12, async index =>

@@ -225,6 +225,12 @@ public class NativeShadowPanel : Grid
     private NativeShadowLayer[] layers = [];
     private ContainerVisual? shadows;
     private readonly List<DropShadow> renderedShadows = new();
+    // Every composition object the current drawing made. Replacing or
+    // detaching the shadows disposes them: left to the finalizer, they stayed
+    // (a visual surface keeps rendering its source), and each inspector redraw
+    // (its tabs and toggle carry these shadows) left about 0.4 MB of native
+    // heap behind, for good.
+    private List<IDisposable> renderedObjects = new();
     private Size renderedSize;
     private double renderedRadius;
     private long layerRevision, renderedLayerRevision = -1;
@@ -242,7 +248,7 @@ public class NativeShadowPanel : Grid
         {
             lastUnloadIsLoaded = IsLoaded;
             unloadCount++; ElementCompositionPreview.SetElementChildVisual(shadowHost, null);
-            shadows = null; renderedShadows.Clear(); renderedLayerRevision = -1;
+            shadows = null; renderedShadows.Clear(); renderedLayerRevision = -1; DisposeRendered(renderedObjects);
             // ContentDialog/template reparenting can deliver an old Unloaded
             // after this panel was already arranged in its new live subtree.
             // Recheck the real lifecycle on the next UI turn; detached panels
@@ -289,25 +295,33 @@ public class NativeShadowPanel : Grid
             && renderedRadius == Surface.CornerRadius.TopLeft
             && ReferenceEquals(shadows, ElementCompositionPreview.GetElementChildVisual(shadowHost))) return;
         var compositor = ElementCompositionPreview.GetElementVisual(this).Compositor;
-        shadows = compositor.CreateContainerVisual(); renderedShadows.Clear();
+        var previous = renderedObjects; var created = new List<IDisposable>();
+        T Made<T>(T item) where T : IDisposable { created.Add(item); return item; }
+        shadows = Made(compositor.CreateContainerVisual()); renderedShadows.Clear();
         var size = new Vector2((float)arranged.Width, (float)arranged.Height);
         // CSS lists its foremost shadow first; compositor children paint in order.
         foreach (var layer in layers.Reverse())
         {
-            var geometry = compositor.CreateRoundedRectangleGeometry(); geometry.Size = size;
+            var geometry = Made(compositor.CreateRoundedRectangleGeometry()); geometry.Size = size;
             geometry.CornerRadius = new Vector2((float)Surface.CornerRadius.TopLeft);
-            var maskVisual = compositor.CreateSpriteVisual(); maskVisual.Size = size;
-            maskVisual.Brush = compositor.CreateColorBrush(Microsoft.UI.Colors.White);
-            maskVisual.Clip = compositor.CreateGeometricClip(geometry);
-            var mask = compositor.CreateVisualSurface(); mask.SourceVisual = maskVisual; mask.SourceSize = size;
-            var shadow = compositor.CreateDropShadow(); shadow.Mask = compositor.CreateSurfaceBrush(mask);
+            var maskVisual = Made(compositor.CreateSpriteVisual()); maskVisual.Size = size;
+            maskVisual.Brush = Made(compositor.CreateColorBrush(Microsoft.UI.Colors.White));
+            maskVisual.Clip = Made(compositor.CreateGeometricClip(geometry));
+            var mask = Made(compositor.CreateVisualSurface()); mask.SourceVisual = maskVisual; mask.SourceSize = size;
+            var shadow = Made(compositor.CreateDropShadow()); shadow.Mask = Made(compositor.CreateSurfaceBrush(mask));
             shadow.Color = layer.Color; shadow.Opacity = layer.Opacity; shadow.BlurRadius = layer.Blur; shadow.Offset = new Vector3(layer.X, layer.Y, 0);
-            var visual = compositor.CreateSpriteVisual(); visual.Size = size; visual.Shadow = shadow;
+            var visual = Made(compositor.CreateSpriteVisual()); visual.Size = size; visual.Shadow = shadow;
             shadows.Children.InsertAtTop(visual); renderedShadows.Add(shadow);
         }
         ElementCompositionPreview.SetElementChildVisual(shadowHost, shadows);
+        renderedObjects = created; DisposeRendered(previous);
         renderedSize = arranged; renderedRadius = Surface.CornerRadius.TopLeft;
         renderedLayerRevision = layerRevision; renderCount++;
+    }
+    private static void DisposeRendered(List<IDisposable> items)
+    {
+        foreach (var item in items) item.Dispose();
+        items.Clear();
     }
 }
 
