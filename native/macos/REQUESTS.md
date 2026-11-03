@@ -1,4 +1,9 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+URGENT Mac rollback:292daa9 pressure41551409844 regresses startup to1.4–2.4s
+in every phase/profile when ProgressiveRow is removed. Restore exactly the
+2323989 ConversationList admission wrapper; keep standard List, all functional
+assertions, partial receipts and the independent bounded-date-formatter fix.
+Do not ship292daa9/ada7eeb.343 tests/window PASS did not prove bounded first paint.
 292daa9 Native41551409974 PASS343 tests/package, including direct List recycling
 and retained partial-action evidence; window41551409776 bothPASS. Pressure both
 profiles still running. Mac now bounds/reuses sidebar/inspector date formatters

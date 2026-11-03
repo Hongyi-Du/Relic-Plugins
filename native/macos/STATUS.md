@@ -1,5 +1,11 @@
 # Amendment 9：聊天主流程修复候选，尚未通过完整验收
 
+292daa9压力41551409844已证明直接创建消息正文的尝试退步：large各阶段启动最长
+1.51–2.39秒，person-shape1.41–2.08秒，全部在startup:publish失败。立即撤回
+ConversationList的去ProgressiveRow改动，恢复2323989的分批正文挂载；保留标准List、
+真实分页/End、partial receipts与独立日期格式器复用修正。343测试和整窗PASS并不代表
+首帧工作有界，此候选不得交付。原生行数检查仍保留，性能门槛没有改变。
+
 292daa9 / Native apps41551409974：343项macOS测试PASS（58.440秒），包括标准List
 直接回收时的全量历史/原生实例化行数/End/阅读位置检查，以及partial receipts落盘测试。
 整窗41551409776两端PASS。两种压力仍在运行；不把这些功能测试记作压力通过。
