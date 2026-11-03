@@ -52,6 +52,9 @@ import RelicCore
             // Framework initialization is complete; all organization loading,
             // layout, parsing and events are included from this point onward.
             UIWorkTrace.observeRunLoop()
+            if watchdog.sampleStartupNow() {
+                startupSamplerSeen = try await waitForSampler("startup-diagnostic", output: output)
+            }
             watchdog.begin()
             current.startupStage = { watchdog.action("startup:" + $0) }
             await current.start()
@@ -183,22 +186,31 @@ import RelicCore
                          "actions": receipts, "errors": errors, "random_seconds": randomSeconds,
                          "random_actions": randomActions, "seed": seed, "idle_interval": idleInterval,
                          "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState,
-                         "reading_position": ReadingPositionTrace.summary()])
+                         "reading_position": ReadingPositionTrace.summary(),
+                         "startup_sampler_seen_after_ms": startupSamplerSeen.map { $0 as Any } ?? NSNull()])
         model?.stop(); activeWindow?.orderOut(nil); activeWindow?.contentView = nil; activeWindow?.close()
         display?.restore(); NSApp.terminate(nil)
     }
 
     private static var diagnosedDialog = false
     private static var armedActionID: String?
-    /// /usr/bin/sample prints its first line once it is attached; act only then.
-    private static func waitForSampler(_ name: String, output: URL) async throws {
+    private static var startupSamplerSeen: Double?
+    /// Diagnostic runs only: wait until a sample just started is actually
+    /// sampling. Its first line comes long before its first sample (about
+    /// 20 s on the CI runners), so the samples that began work 150 ms after
+    /// that line held later, unrelated work instead. Returns how long the
+    /// sampling took to be seen after the line, or nil if it was not seen.
+    @discardableResult
+    private static func waitForSampler(_ name: String, output: URL) async throws -> Double? {
         let log = output.appendingPathComponent(name + ".sampler.log")
         let deadline = ProcessInfo.processInfo.systemUptime + 6
         while ProcessInfo.processInfo.systemUptime < deadline,
               !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
             try await Task.sleep(for: .milliseconds(20))
         }
-        try await Task.sleep(for: .milliseconds(150))
+        let seen = await samplerSuspensions(timeout: 45)
+        try await Task.sleep(for: .milliseconds(300))
+        return seen
     }
     /// Diagnostic runs only: how long until sample is seen sampling this
     /// process (nil if not within the timeout). Each sample suspends the
@@ -270,15 +282,8 @@ import RelicCore
                 // 10 s after that line held only the idle wait that followed.
                 // Open it once the sample is seen suspending this process.
                 diagnosedDialog = true
-                let log = output.appendingPathComponent("first-dialog.sampler.log")
-                let deadline = ProcessInfo.processInfo.systemUptime + 6
-                while ProcessInfo.processInfo.systemUptime < deadline,
-                      !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
-                    try await Task.sleep(for: .milliseconds(20))
-                }
-                let seen = await samplerSuspensions(timeout: 40)
+                let seen = try await waitForSampler("first-dialog", output: output)
                 result["sampler_seen_after_ms"] = seen.map { $0 as Any } ?? NSNull()
-                try await Task.sleep(for: .milliseconds(300))
             }
             result["responder_before"] = responder(window)
             // Wall-clock marks in the stall records' clock: a long probe can

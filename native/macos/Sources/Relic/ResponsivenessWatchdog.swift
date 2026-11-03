@@ -59,6 +59,18 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         timer.setEventHandler { [weak self] in self?.probe() }
         source = timer; timer.resume()
     }
+    /// Diagnostic runs only: start the startup sample now, before the
+    /// first request. sample takes its first sample many seconds after it
+    /// starts (about 20 s on the CI runners); the capture waits until it
+    /// sees it sampling before it begins the startup it should cover.
+    func sampleStartupNow() -> Bool {
+        lock.lock()
+        let sample = diagnostic && samplesStartup && !sampledStartup
+        if sample { sampledStartup = true }
+        lock.unlock()
+        if sample { queue.async { self.sample("startup-diagnostic", seconds: 12) } }
+        return sample
+    }
     func action(_ name: String) {
         let diagnostic = ProcessEnvironment.value("RELIC_PERF_DIAGNOSTIC") == "true"
         lock.lock(); stage = name
@@ -76,7 +88,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // Normal acceptance retains its original workload and watchdog limit.
         if sample { queue.async { self.sample("startup-diagnostic", seconds: 8) } }
         if sampleDialog { queue.async { self.sample("first-dialog", seconds: 16) } }
-        if sampleArmed { queue.async { self.sample("armed-action", seconds: 2) } }
+        if sampleArmed { queue.async { self.sample("armed-action", seconds: 4) } }
     }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
     func recordActions(_ receipt: [String: Any]) {
@@ -184,11 +196,11 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
         // A long 1 ms startup sample can spend the entire diagnostic retention
         // interval symbolicating millions of recursive SwiftUI frames and leave
-        // no file. A 10 ms interval covers the same eight seconds with bounded
-        // diagnostic overhead. The acceptance probes are completely separate.
+        // no file. A 5 ms interval over twelve seconds keeps that bounded. The
+        // acceptance probes are completely separate.
         // The first dialog's 16 s at 3 ms resolves a 300 ms stall; the dialog
         // action waits until sample has written it.
-        let interval = name == "startup-diagnostic" ? "10" : name == "first-dialog" ? "3" : name == "armed-action" ? "2" : "1"
+        let interval = name == "startup-diagnostic" ? "5" : name == "first-dialog" ? "3" : name == "armed-action" ? "2" : "1"
         sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), interval, "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
         let log = output.appendingPathComponent(name + ".sampler.log")
         FileManager.default.createFile(atPath: log.path, contents: nil)
