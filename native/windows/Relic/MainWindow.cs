@@ -255,16 +255,29 @@ public sealed partial class MainWindow : Window
             var selectedOrg = org; var selectedMember = member;
             var oldOrgs = orgs; var oldSnap = snap; var oldMessages = messages;
             var oldConversation = conversation; var oldLive = liveData; var oldThread = threadData;
-            try { orgs = (await api.Get("/api/orgs")).Rows(); }
-            catch (Exception ex) { throw new InvalidOperationException(T("boot.load_orgs_failed", ("error", ex.Message)), ex); }
-            var newCopy = copyInbox.Update(await api.Get("/api/cc"));
+            // These reads have no dependency on one another. Keep one bounded
+            // refresh in flight, but do not serialize its HTTP round trips.
+            var organizationsRequest = api.Get("/api/orgs");
+            var copiesRequest = api.Get("/api/cc");
+            try { await Task.WhenAll(organizationsRequest, copiesRequest); }
+            catch (Exception ex)
+            {
+                if (organizationsRequest.IsFaulted)
+                    throw new InvalidOperationException(T("boot.load_orgs_failed", ("error", ex.Message)), ex);
+                throw;
+            }
+            orgs = (await organizationsRequest).Rows();
+            var newCopy = copyInbox.Update(await copiesRequest);
             CopyNotifications(newCopy); DrawCopies();
             if (org.Length > 0 && !orgs.Any(x => x.Text("id") == org)) { org = ""; member = ""; }
             if (org.Length == 0 && orgs.Count > 0) { org = orgs[0].Text("id"); selectedOrg = org; }
             if (org.Length > 0)
             {
-                var snapshot = await api.Get(PathFor());
-                var chat = await api.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit));
+                var snapshotRequest = api.Get(PathFor());
+                var chatRequest = api.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit));
+                await Task.WhenAll(snapshotRequest, chatRequest);
+                var snapshot = await snapshotRequest;
+                var chat = await chatRequest;
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                 snap = snapshot;
                 var loadedMessages = messages;
@@ -275,8 +288,12 @@ public sealed partial class MainWindow : Window
                 if (member.Length > 0)
                 {
                     var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
-                    conversation = m.Flag("has_transcript") ? await api.Get(PathFor("/convo?member=" + Client.Segment(member) + "&limit=" + chatLimit)) : new JsonObject();
-                    liveData = m.Flag("embedded") ? await api.Get(PathFor("/live?member=" + Client.Segment(member))) : new JsonObject();
+                    var transcriptRequest = m.Flag("has_transcript") ? api.Get(PathFor("/convo?member=" + Client.Segment(member) + "&limit=" + chatLimit)) : Task.FromResult<JsonNode>(new JsonObject());
+                    var liveRequest = m.Flag("embedded") ? api.Get(PathFor("/live?member=" + Client.Segment(member))) : Task.FromResult<JsonNode>(new JsonObject());
+                    await Task.WhenAll(transcriptRequest, liveRequest);
+                    if (org != selectedOrg || member != selectedMember) { pending = true; return; }
+                    conversation = await transcriptRequest;
+                    liveData = await liveRequest;
                 }
                 else { conversation = new JsonObject(); liveData = new JsonObject(); }
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }

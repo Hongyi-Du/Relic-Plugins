@@ -9,6 +9,9 @@
     <UseWinUI>true</UseWinUI><EnableMsixTooling>true</EnableMsixTooling><WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained><SelfContained>true</SelfContained>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
+    <!-- Ship the precompiled code without repeatedly optimizing it on a
+         background tiering thread after the desktop has become idle. -->
+    <TieredCompilation Condition="'$(Configuration)' == 'Release'">false</TieredCompilation>
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
