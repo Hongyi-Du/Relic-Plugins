@@ -88,6 +88,7 @@ public sealed partial class MainWindow
                     pendingSince = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     // Not while idle is measured: three more system calls a ping.
                     var cpuAtSend = Volatile.Read(ref performanceAction) == "idle-measure" ? default : PerformanceStallCpu.Read();
+                    PerformanceStallCpu.Waits? waits = null;
                     var completed = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
                     if (!DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Normal, () =>
                     {
@@ -104,6 +105,8 @@ public sealed partial class MainWindow
                         // completion time either way.
                         await Task.Delay(40, token);
                         var ticks = (completed.Task.IsCompletedSuccessfully ? completed.Task.Result : Stopwatch.GetTimestamp()) - sent;
+                        if (!completed.Task.IsCompletedSuccessfully && cpuAtSend.At != 0 && ticks * 1000d / Stopwatch.Frequency >= 80)
+                            (waits ??= new()).Sample();
                         var old = Interlocked.Read(ref performanceWorstTicks);
                         if (ticks > old) Interlocked.Exchange(ref performanceWorstTicks, ticks);
                         if (completed.Task.IsCompletedSuccessfully && ticks * 1000d / Stopwatch.Frequency > 5)
@@ -115,7 +118,7 @@ public sealed partial class MainWindow
                         {
                             var stall = ticks * 1000d / Stopwatch.Frequency;
                             if (stall > 100 && cpuAtSend.At != 0)
-                                PerformanceStallCpu.Note(Volatile.Read(ref performanceAction), stall, cpuAtSend, PerformanceStallCpu.Read());
+                                PerformanceStallCpu.Note(Volatile.Read(ref performanceAction), stall, cpuAtSend, PerformanceStallCpu.Read(), waits);
                             break;
                         }
                     }
