@@ -201,7 +201,16 @@ import RelicCore
             // Diagnostic runs sample the first dialog from its start. Give the
             // sampler time to attach before the cold presentation begins.
             if env["RELIC_PERF_DIAGNOSTIC"] == "true", !diagnosedDialog {
-                diagnosedDialog = true; try await Task.sleep(for: .milliseconds(600))
+                // /usr/bin/sample prints its first line once it is attached.
+                // Open the dialog only then, or the sample misses its first frame.
+                diagnosedDialog = true
+                let log = output.appendingPathComponent("first-dialog.sampler.log")
+                let deadline = ProcessInfo.processInfo.systemUptime + 6
+                while ProcessInfo.processInfo.systemUptime < deadline,
+                      !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                try await Task.sleep(for: .milliseconds(150))
             }
             result["responder_before"] = responder(window)
             switch action["name"].text {
