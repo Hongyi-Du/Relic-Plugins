@@ -314,23 +314,108 @@ class SyntheticStore(unittest.TestCase):
 
 
 class IdleThreadObservation(unittest.TestCase):
-    def snapshot(self, second, counters):
+    def snapshot(self, second, counters, describe_thread=None):
         native = Mock()
         native.threads.return_value = [SimpleNamespace(id=tid, user_time=user, system_time=system)
                                       for tid, user, system in counters]
         process = {"elapsed_seconds": second, "action": "idle-measure", "cpu_seconds": 100 + second * .03,
                    "rss_bytes": 100 * 1048576, "threads": len(counters)}
         original = dict(process)
-        observed = driver.sample_idle_threads(native, "windows", "idle", process, 1)
+        observed = driver.sample_idle_threads(native, "windows", "idle", process, 1, describe_thread)
         self.assertEqual(process, original)
         native.threads.assert_called_once_with()
         return observed, process
 
     def test_no_thread_query_outside_windows_idle(self):
         native = Mock()
+        describe = Mock()
         for client, phase in (("macos", "idle"), ("windows", "history"), ("windows", None)):
-            self.assertIsNone(driver.sample_idle_threads(native, client, phase, {}))
+            self.assertIsNone(driver.sample_idle_threads(native, client, phase, {}, describe_thread=describe))
         native.threads.assert_not_called()
+        describe.assert_not_called()
+
+    def test_thread_names_reach_ranking_without_changing_cpu(self):
+        describe = Mock(return_value={"thread_description": ".NET Tiered Compilation Worker",
+                                      "thread_description_status": "available"})
+        observed = [self.snapshot(second, [(1, second * .01, 0)], describe)[0] for second in (0, 10)]
+        report = driver.idle_thread_report(observed, 1)
+        self.assertEqual(report["ranking"][0]["thread_description"], ".NET Tiered Compilation Worker")
+        self.assertEqual(report["ranking"][0]["thread_description_status"], "available")
+        self.assertAlmostEqual(report["observed_thread_cpu_seconds"], .1)
+
+    def test_failed_name_lookup_keeps_successful_cpu_snapshot(self):
+        describe = Mock(side_effect=OSError("synthetic lookup failure"))
+        observed, _ = self.snapshot(1, [(1, .25, .125)], describe)
+        self.assertNotIn("error", observed)
+        self.assertEqual(observed["threads"][0]["cpu_seconds"], .375)
+        self.assertEqual(observed["threads"][0]["thread_description_status"], "unavailable")
+        self.assertIn("synthetic lookup failure", observed["threads"][0]["thread_description_error"])
+
+    def name_probe(self):
+        probe = object.__new__(driver.WindowsProbe)
+        probe.pid, probe.thread_descriptions = 123, {}
+        probe.kernel = Mock()
+        probe.kernel.OpenThread.return_value = 77
+        probe.kernel.GetProcessIdOfThread.return_value = 123
+        return probe
+
+    def test_thread_description_is_read_only_cached_and_released(self):
+        for name in (".NET Tiered Compilation Worker", ""):
+            with self.subTest(name=name):
+                probe = self.name_probe()
+                buffer = driver.ctypes.create_unicode_buffer(name)
+                def read(handle, pointer):
+                    pointer._obj.value = driver.ctypes.addressof(buffer)
+                    return 0
+                probe.kernel.GetThreadDescription.side_effect = read
+                result = probe.describe_thread(321)
+                self.assertEqual(result["thread_description"], name)
+                self.assertEqual(result["thread_description_status"], "available" if name else "unnamed")
+                self.assertEqual(probe.describe_thread(321), result)
+                probe.kernel.OpenThread.assert_called_once_with(0x0800, False, 321)
+                probe.kernel.GetThreadDescription.assert_called_once()
+                probe.kernel.LocalFree.assert_called_once()
+                self.assertEqual(probe.kernel.LocalFree.call_args.args[0].value, driver.ctypes.addressof(buffer))
+                probe.kernel.CloseHandle.assert_called_once_with(77)
+
+    def test_open_thread_failure_is_cached_without_querying_or_closing_invalid_handle(self):
+        probe = self.name_probe()
+        probe.kernel.OpenThread.return_value = 0
+        with patch.object(driver.ctypes, "get_last_error", return_value=5, create=True):
+            result = probe.describe_thread(321)
+            self.assertEqual(probe.describe_thread(321), result)
+        self.assertEqual(result["thread_description_status"], "unavailable")
+        self.assertIn("winerror 5", result["thread_description_error"])
+        probe.kernel.OpenThread.assert_called_once()
+        probe.kernel.GetThreadDescription.assert_not_called()
+        probe.kernel.LocalFree.assert_not_called()
+        probe.kernel.CloseHandle.assert_not_called()
+
+    def test_reused_thread_owned_by_another_process_is_not_read(self):
+        probe = self.name_probe()
+        probe.kernel.GetProcessIdOfThread.return_value = 456
+        result = probe.describe_thread(321)
+        self.assertIn("owner 456", result["thread_description_error"])
+        self.assertEqual(probe.describe_thread(321), result)
+        probe.kernel.OpenThread.assert_called_once()
+        probe.kernel.GetThreadDescription.assert_not_called()
+        probe.kernel.LocalFree.assert_not_called()
+        probe.kernel.CloseHandle.assert_called_once_with(77)
+
+    def test_failed_hresult_releases_resources_and_is_cached(self):
+        probe = self.name_probe()
+        buffer = driver.ctypes.create_unicode_buffer("unusable")
+        def read(handle, pointer):
+            pointer._obj.value = driver.ctypes.addressof(buffer)
+            return -2147467259  # E_FAIL (0x80004005), as signed HRESULT on Windows.
+        probe.kernel.GetThreadDescription.side_effect = read
+        result = probe.describe_thread(321)
+        self.assertIsNone(result["thread_description"])
+        self.assertIn("0x80004005", result["thread_description_error"])
+        self.assertEqual(probe.describe_thread(321), result)
+        probe.kernel.GetThreadDescription.assert_called_once()
+        probe.kernel.LocalFree.assert_called_once()
+        probe.kernel.CloseHandle.assert_called_once_with(77)
 
     def test_ranks_external_deltas_and_keeps_the_original_whole_process_gate(self):
         observed, process = zip(*(self.snapshot(second, [(1, second * .01, 0), (2, 0, second * .02)])

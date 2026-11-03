@@ -378,6 +378,15 @@ internal sealed class NativeChatList : Grid
         var entry = entries[index];
         if (!ReferenceEquals(intent.RequestedEntry, entry))
         {
+            // ItemsSource changes are not yet reflected in the native panel
+            // merely because the observable collection accepted them. WinUI
+            // requires current layout before ScrollIntoView after a batch of
+            // insertions. Otherwise it can silently leave the old offset and
+            // never realize the requested reading row. Update only once for
+            // this new target; the ListView still virtualizes its containers.
+            // https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.listviewbase.scrollintoview
+            using (PerformanceTrace.Measure("conversation.list.layout_before_seek")) list.UpdateLayout();
+            if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
             intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
             intent.CorrectionPending = false; intent.CorrectionCompleted = false;
             // The platform realizes the target; this does not construct or

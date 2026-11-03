@@ -1,5 +1,34 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Windows1c2901a opening41549531409 passes every large-fixture click116/116,
+max856.129ms, worst UI118.658ms, peak386.496MiB/40threads. Person-shape still
+fails24/83 openings while row queues prepare; unchanged latest-content checks
+remain mandatory. Refresh now issues independent orgs/copies, snapshot/chat
+and transcript/live HTTP reads concurrently inside its existing single refresh.
+
+Idle2921341/41549928270 identifies the hot thread as .NET Tiered Compilation
+Worker:8.385%one-core of10.869%total in large;1.703%of3.096%in person-shape.
+Release packaging now disables tiered background recompilation while retaining
+ReadyToRun. This is a product runtime policy, not a CI-only switch or subtraction.
+The original idle interval and all startup/opening/long-run gates must validate
+its latency/throughput tradeoff before acceptance.
+
+Windows1c2901a history41549527674 large stays below250ms (worst169.232ms),
+and DrawChat is now17ms at startup after worker model preparation. History0172
+still fails: the actual target item:e451/index255 was never realized, all
+queues were empty, and offset remained0. The product now calls the documented
+native UpdateLayout once before each new ScrollIntoView target after collection
+changes. This fixes the identified ordering defect without a scroll retry loop,
+manual container realization or relaxed assertion; CI must verify the result.
+
+Changes for the clients: integrated Mac594e0f0/e4aa723 timestamp and tooltip
+preparation, then7b1ad2f/a09cbeb native-list cold mount and redundant-seek fixes
+via2323989. REQUESTS retains every gate and asks for no shared API change.
+Windows idle41548945650 measures4.953%one-core over10.094s; only0.015625s is
+on the real UI thread, while one unnamed worker contributes0.28125s. External
+GetThreadDescription now records names once per owned TID; no attribution is
+guessed and the unchanged whole-process gate remains authoritative.
+
 Windows candidate prepares each mounted SidebarText's actual glyphs on the
 bounded DirectWrite worker before revealing its unchanged native TextBlock.
 It retains layout, locale, font/weight/size/scaling and selection; it never
