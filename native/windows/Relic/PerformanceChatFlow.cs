@@ -294,6 +294,9 @@ public sealed partial class MainWindow
         {
             receipt["input_target"] = SidebarPointerHits(row);
             receipt["preparation_ms"] = preparing.Elapsed.TotalMilliseconds;
+            // Which window Windows will deliver the press to. A run once lost
+            // 43 org-row clicks in a row: no pointer event reached the app at all.
+            var inputHost = ObserveSettingsInputHost();
             var started = Stopwatch.GetTimestamp();
             receipt["input_unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             CapturePointerButton(true);
@@ -324,6 +327,7 @@ public sealed partial class MainWindow
             receipt["pointer_events"] = capturePointerReceipts.DeepClone();
             receipt["routed_pointer_events"] = routed; receipt["target_unloads"] = unloaded;
             receipt["native_item_clicks"] = itemClicks;
+            if (clicks == 0) { receipt["input_host_at_press"] = inputHost; receipt["input_host_after"] = ObserveSettingsInputHost(); }
             receipt["passed"] = clicks > 0 && receipt.Flag("latest_visible") && openMs <= 1000;
             return receipt;
         }

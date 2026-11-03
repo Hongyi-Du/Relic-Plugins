@@ -36,9 +36,14 @@ internal sealed class NativeChatList : Grid
         // Where the last correction asked the viewport to go. A ViewChanged
         // from an earlier scroll can arrive before that correction lands.
         internal double? CorrectionTarget;
-        // The seek went to a row above the reading row (see SeekTarget), and
+        // When the last correction was asked for (see CheckPosition).
+        internal long CorrectionAt;
+        internal readonly long StartedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        // The seek went to a row above the reading row (see SeekIndex), and
         // whether the reading row itself was then sought as a fallback.
         internal bool SeekedAbove, SeekedRow;
+        internal int SeekIndex = -1;
+        internal long SeekAt;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
 
@@ -244,7 +249,32 @@ internal sealed class NativeChatList : Grid
         var shift = pendingShift; pendingShift = 0;
         if (userPanning) return;
         PerformanceTrace.Count(TraceName + ".list.keep_rows_on_screen", shift);
-        viewport.ChangeView(null, Math.Clamp(viewport.VerticalOffset + shift, 0, viewport.ScrollableHeight), null, true);
+        RequestOffset(viewport, RequestedOffset(viewport) + shift);
+        // A correction still on its way moves with the rows too.
+        if (position is { CorrectionPending: true } pending) pending.CorrectionTarget = requestedOffset;
+    }
+
+    // Where this list's own last ChangeView asked the view to go, until the
+    // view gets there. VerticalOffset still shows the old place meanwhile, and
+    // a second ChangeView computed from it replaced the first: a row shift
+    // during a reading correction lost the correction, its final ViewChanged
+    // never came, and the restore (and every older page after it) waited forever.
+    private double? requestedOffset;
+    private long requestedAt;
+    private double RequestedOffset(ScrollViewer viewport)
+    {
+        if (requestedOffset is { } requested
+            && System.Diagnostics.Stopwatch.GetElapsedTime(requestedAt).TotalMilliseconds < 250) return requested;
+        requestedOffset = null;
+        return viewport.VerticalOffset;
+    }
+    private bool RequestOffset(ScrollViewer viewport, double offset)
+    {
+        var target = Math.Clamp(offset, 0, viewport.ScrollableHeight);
+        requestedOffset = target; requestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (viewport.ChangeView(null, target, null, true)) return true;
+        requestedOffset = null;
+        return false;
     }
 
     private void ConfigurePresenter()
@@ -465,6 +495,13 @@ internal sealed class NativeChatList : Grid
     private void ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
     {
         if (args.IsIntermediate) return;
+        // The last request landing ends it; an earlier view change's
+        // ViewChanged can arrive while the last request is still on its way.
+        // A view change ending elsewhere well after the request (the person's
+        // wheel, another ChangeView) replaced it.
+        if (requestedOffset is { } requested && sender is ScrollViewer viewport
+            && (Math.Abs(viewport.VerticalOffset - requested) <= 1
+                || System.Diagnostics.Stopwatch.GetElapsedTime(requestedAt).TotalMilliseconds > 100)) requestedOffset = null;
         if (position is { CorrectionPending: true } intent)
         {
             intent.CorrectionPending = false;
@@ -511,13 +548,27 @@ internal sealed class NativeChatList : Grid
     // the panel's estimate correction moved the rows with the view and undid
     // the scroll (five corrections of 406 px left the row where it was). Seek
     // a row above it instead, by our own height estimates, so the corrections
-    // scroll down through rows that are already placed.
-    private Entry SeekTarget(Position intent, int index)
+    // scroll down through rows that are already placed. The margin covers rows
+    // above that turn out shorter than estimated.
+    private int SeekIndex(Position intent, int index)
     {
-        if (intent.Kind != PositionKind.Reading || intent.Top <= 0) return entries[index];
+        if (intent.Kind != PositionKind.Reading || intent.Top <= 0) return index;
         var seek = index; var above = 0d;
-        while (seek > 0 && above < intent.Top + 120) { seek--; above += entries[seek].Row.Estimate + spacing; }
-        return entries[seek];
+        while (seek > 0 && above < intent.Top + 240) { seek--; above += entries[seek].Row.Estimate + spacing; }
+        return seek;
+    }
+
+    // A restore waits for events (layout, a built row, a finished view
+    // change). Check again shortly in case none comes, and give up on a
+    // restore that has not settled after a few seconds, so an older page or
+    // the next chat is never blocked behind it. Following the latest message
+    // never times out and never polls: it lasts while the person reads there.
+    private bool RestoreTimedOut(Position intent)
+    {
+        if (intent.Kind == PositionKind.Latest) return false;
+        if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.StartedAt).TotalSeconds < 4) { ScheduleConfirmation(); return false; }
+        TracePosition(intent, "failed.timeout"); EndPosition(intent, false);
+        return true;
     }
 
     // CI-only evidence of how a position intent ended; Count is a no-op otherwise.
@@ -545,23 +596,34 @@ internal sealed class NativeChatList : Grid
             if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
             intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
             intent.CorrectionPending = false; intent.CorrectionCompleted = false; intent.CorrectionTarget = null;
-            intent.SeekedAbove = false; intent.SeekedRow = false;
+            intent.SeekedAbove = false; intent.SeekedRow = false; intent.SeekIndex = -1;
             // The platform realizes the target; this does not construct or
             // manually position an off-viewport item in an ItemsRepeater.
             var existing = TryGetRealizedRow(index);
             var existingBounds = existing is { IsLoaded: true } ? Bounds(existing, viewport) : default;
             if (existing == null || existingBounds.Bottom <= 0 || existingBounds.Top >= viewport.ViewportHeight)
             {
-                var seekEntry = SeekTarget(intent, index);
-                intent.SeekedAbove = !ReferenceEquals(seekEntry, entry);
+                var seekIndex = SeekIndex(intent, index);
+                intent.SeekedAbove = seekIndex != index; intent.SeekIndex = seekIndex;
+                intent.SeekAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 TracePosition(intent, intent.SeekedAbove ? "seek_above" : "seek");
-                list.ScrollIntoView(seekEntry, intent.Kind == PositionKind.Latest ? ScrollIntoViewAlignment.Default : ScrollIntoViewAlignment.Leading);
+                list.ScrollIntoView(entries[seekIndex], intent.Kind == PositionKind.Latest ? ScrollIntoViewAlignment.Default : ScrollIntoViewAlignment.Leading);
+                RestoreTimedOut(intent);
                 return;
             }
         }
         // LayoutUpdated can repeat while ChangeView is still in flight. Only
         // its final ViewChanged permits evaluating that correction's result.
-        if (intent.CorrectionPending) return;
+        // If it never comes (another view change replaced the correction),
+        // judge where the view is after a while instead of waiting forever.
+        if (intent.CorrectionPending)
+        {
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.CorrectionAt).TotalMilliseconds < 400)
+            { if (intent.Kind != PositionKind.Latest) ScheduleConfirmation(); return; }
+            TracePosition(intent, "correction_unfinished");
+            intent.CorrectionPending = false; intent.CorrectionCompleted = true;
+        }
+        if (RestoreTimedOut(intent)) return;
         // This check runs at low priority and can come before the layout pass
         // that applies rows built since the last one. Judging the anchor from
         // their old estimated heights settled it early and let it drift. Bring
@@ -571,9 +633,17 @@ internal sealed class NativeChatList : Grid
         var host = TryGetRealizedRow(index);
         if (host == null && intent.SeekedAbove && !intent.SeekedRow)
         {
-            // The rows above were taller than estimated and the reading row is
-            // not among the realized ones: seek it directly, once.
-            intent.SeekedRow = true; TracePosition(intent, "seek_row");
+            // The seek lands in a later layout pass. Until the row it went to
+            // is on screen, a missing reading row means nothing: seeking the
+            // reading row then (as once happened at once) put corrections back
+            // into estimated rows. Seek the reading row itself only when the
+            // rows between turned out far taller than estimated, or the seek
+            // has not landed after a while.
+            var seekHost = TryGetRealizedRow(intent.SeekIndex);
+            var landed = seekHost is { IsLoaded: true } && Bounds(seekHost, viewport) is var seekBounds
+                && seekBounds.Bottom > 0 && seekBounds.Top < viewport.ViewportHeight;
+            if (!landed && System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 500) return;
+            intent.SeekedRow = true; TracePosition(intent, landed ? "seek_row" : "seek_row.unlanded");
             list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
             return;
         }
@@ -655,14 +725,15 @@ internal sealed class NativeChatList : Grid
             TracePosition(intent, "failed.out_of_range"); EndPosition(intent, false); return;
         }
         intent.CorrectionPending = true; intent.CorrectionCompleted = false; intent.CorrectionTarget = clamped;
+        intent.CorrectionAt = System.Diagnostics.Stopwatch.GetTimestamp();
         TracePosition(intent, "correct");
         if (intent.Kind == PositionKind.Reading)
             PerformanceTrace.Note(TraceName + ".position.reading.detail", new { corrections = intent.Corrections,
                 offset = viewport.VerticalOffset, target = clamped, maximum = viewport.ScrollableHeight,
-                top = bounds.Top, height = bounds.Height, want = intent.Top, realized = mounted.Count, pending = PendingBuilds,
-                index, first_cache = (list.ItemsPanelRoot as ItemsStackPanel)?.FirstCacheIndex,
+                top = bounds.Top, height = bounds.Height, want = intent.Top, key = intent.Key, realized = mounted.Count,
+                pending = PendingBuilds, index, seek = intent.SeekIndex, first_cache = (list.ItemsPanelRoot as ItemsStackPanel)?.FirstCacheIndex,
                 first_visible = (list.ItemsPanelRoot as ItemsStackPanel)?.FirstVisibleIndex });
-        if (!viewport.ChangeView(null, clamped, null, true))
+        if (!RequestOffset(viewport, clamped))
         {
             intent.CorrectionPending = false; intent.CorrectionCompleted = true;
             // No final ViewChanged is required when the view did not change.
