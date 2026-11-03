@@ -326,6 +326,7 @@ import Combine
                     decisions: self.snapshot["decisions"].rows, words: self.words, now: self.displayNow, privateChat: !self.member.isEmpty)
                 guard !Task.isCancelled else { return }
                 if generation == self.conversationGeneration {
+                    UIWorkTrace.untilNextTurn("publish.stream")
                     self.streamRows = rows; self.streamVersion += 1; return
                 }
             }
@@ -399,7 +400,7 @@ import Combine
         startupStage?("publish")
         let snapshotChanged = !(await Node.sameContent(snapshot, snap))
         guard selected == selection, navigation == navigationGeneration else { return }
-        if snapshotChanged { snapshot = snap; revision += 1 }
+        if snapshotChanged { UIWorkTrace.untilNextTurn("publish.snapshot"); snapshot = snap; revision += 1 }
         if !hadHistory { moreChat = chat["more"].flag }
         let chatKey = member.isEmpty ? "group" : "member:" + member
         if !snap["chats"][chatKey]["last"]["id"].isNull { defaults.set(snap["chats"][chatKey]["last"]["id"].integer, forKey: "seen." + organization + "/" + chatKey) }
@@ -563,6 +564,7 @@ import Combine
                 conversationTask?.cancel(); conversationTask = nil; conversationTaskID = nil
                 conversationGeneration += 1
                 preparationSuspended += 1
+                UIWorkTrace.untilNextTurn(selected.org != organization ? "publish.organization" : !sameChat ? "publish.chat" : "publish.refresh")
                 if !sameChat { changeSelection(selected, record: record, clearContent: false) }
                 if !sameSnapshot { snapshot = snap; revision += 1 }
                 if !sameMessages || !sameChat { messages = merged }

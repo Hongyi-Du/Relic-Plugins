@@ -28,6 +28,13 @@ final class UIWorkTrace: @unchecked Sendable {
         trace.active[trace.ordinal] = (name, started, main)
         return trace.ordinal
     }
+    /// A scope open until the main queue's next turn. A state change made now
+    /// is rendered by the SwiftUI transaction before that turn, so the scope
+    /// names the transaction a probe waited behind.
+    static func untilNextTurn(_ name: String) {
+        guard let token = begin(name) else { return }
+        DispatchQueue.main.async { end(token) }
+    }
     /// Counts a cheap event, such as one view body evaluation, without timing it.
     static func count(_ name: String) {
         guard enabled else { return }

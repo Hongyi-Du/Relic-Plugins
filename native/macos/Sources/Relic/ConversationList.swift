@@ -216,6 +216,7 @@ struct ConversationStream: View {
                     // Another chat's rows start from the latest few; the rest
                     // of its window is admitted above them in later turns.
                     let anotherChat = !presentedKey.hasPrefix(m.selection.key + "#")
+                    UIWorkTrace.untilNextTurn(anotherChat ? "stream.adopt-chat" : "stream.adopt")
                     presented = m.streamRows; presentedKey = key
                     let tail = ConversationWindow.tailCount(of: presented, filling: m.windowSize.height)
                     if anotherChat, window.anchor == nil, window.selection == m.selection.key, window.count > tail {
