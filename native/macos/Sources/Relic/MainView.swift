@@ -167,6 +167,9 @@ struct AppToolbar: View {
                         if m.panelOpen && m.pane == pane.0 { m.panelOpen = false } else { m.setPane(pane.0) }
                     }.modifier(PerformancePointerTarget(identity: "pane:" + pane.0))
                 }
+                // Last, so the commands before it keep their positions.
+                let working = m.monitor.working
+                IconButton(title: working > 0 ? m.t("appbar.monitor", ["n": String(working)]) : m.t("appbar.monitor_idle"), icon: "chart", badge: working, size: 16, height: 28) { m.sheet = .monitor }
             }
             .background(GeometryReader { proxy in Color.clear.preference(key: ToolbarControlBounds.self, value: [proxy.frame(in: .named("appbar"))]) })
         }.padding(.leading, WindowChrome.controlsWidth).padding(.trailing, 8).frame(height: WindowChrome.rowHeight)
@@ -229,6 +232,7 @@ struct SheetContent: View {
             case .forward: ForwardForm()
             case .details: DetailsView()
             case .shortcuts: ShortcutsView()
+            case .monitor: MonitorPanel()
             }
         }.buttonStyle(ReferenceButtonStyle()).controlSize(.regular)
     }

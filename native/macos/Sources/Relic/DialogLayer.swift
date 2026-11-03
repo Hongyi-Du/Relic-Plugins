@@ -30,6 +30,7 @@ struct DialogLayer: View {
         case .settings: return m.t("common.settings")
         case .details: return m.t("details.dialog")
         case .copies: return m.t("cc.title")
+        case .monitor: return m.t("mon.title")
         default: return contentTitle
         }
     }
