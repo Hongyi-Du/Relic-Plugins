@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import RelicCore
 
-struct ConversationTimestampContext {
+struct ConversationTimestampContext: Equatable {
     let language: String
     let calendar: Calendar
     let dayStart: Date

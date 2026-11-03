@@ -35,6 +35,43 @@ struct ConversationWindow: Equatable {
     }
 }
 
+/// One message row. Evaluating the stream again (its focus, the live turn,
+/// the reading window, an opened dialog) must not rebuild and measure every
+/// visible message again: a row updates when its own presentation changes.
+/// The message still observes the model fields it reads itself.
+private struct ConversationRowContent: View, Equatable {
+    let row: ConversationRow
+    let compact: Bool
+    static func == (a: Self, b: Self) -> Bool {
+        a.compact == b.compact && a.row.id == b.row.id && a.row.continued == b.row.continued
+            && a.row.separator == b.row.separator && a.row.clockLabel == b.row.clockLabel
+            && a.row.dayTooltip == b.row.dayTooltip && a.row.timestampContext == b.row.timestampContext
+            && (a.row.preparedBody == nil) == (b.row.preparedBody == nil) && a.row.preparedBody?.source == b.row.preparedBody?.source
+            && sameItem(a.row.item, b.row.item)
+    }
+    private static func sameItem(_ a: Node, _ b: Node) -> Bool {
+        let left = a.raw as AnyObject, right = b.raw as AnyObject
+        return left === right || (left as? NSObject)?.isEqual(right) == true
+    }
+    var body: some View {
+        ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
+            VStack(alignment: .leading, spacing: 0) {
+                if let separator = row.separator {
+                    PlainLabel(separator, size: 11.5, color: RelicStyle.muted).lineLimit(1)
+                        .frame(maxWidth: .infinity).padding(.top, 18)
+                        .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: compact))
+                }
+                MessageView(item: row.item, continued: row.continued, preparedBody: row.preparedBody,
+                            clockLabel: row.clockLabel, dayTooltip: row.dayTooltip, timestampContext: row.timestampContext)
+                    .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: compact))
+            }
+            .background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }
+            .onAppear { PerformanceRendering.rowAppeared() }
+            .onDisappear { PerformanceRendering.rowDisappeared() }
+        }
+    }
+}
+
 /// AppKit-backed List owns row recycling and variable-height placement. The
 /// application supplies a bounded window of identities and reading intent,
 /// never virtual offsets.
@@ -70,6 +107,7 @@ struct ConversationStream: View {
     private var shownRange: Range<Int> { window.range(in: presented, selection: m.selection.key) }
 
     var body: some View {
+        let _ = UIWorkTrace.count("body.stream")
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
                 if mountedViewport {
@@ -99,21 +137,7 @@ struct ConversationStream: View {
                             // One explicit container always means one row;
                             // ForEach already supplies its scroll identity.
                             VStack(alignment: .leading, spacing: 0) {
-                            ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
-                                VStack(alignment: .leading, spacing: 0) {
-                                    if let separator = row.separator {
-                                        PlainLabel(separator, size: 11.5, color: RelicStyle.muted).lineLimit(1)
-                                            .frame(maxWidth: .infinity).padding(.top, 18)
-                                            .padding(.bottom, ConversationSpacing.separatorBottom(kind: row.item["type"].text, continued: row.continued, compact: compact))
-                                    }
-                                    MessageView(item: row.item, continued: row.continued, preparedBody: row.preparedBody,
-                                                clockLabel: row.clockLabel, dayTooltip: row.dayTooltip, timestampContext: row.timestampContext)
-                                        .padding(.top, ["notice", "acts"].contains(row.item["type"].text) ? 0 : ConversationSpacing.messageTop(kind: row.item["type"].text, continued: row.continued, compact: compact))
-                                }
-                                .background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }
-                                .onAppear { PerformanceRendering.rowAppeared() }
-                                .onDisappear { PerformanceRendering.rowDisappeared() }
-                            }
+                                ConversationRowContent(row: row, compact: compact).equatable()
                             }
                             .padding(.bottom, row.id == last ? 24 : 0)
                             .frame(maxWidth: 880).frame(maxWidth: .infinity)

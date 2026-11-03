@@ -93,7 +93,14 @@ import RelicCore
                         var completed = action.object
                         completed["idle_seconds"] = ended - began; completed["idle_interval"] = idleInterval
                         completed["passed"] = true; receipt = completed
-                    } else { receipt = try await perform(action, model: current, window: window, output: output, phase: phase) }
+                    } else {
+                        // Which work each scripted action caused: view bodies,
+                        // layouts and native text, counted and timed by name.
+                        let work = UIWorkTrace.shared.counts()
+                        var completed = try await perform(action, model: current, window: window, output: output, phase: phase)
+                        completed["ui_work"] = UIWorkTrace.shared.delta(since: work)
+                        receipt = completed
+                    }
                     receipts.append(receipt)
                     if receipt["passed"] as? Bool == false {
                         let failures = receipt["errors"] as? [String] ?? ["Native action failed"]
@@ -119,7 +126,9 @@ import RelicCore
             repeat {
                 let action = deck[randomActions % deck.count]
                 watchdog.action("monkey:" + action["kind"].text)
+                let work = UIWorkTrace.shared.counts()
                 var receipt = try await perform(action, model: current, window: window, output: output, phase: phase)
+                receipt["ui_work"] = UIWorkTrace.shared.delta(since: work)
                 if receipt["passed"] as? Bool == false { throw RelicError.message((receipt["errors"] as? [String] ?? ["Monkey navigation failed"]).joined(separator: "; ")) }
                 random = random &* 6364136223846793005 &+ 1442695040888963407
                 let targets = ["sidebar", "menu:file", "menu:edit", "menu:view", "menu:help", "pane:overview", "pane:workspace", "pane:files"]
@@ -194,6 +203,7 @@ import RelicCore
             if env["RELIC_PERF_DIAGNOSTIC"] == "true", !diagnosedDialog {
                 diagnosedDialog = true; try await Task.sleep(for: .milliseconds(600))
             }
+            result["responder_before"] = responder(window)
             switch action["name"].text {
             case "settings": m.sheet = .settings
             case "about": m.settingsSection = "about"; m.sheet = .settings
@@ -202,7 +212,8 @@ import RelicCore
             case "tasks", "protocols": m.openDetails(action["name"].text)
             default: throw RelicError.message("Unknown dialog in performance manifest")
             }
-            try await settleConversation(m); m.sheet = nil; try await settleConversation(m)
+            try await settleConversation(m); result["responder_open"] = responder(window)
+            m.sheet = nil; try await settleConversation(m); result["responder_after"] = responder(window)
         case "scroll-history":
             try await m.select(action["org"].text); try await settleConversation(m)
             while m.moreChat {
@@ -258,6 +269,7 @@ import RelicCore
         return result
     }
     private static func settle() async { try? await Task.sleep(for: .milliseconds(300)) }
+    private static func responder(_ window: NSWindow) -> String { window.firstResponder.map { String(describing: type(of: $0)) } ?? "none" }
     private static func capture(_ window: NSWindow, output: URL, name: String) async throws -> String {
         let number = window.windowNumber, file = output.appendingPathComponent(name)
         try await Task.detached {

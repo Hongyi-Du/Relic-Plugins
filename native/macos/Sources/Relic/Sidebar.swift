@@ -8,6 +8,7 @@ struct Sidebar: View {
     @State private var profileImageVisible = false
     private let newOrganizationOwner = "relic-text-button/sidebar-new-organization"
     var body: some View {
+        let _ = UIWorkTrace.count("body.sidebar")
         VStack(spacing: 0) {
             VStack(spacing: 2) {
                 Button { m.sheet = .create } label: {
@@ -114,6 +115,7 @@ private struct OrgTree: View {
         [OrganizationAvatar.initial(for: node), node["name"].text, active ? "" : m.shortWhen(node["last_at"])].filter { !$0.isEmpty }.joined(separator: " ")
     }
     var body: some View {
+                let _ = UIWorkTrace.count("body.org-tree")
                 Button {
                     PerformancePointer.observed(PerformancePointer.organization(id))
                     if active { m.toggleFold(id) } else { m.run { try await m.select(id) } }
@@ -170,6 +172,7 @@ struct SidebarChatRow: View {
     var body: some View {
         // One history scan and one preview/date formatting pass per row update.
         // Badges, native text and accessibility share the same resolved values.
+        let _ = UIWorkTrace.count("body.sidebar-chat")
         let subtitle = self.subtitle, unread = self.unread, date = self.date
         let timestamp = date.isNull ? "" : m.shortWhen(date)
         let accessibilityName = [group || secretary || avatarImageVisible ? "" : String(m.name(name).prefix(1)).uppercased(),

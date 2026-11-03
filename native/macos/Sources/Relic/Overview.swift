@@ -11,6 +11,7 @@ struct Overview: View {
     /// progressively instead of rewriting realized rows in one transaction.
     private struct KeyedEntry: Identifiable { let id: String; let entry: OverviewEntry }
     var body: some View {
+        let _ = UIWorkTrace.count("body.overview")
         LazyVStack(alignment: .leading, spacing: 0) {
             let scope = m.snapshot["org"]["id"].text + "/"
             ForEach(OverviewOutline.rows(snapshot: m.snapshot, liaison: m.overviewMode == "liaison").map { KeyedEntry(id: scope + $0.id, entry: $0) }) { keyed in

@@ -35,6 +35,7 @@ struct DialogLayer: View {
         }
     }
     var body: some View {
+        let _ = UIWorkTrace.count("body.dialog")
         ZStack(alignment: sheet == .card ? .topLeading : .center) {
             Color.clear.contentShape(Rectangle())
                 .modifier(RecordedSurface(background: sheet == .card ? .clear : Color(red: 15/255, green: 14/255, blue: 12/255).opacity(0.32), kind: "region", owner: scrimIdentity))

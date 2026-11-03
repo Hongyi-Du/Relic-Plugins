@@ -23,6 +23,27 @@ final class UIWorkTrace: @unchecked Sendable {
         trace.active[trace.ordinal] = (name, ProcessInfo.processInfo.systemUptime, Thread.isMainThread)
         return trace.ordinal
     }
+    /// Counts a cheap event, such as one view body evaluation, without timing it.
+    static func count(_ name: String) {
+        guard enabled else { return }
+        let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
+        let previous = trace.totals[name] ?? (0, 0, 0)
+        trace.totals[name] = (previous.count + 1, previous.ms, previous.maximum)
+    }
+    /// Calls and milliseconds so far, to attribute work to one scripted action.
+    func counts() -> [String: (calls: Int, ms: Double)] {
+        lock.lock(); defer { lock.unlock() }
+        return totals.mapValues { (calls: $0.count, ms: $0.ms) }
+    }
+    func delta(since before: [String: (calls: Int, ms: Double)]) -> [String: [String: Any]] {
+        var result: [String: [String: Any]] = [:]
+        for (name, now) in counts() {
+            let calls = now.calls - (before[name]?.calls ?? 0)
+            guard calls > 0 else { continue }
+            result[name] = ["calls": calls, "ms": ((now.ms - (before[name]?.ms ?? 0)) * 10).rounded() / 10]
+        }
+        return result
+    }
     static func end(_ token: Int?) {
         guard let token else { return }
         let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }

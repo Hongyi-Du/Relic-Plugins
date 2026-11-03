@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var voiceTest = ""
     private let sections = [("profile", "settings.profile"), ("appearance", "settings.appearance"), ("language", "settings.language.title"), ("voice", "common.voice_input"), ("notify", "settings.notify"), ("harness", "common.harness"), ("about", "settings.about")]
     var body: some View {
+        let _ = UIWorkTrace.count("body.settings")
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 ReferenceLabel(m.t("common.settings"), size: 16, weight: 650)

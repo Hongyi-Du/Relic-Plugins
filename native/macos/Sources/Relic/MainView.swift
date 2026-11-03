@@ -24,6 +24,7 @@ struct MainView: View {
         InspectorGeometry.width(window: m.windowSize.width, saved: resizingPanel ?? CGFloat(m.defaults.double(forKey: panelKey)), files: m.pane == "files")
     }
     var body: some View {
+        let _ = UIWorkTrace.count("body.main")
         GeometryReader { geometry in
         VStack(spacing: 0) {
             AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
@@ -129,6 +130,7 @@ struct AppToolbar: View {
     @State private var controlBounds: [CGRect] = []
     private let menus = [("file", "common.file"), ("edit", "appmenu.edit"), ("view", "appmenu.view"), ("help", "appmenu.help")]
     var body: some View {
+        let _ = UIWorkTrace.count("body.toolbar")
         ToolbarLayout {
             HStack(spacing: 2) {
                 RelicLogo().padding(.leading, 6).padding(.trailing, 8)

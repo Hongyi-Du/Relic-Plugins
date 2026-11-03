@@ -89,6 +89,7 @@ struct RichText: View {
     private func list(_ block: MarkdownBlock) -> [MarkdownListItem] { parsed?.list(block) ?? [] }
     private func table(_ block: MarkdownBlock) -> [[String]] { parsed?.table(block) ?? [] }
     var body: some View {
+        let _ = UIWorkTrace.count("body.richtext")
         Group {
         if parsed == nil { Color.clear.frame(height: textLineHeight).accessibilityHidden(true) }
         else { IntrinsicMarkdownLayout(preferredWidth: preferredWidth) {
@@ -440,6 +441,7 @@ struct MessageView: View {
         return m.t("msg.to", ["names": !everyone.isEmpty && everyone.allSatisfy(recipients.contains) ? m.t("msg.everyone") : m.list(item["to"].rows.map { m.name($0.text) })])
     }
     var body: some View {
+        let _ = UIWorkTrace.count("body.message")
         if item["type"].text == "notice" {
             NoticeLayout {
                 ReferenceLabel(item["text"].text, size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
