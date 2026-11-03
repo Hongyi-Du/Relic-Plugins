@@ -44,7 +44,6 @@ public sealed partial class MainWindow
         if (state == toolbarState) return;
         toolbarState = state;
         titlebarLayoutDirty = true;
-        toolbar.PrimaryCommands.Clear();
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toolbar, T("page.titlebar"));
         void AddCommand(UIElement content)
         {
@@ -56,6 +55,55 @@ public sealed partial class MainWindow
                 VerticalContentAlignment = VerticalAlignment.Center, UseLayoutRounding = false
             });
         }
+        DrawToolbarNavigation();
+        appTitle.Text = org.Length == 0 ? T("common.app_name") : snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member == snap["org"].Text("secretary") ? T("common.secretary") : Display(member)); appTitle.Foreground = Muted; toolbar.Content = null; ToolTipService.SetToolTip(appTitle, appTitle.Text);
+        var count = snap.Rows("decisions").Count; var unread = copyInbox.Unread; var working = MonitorWorking;
+        var decisionsTip = T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count));
+        var copiesTip = T(unread > 0 ? "appbar.cc" : "appbar.cc_none", ("n", unread));
+        var monitorTip = working > 0 ? T("appbar.monitor", ("n", working)) : T("appbar.monitor_idle");
+        string PaneTip(int index) => T("appbar.pane_shortcut", ("pane", T(ToolbarPanes[index].Key)), ("key", "Alt+" + (index + 1)));
+        // Live counts and the selected pane change these buttons in place.
+        // Replacing every command for a count lost a click pressed on one in
+        // between: a large organization's live updates come several times a
+        // second (run 41668161153, "Real random click was not handled").
+        var commands = string.Join("\u001f", words.Language, root.ActualTheme, presentationVersion);
+        if (commands == toolbarCommandsKey && toolbarDecisions != null && toolbarCopies != null && toolbarMonitor != null)
+        {
+            UpdateToolbarButton(toolbarDecisions, decisionsTip, count, alert: count > 0);
+            UpdateToolbarButton(toolbarCopies, copiesTip, unread);
+            for (var index = 0; index < ToolbarPanes.Length; index++)
+                UpdateToolbarButton(toolbarPaneButtons[index]!, PaneTip(index), selected: panelOpen && pane == ToolbarPanes[index].Id);
+            UpdateToolbarButton(toolbarMonitor, monitorTip, working);
+            return;
+        }
+        toolbarCommandsKey = commands; toolbarLooks.Clear();
+        toolbar.PrimaryCommands.Clear();
+        AddCommand(toolbarDecisions = ToolbarIconButton("\uE7BA", decisionsTip, () => SetPane("overview"), badge: count, alert: count > 0));
+        AddCommand(toolbarCopies = ToolbarIconButton("\uE715", copiesTip, Copies, badge: unread));
+        AddCommand(new Border { Width = 1, Height = 16, Background = Paint("DEDBD4", "3A3936"), Margin = new Thickness(4, 0, 4, 0), UseLayoutRounding = false });
+        for (var index = 0; index < ToolbarPanes.Length; index++)
+        {
+            var id = ToolbarPanes[index].Id;
+            AddCommand(toolbarPaneButtons[index] = ToolbarIconButton(ToolbarPanes[index].Glyph, PaneTip(index), () => pane == id && panelOpen ? TogglePanel() : SetPane(id), selected: panelOpen && pane == id));
+        }
+        // Last, so the commands before it keep their positions.
+        AddCommand(toolbarMonitor = ToolbarIconButton("\uE9D9", monitorTip, OpenMonitor, badge: working));
+    }
+    private static readonly (string Id, string Key, string Glyph)[] ToolbarPanes =
+        [("overview", "panel.overview", "\uE8FD"), ("workspace", "panel.workspace", "\uE8B7"), ("files", "common.file", "\uE8A5")];
+    private string? toolbarCommandsKey, toolbarNavigationKey;
+    private Button? toolbarDecisions, toolbarCopies, toolbarMonitor;
+    private readonly Button?[] toolbarPaneButtons = new Button?[3];
+    private readonly Dictionary<Button, (string Tip, int Badge, bool Selected, bool Alert)> toolbarLooks = [];
+
+    // Navigation buttons change only by navigating (and the sidebar toggle by
+    // toggling), after the click that did it has been handled.
+    private void DrawToolbarNavigation()
+    {
+        var navigation = string.Join("\u001f", sideOpen, historyIndex, history.Count, words.Language, root.ActualTheme, presentationVersion);
+        if (navigation == toolbarNavigationKey) return;
+        toolbarNavigationKey = navigation;
+        foreach (var old in navigationButtons.Children.OfType<Button>()) toolbarLooks.Remove(old);
         navigationButtons.Children.Clear();
         if (toolbarLogo == null)
         {
@@ -77,18 +125,6 @@ public sealed partial class MainWindow
         navigationButtons.Children.Add(ToolbarIconButton("\uE700", T(sideOpen ? "appbar.hide_sidebar" : "appbar.show_sidebar"), ToggleSide));
         var back = ToolbarIconButton("\uE72B", T("appbar.back"), () => Navigate(-1)); back.IsEnabled = historyIndex > 0; navigationButtons.Children.Add(back);
         var forward = ToolbarIconButton("\uE72A", T("appbar.forward"), () => Navigate(1)); forward.IsEnabled = historyIndex + 1 < history.Count; navigationButtons.Children.Add(forward);
-        appTitle.Text = org.Length == 0 ? T("common.app_name") : snap["org"].Text("name") + " · " + (member.Length == 0 ? T("common.group_chat") : member == snap["org"].Text("secretary") ? T("common.secretary") : Display(member)); appTitle.Foreground = Muted; toolbar.Content = null; ToolTipService.SetToolTip(appTitle, appTitle.Text);
-        var count = snap.Rows("decisions").Count;
-        AddCommand(ToolbarIconButton("\uE7BA", T(count > 0 ? "appbar.decisions" : "appbar.no_decisions", ("n", count)), () => SetPane("overview"), badge: count, alert: count > 0));
-        var unread = copyInbox.Unread;
-        AddCommand(ToolbarIconButton("\uE715", T(unread > 0 ? "appbar.cc" : "appbar.cc_none", ("n", unread)), Copies, badge: unread));
-        AddCommand(new Border { Width = 1, Height = 16, Background = Paint("DEDBD4", "3A3936"), Margin = new Thickness(4, 0, 4, 0), UseLayoutRounding = false });
-        int i = 1;
-        foreach (var (id, key, glyph) in new[] { ("overview", "panel.overview", "\uE8FD"), ("workspace", "panel.workspace", "\uE8B7"), ("files", "common.file", "\uE8A5") })
-            AddCommand(ToolbarIconButton(glyph, T("appbar.pane_shortcut", ("pane", T(key)), ("key", "Alt+" + i++)), () => pane == id && panelOpen ? TogglePanel() : SetPane(id), selected: panelOpen && pane == id));
-        // Last, so the commands before it keep their positions.
-        var working = MonitorWorking;
-        AddCommand(ToolbarIconButton("\uE9D9", working > 0 ? T("appbar.monitor", ("n", working)) : T("appbar.monitor_idle"), OpenMonitor, badge: working));
     }
 
     private void ClipToolbarLogo()
@@ -120,19 +156,39 @@ public sealed partial class MainWindow
         // icon's 16x16 desired size. It remains an actual, separate badge view.
         var content = new Grid { Width = 30, Height = 28, UseLayoutRounding = false };
         var icon = Glyph(glyph); icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center; content.Children.Add(icon);
-        if (badge > 0)
-        {
-            var label = SidebarText(badge.ToString(), 10, weight: 700, lineHeight: 15);
-            label.Foreground = Paint("FFFFFF"); label.TextWrapping = TextWrapping.NoWrap; label.TextAlignment = TextAlignment.Center; label.IsTextSelectionEnabled = false;
-            content.Children.Add(new OverviewBadgeView
-            {
-                Content = label, MinWidth = 15, Height = 15, Padding = new Thickness(4, 0, 4, 0), CornerRadius = new CornerRadius(8),
-                Background = Paint("C2412D", "EE8A78"), Foreground = label.Foreground, FontSize = 10, FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false
-            });
-        }
+        SetToolbarBadge(content, badge);
         button.Content = content; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, tip); ToolTipService.SetToolTip(button, tip);
+        toolbarLooks[button] = (tip, badge, selected, alert);
         return button;
+    }
+    private void SetToolbarBadge(Grid content, int badge)
+    {
+        foreach (var old in content.Children.OfType<OverviewBadgeView>().ToArray()) content.Children.Remove(old);
+        if (badge <= 0) return;
+        var label = SidebarText(badge.ToString(), 10, weight: 700, lineHeight: 15);
+        label.Foreground = Paint("FFFFFF"); label.TextWrapping = TextWrapping.NoWrap; label.TextAlignment = TextAlignment.Center; label.IsTextSelectionEnabled = false;
+        content.Children.Add(new OverviewBadgeView
+        {
+            Content = label, MinWidth = 15, Height = 15, Padding = new Thickness(4, 0, 4, 0), CornerRadius = new CornerRadius(8),
+            Background = Paint("C2412D", "EE8A78"), Foreground = label.Foreground, FontSize = 10, FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false
+        });
+    }
+    // The same button shows a new count, tooltip or selection; a pressed one
+    // stays pressed, so its click still arrives.
+    private void UpdateToolbarButton(Button button, string tip, int badge = 0, bool selected = false, bool alert = false)
+    {
+        if (!toolbarLooks.TryGetValue(button, out var look)) return;
+        if (look.Tip != tip) { Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, tip); ToolTipService.SetToolTip(button, tip); }
+        if (look.Selected != selected || look.Alert != alert)
+        {
+            button.Foreground = alert ? Paint("B7791F", "E2B15A") : selected ? Ink : Paint("5A5853", "B8B5AE");
+            // QuietButton's own transparent background when not selected.
+            button.Background = selected ? Paint("E7E5DF", "2F2E2B") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            button.Template = ToolbarButtonTemplate(selected, alert);
+        }
+        if (look.Badge != badge && button.Content is Grid content) SetToolbarBadge(content, badge);
+        toolbarLooks[button] = (tip, badge, selected, alert);
     }
     private ControlTemplate ToolbarButtonTemplate(bool selected, bool alert)
     {
