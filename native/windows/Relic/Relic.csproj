@@ -26,6 +26,11 @@
          later, so the process kept growing and shrinking by a few threads and
          the next burst paid for creating them again. -->
     <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.ThreadsToKeepAlive" Value="-1" />
+    <!-- A worker with nothing to do sleeps at once instead of spinning for
+         new work first (70 rounds by default). Work here comes a few dozen
+         times a second at most, so the spinning only burnt CPU: a pool worker
+         used 14 M cycles a second while the app sat idle. -->
+    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.UnfairSemaphoreSpinLimit" Value="0" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="../../../plugins/relic/app/static/icon.svg" Link="Assets/Relic.svg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
