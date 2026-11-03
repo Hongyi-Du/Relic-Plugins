@@ -57,11 +57,23 @@ import RelicCore
             current.startupStage = nil
             guard current.ready else { throw RelicError.message(current.error) }
             try await settleConversation(current)
-            // Every run keeps the manifest's order. A diagnostic workflows run
-            // samples the first dialog where acceptance opens it, after the
-            // large group chat and the earlier panes, not straight after startup.
-            let plan = manifest["plan"].rows
+            // A diagnostic workflows run studies the first dialog. An earlier
+            // failure's 30 s retention can end the run before the manifest's
+            // dialogs, so it opens the first chat, then the dialogs, then the
+            // rest. Acceptance runs keep the manifest's order.
+            let rows = manifest["plan"].rows
+            let studiesDialogs = env["RELIC_PERF_DIAGNOSTIC"] == "true" && phase == .workflows && !rows.isEmpty
+            let plan = studiesDialogs
+                ? [rows[0]] + rows.dropFirst().filter { $0["kind"].text == "dialog" } + rows.dropFirst().filter { $0["kind"].text != "dialog" } : rows
+            var quietedBeforeDialog = false
             for action in plan {
+                if studiesDialogs, !quietedBeforeDialog, action["kind"].text == "dialog" {
+                    // Let the chat finish its row admission and Markdown first,
+                    // so the dialog's sample holds the dialog, not that work.
+                    quietedBeforeDialog = true
+                    try await settleConversation(current)
+                    try await Task.sleep(for: .seconds(3))
+                }
                 defer {
                     watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
                         "actions": receipts, "random_seconds": randomSeconds, "random_actions": randomActions])
