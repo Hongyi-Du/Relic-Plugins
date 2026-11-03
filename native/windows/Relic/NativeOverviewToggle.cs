@@ -31,7 +31,7 @@ public sealed class NativeOverviewToggle : ToggleButton
         VerticalAlignment = VerticalAlignment.Center;
         Background = BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         BorderThickness = new Thickness(0);
-        Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ToggleButton'><ContentPresenter Content='{TemplateBinding Content}' Padding='0'/></ControlTemplate>");
+        Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ToggleButton'><ContentPresenter Content='{TemplateBinding Content}' Padding='0'/></ControlTemplate>");
         Checked += (_, _) => PaintParts(); Unchecked += (_, _) => PaintParts(); Indeterminate += (_, _) => PaintParts();
         PaintParts();
     }

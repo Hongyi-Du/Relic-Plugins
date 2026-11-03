@@ -68,7 +68,7 @@ public sealed partial class MainWindow
         var mark = new Grid { Width = 13, Height = 13 }; mark.Children.Add(ring); mark.Children.Add(dot);
         var radio = new RadioButton { GroupName = group, IsChecked = selected, IsEnabled = enabled, Content = mark, Width = 13, Height = 13, MinWidth = 0, MinHeight = 0,
             Padding = new Thickness(0), Margin = new Thickness(5, 3, 3, 0), VerticalAlignment = VerticalAlignment.Center,
-            Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='RadioButton'><ContentPresenter Content='{TemplateBinding Content}' Padding='0'/></ControlTemplate>") };
+            Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='RadioButton'><ContentPresenter Content='{TemplateBinding Content}' Padding='0'/></ControlTemplate>") };
         AutomationProperties.SetName(radio, label);
         var row = new Grid { ColumnSpacing = 5 }; row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         row.Children.Add(radio); Grid.SetColumn((FrameworkElement)content, 1); row.Children.Add(content);

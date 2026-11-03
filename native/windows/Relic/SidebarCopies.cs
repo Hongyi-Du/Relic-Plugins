@@ -141,7 +141,7 @@ public sealed partial class MainWindow
         using var timing = PerformanceTrace.Measure("sidebar.template.toolbar");
         var hoverBackground = selected ? "RelicControlPressed" : "RelicControlHover";
         var hoverForeground = alert ? "" : "<Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlInk}'/>";
-        var template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+        var template = XamlTemplates.Load<ControlTemplate>(
             "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
             "<ContentPresenter x:Name='ToolbarContent' Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' Foreground='{TemplateBinding Foreground}' HorizontalContentAlignment='Center' VerticalContentAlignment='Center' UseLayoutRounding='False'>" +
             "<VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'><VisualState x:Name='Normal'/>" +
@@ -209,9 +209,9 @@ public sealed partial class MainWindow
         var tree = side;
         // Framework templates are reusable factories; their instantiated
         // controls, selection, bindings, and ThemeResources remain per row.
-        var template = sidebarItemTemplate ??= (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
-        var itemsPanel = sidebarItemsPanel ??= (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><StackPanel UseLayoutRounding='False'/></ItemsPanelTemplate>");
-        var listTemplate = sidebarListTemplate ??= (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+        var template = sidebarItemTemplate ??= XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
+        var itemsPanel = sidebarItemsPanel ??= XamlTemplates.Load<ItemsPanelTemplate>("<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><StackPanel UseLayoutRounding='False'/></ItemsPanelTemplate>");
+        var listTemplate = sidebarListTemplate ??= XamlTemplates.Load<ControlTemplate>(
             "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='ListView'>" +
             "<Border Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' UseLayoutRounding='False'>" +
             "<ItemsPresenter x:Name='ItemsPresenter' Padding='{TemplateBinding Padding}' UseLayoutRounding='False'/></Border></ControlTemplate>");

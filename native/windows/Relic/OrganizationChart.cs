@@ -65,7 +65,7 @@ public sealed partial class MainWindow
         // A native focusable surface receives chart keyboard navigation. Its
         // empty template adds no painted button or additional text.
         var keyboardSurface = new ChartSurface { Content = viewport, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch,
-            Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ContentControl'><ContentPresenter Content='{TemplateBinding Content}' HorizontalAlignment='Stretch' VerticalAlignment='Stretch'/></ControlTemplate>") };
+            Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ContentControl'><ContentPresenter Content='{TemplateBinding Content}' HorizontalAlignment='Stretch' VerticalAlignment='Stretch'/></ControlTemplate>") };
         Grid.SetRow(keyboardSurface, 2); body.Children.Add(keyboardSurface);
         double viewX = 0, viewY = 0, viewScale = 1;
         string? autoFit = "focus";
@@ -297,7 +297,7 @@ public sealed partial class MainWindow
                     var button = new ChartNodeButton { Content = contents, Width = point.Width, Height = ChartHeight, IsCurrent = id == org, Background = Color(fill), Foreground = Color(Ink),
                         BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Colors.Transparent), Padding = new Thickness(11, 0, 11, 0), CornerRadius = new CornerRadius(12), UseLayoutRounding = false,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center, MinWidth = 0, MinHeight = 0,
-                        Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Border Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' Padding='{TemplateBinding Padding}'><ContentPresenter Content='{TemplateBinding Content}' HorizontalAlignment='Stretch' VerticalAlignment='Center'/></Border></ControlTemplate>") };
+                        Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Border Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' Padding='{TemplateBinding Padding}'><ContentPresenter Content='{TemplateBinding Content}' HorizontalAlignment='Stretch' VerticalAlignment='Center'/></Border></ControlTemplate>") };
                     label.Add(lead); label.Add(members.Text); label.Add(T("chart.decisions", ("n", item.Text("decisions")))); if (here.Count > 0) label.Add(T("chart.shared", ("n", here.Count)));
                     AutomationProperties.SetName(button, string.Join(" ", label));
                     ToolTipService.SetToolTip(button, string.Join("\n", new[] { T("chart.open_hint", ("name", item.Text("name"))), lead, item.Text("purpose") }.Concat(here).Where(value => value.Length > 0)));

@@ -555,7 +555,7 @@ public sealed partial class MainWindow : Window
         var field = new TextBox { Header = T(key), AcceptsReturn = multiline, TextWrapping = TextWrapping.Wrap, FontSize = 13,
             Height = multiline ? 101 : 61, MinHeight = 0, BorderThickness = new Thickness(1), BorderBrush = Paint("DEDBD4", "3A3936"), Background = Paint("FFFFFF", "1F1F1E"),
             CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 7, voice ? 34 : 10, 7) };
-        field.HeaderTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><TextBlock Text='{Binding}' FontSize='12.5' LineHeight='20' LineStackingStrategy='BlockLineHeight' Foreground='{ThemeResource RelicControlSecondary}'/></DataTemplate>");
+        field.HeaderTemplate = XamlTemplates.Load<DataTemplate>("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><TextBlock Text='{Binding}' FontSize='12.5' LineHeight='20' LineStackingStrategy='BlockLineHeight' Foreground='{ThemeResource RelicControlSecondary}'/></DataTemplate>");
         field.Resources["TextControlHeaderMargin"] = new Thickness(0, 0, 0, 5);
         field.Resources["TextControlBorderThicknessFocused"] = new Thickness(1);
         var row = new Grid(); row.Children.Add(field);

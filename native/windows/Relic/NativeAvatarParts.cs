@@ -23,7 +23,7 @@ public sealed class NativeAvatarPicture
     internal NativeAvatarPicture(string label, UIElement paint, int size)
     {
         Paint = paint;
-        PaintTemplate = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='PersonPicture'><ContentPresenter Content='{TemplateBinding Tag}'/></ControlTemplate>");
+        PaintTemplate = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='PersonPicture'><ContentPresenter Content='{TemplateBinding Tag}'/></ControlTemplate>");
         Picture = new PersonPicture { DisplayName = label, Tag = Paint, Width = size, Height = size,
             // The retained paint owns any real avatar border/ring. This native
             // host is borderless, including its otherwise inherited SDK value.

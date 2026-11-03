@@ -164,7 +164,7 @@ public sealed partial class MainWindow
             clear.IsHitTestVisible = false; clear.IsTabStop = false;
             clear.MinWidth = clear.MinHeight = clear.Width = clear.Height = 0;
             clear.MaxWidth = clear.MaxHeight = 0; clear.Padding = new Thickness(0);
-            clear.Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Grid/></ControlTemplate>");
+            clear.Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><Grid/></ControlTemplate>");
         };
         input.Resources["TextControlBorderThicknessFocused"] = new Thickness(1); return input;
     }
@@ -199,7 +199,7 @@ public sealed partial class MainWindow
             var item = new SelectorBarItem { Text = text, Tag = content, IsSelected = selected, Padding = new Thickness(0), Margin = new Thickness(0, 0, value == choices[^1].Item1 ? 0 : 2, 0),
                 BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
+                Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
             // The custom visual template has no default Text presenter from
             // which the SelectorBarItem peer can derive its accessible name.
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, text);
@@ -287,7 +287,7 @@ public sealed partial class MainWindow
         var navigationBar = new SelectorBar
         {
             Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch,
-            Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            Template = XamlTemplates.Load<ControlTemplate>("""
                 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="SelectorBar">
                   <ItemsView x:Name="PART_ItemsView" ItemsSource="{TemplateBinding Items}" Padding="{TemplateBinding Padding}" HorizontalAlignment="Stretch" TabNavigation="{TemplateBinding TabNavigation}">
                     <ItemsView.Layout><StackLayout Orientation="Vertical" Spacing="2"/></ItemsView.Layout>
@@ -372,7 +372,7 @@ public sealed partial class MainWindow
             var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false }; var icon = (ReferenceVectorIcon)Glyph(glyph, 16); labelRow.Children.Add(icon); var text = new NativeSettingsNavigationLabel(T(label), words.Language); labelRow.Children.Add(text);
             var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,
                 BorderThickness = new Thickness(0),
-                Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' Foreground='{TemplateBinding Foreground}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
+                Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}' Foreground='{TemplateBinding Foreground}' VerticalAlignment='Center'/></Grid></ControlTemplate>") };
             navigationBar.Items.Add(tab); tabs.Add(key, (tab, text, icon));
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(tab, T(label));
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tab, "settings-nav-" + key);

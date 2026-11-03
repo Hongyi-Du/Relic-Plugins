@@ -32,7 +32,7 @@ public sealed partial class MainWindow
                 BorderThickness = new Thickness(0),
                 Padding = new Thickness(0), Margin = new Thickness(0, 0, 2, 0), CornerRadius = new CornerRadius(top ? 7 : 6),
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
+                Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='SelectorBarItem'><Grid x:Name='PART_ContainerRoot' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}'><ContentPresenter Content='{TemplateBinding Tag}'/></Grid></ControlTemplate>") };
             values.Add(item, (id, label, raised)); tabs.Items.Add(item);
         }
         if (tabs.Items.Count > 0) tabs.Items[^1].Margin = new Thickness(0);
@@ -60,7 +60,7 @@ public sealed partial class MainWindow
         // the same production control as mouse and keyboard interaction.
         // Inline summaries only expose their own content box to pointer input.
         // Align the ToggleButton itself, independently of the expanded body.
-        var template = (ControlTemplate)XamlReader.Load($$$"""
+        var template = XamlTemplates.Load<ControlTemplate>($$$"""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Expander">
               <Grid>
                 <Grid.RowDefinitions><RowDefinition x:Name="Row0" Height="Auto"/><RowDefinition x:Name="Row1" Height="Auto"/></Grid.RowDefinitions>
@@ -103,7 +103,7 @@ public sealed partial class MainWindow
         var note = OverviewText(subtitle, 12, true, lineHeight: 16.2); note.TextWrapping = TextWrapping.NoWrap; note.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(note); Grid.SetColumn(labels, 1); row.Children.Add(labels);
         return new ListViewItem { Tag = id, Content = row, Padding = new Thickness(8, 6, 8, 6), MinHeight = 0, MinWidth = 0, CornerRadius = new CornerRadius(8), HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Background = selected ? Paint("E7E5DF", "2F2E2B") : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Padding='{TemplateBinding Padding}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch'/></ControlTemplate>") };
+            Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Padding='{TemplateBinding Padding}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch'/></ControlTemplate>") };
     }
 }
 

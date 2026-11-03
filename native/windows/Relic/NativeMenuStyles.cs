@@ -44,7 +44,7 @@ public sealed partial class MainWindow
             words.Language, 13 * 1.6);
         // One real Button owns one label and one painted surface. No nested
         // MenuBarItem/ContentButton pair or rewritten automation role is used.
-        anchor.Template = (ControlTemplate)XamlReader.Load("""
+        anchor.Template = XamlTemplates.Load<ControlTemplate>("""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">
               <ContentPresenter x:Name="ContentRoot" Content="{TemplateBinding Content}" Padding="{TemplateBinding Padding}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" FontWeight="{TemplateBinding FontWeight}" Foreground="{TemplateBinding Foreground}" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" VerticalContentAlignment="Center" HorizontalContentAlignment="Center">
                 <VisualStateManager.VisualStateGroups>
@@ -266,7 +266,7 @@ public sealed partial class MainWindow
         // WinUI queries this named TextBlock while measuring accelerator text.
         // A row with no shortcut has neither the block nor its flex-row gap.
         var shortcutLabel = hasShortcut ? "<TextBlock x:Name='KeyboardAcceleratorTextBlock' Grid.Column='2' Text='{TemplateBinding KeyboardAcceleratorTextOverride}' FontFamily='Cascadia Code' FontSize='11' FontWeight='Normal' Foreground='{ThemeResource RelicControlMuted}' VerticalAlignment='Center'/>" : "";
-        style.Setters.Add(new Setter(Control.TemplateProperty, (ControlTemplate)XamlReader.Load($$"""
+        style.Setters.Add(new Setter(Control.TemplateProperty, XamlTemplates.Load<ControlTemplate>($$"""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="MenuFlyoutItem">
               <Grid x:Name="MenuRow" Padding="{TemplateBinding Padding}" ColumnSpacing="10" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/>{{shortcutColumn}}</Grid.ColumnDefinitions>
@@ -288,7 +288,7 @@ public sealed partial class MainWindow
     private MenuFlyoutSeparator NativeMenuSeparator() => new()
     {
         Height = 1, MinHeight = 0, Margin = new Thickness(6, 4, 6, 4), Background = Line, UseLayoutRounding = false,
-        Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='MenuFlyoutSeparator'><Border Height='1' Background='{TemplateBinding Background}'/></ControlTemplate>")
+        Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='MenuFlyoutSeparator'><Border Height='1' Background='{TemplateBinding Background}'/></ControlTemplate>")
     };
 
     private OverviewChipView NativeShortcutCap(string key) => new()
@@ -308,7 +308,7 @@ public sealed partial class MainWindow
             Background = Ink, BorderBrush = Ink, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9),
             Foreground = label.Foreground, FontSize = 13, FontFamily = label.FontFamily, FontWeight = label.FontWeight,
             HorizontalAlignment = HorizontalAlignment.Right, HorizontalContentAlignment = HorizontalAlignment.Center,
-            Template = (ControlTemplate)XamlReader.Load("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' Padding='{TemplateBinding Padding}' HorizontalContentAlignment='Center' VerticalContentAlignment='Center'/></ControlTemplate>") };
+            Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' Padding='{TemplateBinding Padding}' HorizontalContentAlignment='Center' VerticalContentAlignment='Center'/></ControlTemplate>") };
         AutomationProperties.SetName(button, text); return button;
     }
 }

@@ -262,7 +262,7 @@ public sealed class WorkspaceCodeView : RichEditBox
         TextWrapping = TextWrapping.NoWrap; Padding = new Thickness(0); BorderThickness = new Thickness(0); MinWidth = 0; MinHeight = 0;
         Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent); UseSystemFocusVisuals = false; Opacity = 0;
         SelectionFlyout = null;
-        Template = (ControlTemplate)XamlReader.Load("""
+        Template = XamlTemplates.Load<ControlTemplate>("""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="RichEditBox">
               <ScrollViewer x:Name="ContentElement" Padding="{TemplateBinding Padding}" Margin="{TemplateBinding BorderThickness}" Foreground="{TemplateBinding Foreground}"
                 HorizontalScrollMode="Disabled" VerticalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"

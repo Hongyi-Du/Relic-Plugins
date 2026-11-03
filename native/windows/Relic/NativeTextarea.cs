@@ -150,7 +150,7 @@ public sealed class NativeTextareaResizeGrip : Grid
         ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeNorthwestSoutheast);
         Handle = new Thumb { MinWidth = 0, MinHeight = 0, IsTabStop = false,
             BorderThickness = new Thickness(0),
-            Template = (ControlTemplate)XamlReader.Load("""
+            Template = XamlTemplates.Load<ControlTemplate>("""
           <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Thumb">
             <Grid Background="Transparent" UseLayoutRounding="False">
               <Path Data="M3,12 L12,3 M7,12 L12,7 M11,12 L12,11" Stroke="{TemplateBinding Foreground}"

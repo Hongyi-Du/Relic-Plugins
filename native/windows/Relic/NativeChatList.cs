@@ -104,10 +104,10 @@ internal sealed class NativeChatList : Grid
             dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             { commitQueued = false; Commit(); });
         });
-        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+        list.ItemTemplate = XamlTemplates.Load<DataTemplate>(
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
             "<Border HorizontalAlignment='Stretch' UseLayoutRounding='False'/></DataTemplate>");
-        list.ItemsPanel = (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+        list.ItemsPanel = XamlTemplates.Load<ItemsPanelTemplate>(
             "<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
             "<ItemsStackPanel ItemsUpdatingScrollMode='KeepItemsInView' CacheLength='0.5'/></ItemsPanelTemplate>");
         var itemStyle = new Style(typeof(ListViewItem));

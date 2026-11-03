@@ -33,7 +33,7 @@ public sealed class ComposerInput : RichEditBox
         UseLayoutRounding = false; UseSystemFocusVisuals = false;
         ClipboardCopyFormat = RichEditClipboardFormat.PlainText;
         DisabledFormattingAccelerators = DisabledFormattingAccelerators.All;
-        Template = (ControlTemplate)XamlReader.Load("""
+        Template = XamlTemplates.Load<ControlTemplate>("""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="RichEditBox">
               <Grid Background="{TemplateBinding Background}" UseLayoutRounding="False">
                 <ScrollViewer x:Name="ContentElement" Padding="{TemplateBinding Padding}" Foreground="{TemplateBinding Foreground}"
