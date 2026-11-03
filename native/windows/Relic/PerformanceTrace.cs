@@ -61,8 +61,58 @@ internal static class PerformanceTrace
                 fragmentation = generation.FragmentationAfterBytes }).ToArray(),
             live_bytes = GC.GetTotalMemory(false), allocated_bytes = GC.GetTotalAllocatedBytes(),
             working_set = process.WorkingSet64, private_bytes = process.PrivateMemorySize64,
-            alive = Alive(), unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+            native = NativeMemory(), alive = Alive(), unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
     }
+
+    // Private bytes grew about 0.27 MB per chat switch while the GC committed
+    // only a quarter of that. Split the rest: the process heaps (native
+    // allocations by XAML, DirectWrite, COM...) against other committed
+    // private memory (GC regions, graphics surfaces, stacks) and mappings.
+    private static object NativeMemory()
+    {
+        try
+        {
+            var count = GetProcessHeaps(0, null);
+            var heaps = new IntPtr[count + 8];
+            count = Math.Min(GetProcessHeaps((uint)heaps.Length, heaps), (uint)heaps.Length);
+            ulong heapCommitted = 0, heapAllocated = 0;
+            for (var index = 0; index < count; index++)
+            {
+                var summary = new HeapSummaryInfo { Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<HeapSummaryInfo>() };
+                if (HeapSummary(heaps[index], 0, ref summary))
+                { heapCommitted += (ulong)summary.Committed; heapAllocated += (ulong)summary.Allocated; }
+            }
+            ulong privateCommitted = 0, mappedCommitted = 0, imageCommitted = 0; var regions = 0;
+            var address = IntPtr.Zero; var size = (UIntPtr)System.Runtime.InteropServices.Marshal.SizeOf<RegionInfo>();
+            while (VirtualQuery(address, out var region, size) != UIntPtr.Zero && regions++ < 200_000)
+            {
+                if (region.State == 0x1000) // MEM_COMMIT
+                {
+                    var bytes = (ulong)region.RegionSize;
+                    if (region.Type == 0x20000) privateCommitted += bytes;
+                    else if (region.Type == 0x40000) mappedCommitted += bytes;
+                    else if (region.Type == 0x1000000) imageCommitted += bytes;
+                }
+                var next = (long)region.BaseAddress + (long)(ulong)region.RegionSize;
+                if (next <= (long)address) break;
+                address = (IntPtr)next;
+            }
+            return new { heaps = count, heap_committed = heapCommitted, heap_allocated = heapAllocated,
+                private_committed = privateCommitted, mapped_committed = mappedCommitted, image_committed = imageCommitted, regions };
+        }
+        catch (Exception error) { return new { error = error.Message }; }
+    }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct HeapSummaryInfo { public uint Size; public UIntPtr Allocated, Committed, Reserved, MaxReserve; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct RegionInfo
+    {
+        public IntPtr BaseAddress, AllocationBase; public uint AllocationProtect; public ushort PartitionId;
+        public UIntPtr RegionSize; public uint State, Protect, Type;
+    }
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern uint GetProcessHeaps(uint count, IntPtr[]? heaps);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool HeapSummary(IntPtr heap, uint flags, ref HeapSummaryInfo summary);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern UIntPtr VirtualQuery(IntPtr address, out RegionInfo info, UIntPtr length);
     internal static object[] Drain()
     {
         var batch = new List<object>();

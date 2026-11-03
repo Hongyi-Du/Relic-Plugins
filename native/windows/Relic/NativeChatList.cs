@@ -652,8 +652,11 @@ internal sealed class NativeChatList : Grid
             // corrections were absorbed again. Only when the rows before it
             // reach past the bottom of the view were they taller than estimated:
             // then walk down past them (a correction down lands).
+            // The rows realized must be the ones from the seek on: right after
+            // the seek the panel still holds the rows of the view before it (once
+            // the list's first rows, and the walk went down from there).
             Border? last = null;
-            for (var i = index - 1; i >= Math.Max(0, index - 400) && last == null; i--)
+            for (var i = index - 1; i >= Math.Max(0, intent.SeekIndex) && last == null; i--)
                 if (TryGetRealizedRow(i) is { IsLoaded: true } realized) last = realized;
             if (last != null && intent.Walks < 8 && Bounds(last, viewport) is var lastBounds
                 && lastBounds.Bottom >= viewport.ViewportHeight && lastBounds.Bottom > Math.Max(intent.Top, 0) + 1)

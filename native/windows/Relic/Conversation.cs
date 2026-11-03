@@ -693,12 +693,20 @@ public sealed partial class MainWindow
         if (before.Length == 0) { chatMore = false; return; }
         var page = await api!.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit + "&before=" + Client.Segment(before)));
         if (org != selectedOrg || member != selectedMember) return;
-        var current = messages;
-        var prepared = await Task.Run(() =>
+        // A refresh can replace the messages while the merge runs on a worker.
+        // Committing a merge of the list as it was would drop what the refresh
+        // brought, and the refresh committing its own merge of the old list
+        // dropped this page (a whole page vanished during the monkey run).
+        // Merge again on top of whatever the list is now.
+        Task<(JsonArray Messages, Dictionary<string, string> Identities)> MergeOlder(JsonArray onto) => Task.Run(() =>
         {
-            var merged = Transcript.MergeMessages(page.Rows("items"), current);
+            var merged = Transcript.MergeMessages(page.Rows("items"), onto);
             return (Messages: merged, Identities: MessagePresentationIdentities(merged));
         }, lifetime.Token);
+        var current = messages;
+        var prepared = await MergeOlder(current);
+        while (org == selectedOrg && member == selectedMember && !ReferenceEquals(messages, current))
+        { current = messages; prepared = await MergeOlder(current); }
         if (org != selectedOrg || member != selectedMember) return;
         readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         olderHistory = true; messages = prepared.Messages; messagePresentationIdentities = prepared.Identities;

@@ -388,6 +388,13 @@ public sealed partial class MainWindow : Window
                 snap = snapshot; snapOrg = org;
                 var loadedMessages = messages;
                 var mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
+                // An older page can arrive while the merge runs on a worker;
+                // committing the merge of the list as it was dropped that page.
+                while (org == selectedOrg && member == selectedMember && !ReferenceEquals(messages, loadedMessages))
+                {
+                    loadedMessages = messages;
+                    mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
+                }
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                 messages = mergedMessages;
                 if (!olderHistory) chatMore = chat.Flag("more");
