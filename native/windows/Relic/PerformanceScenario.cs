@@ -256,6 +256,51 @@ public sealed partial class MainWindow
         await Release("sidebar_redraw", DrawSide);
         await Release("sidebar_cleared", () => { side.Children.Clear(); side.Commit(); });
         DrawSide();
+        // Each redraw (and the clear) kept exactly one more row: the one under
+        // the pointer, it seems. Check with the real pointer: rows removed with
+        // the pointer over them or not, and redraws with and without it.
+        async Task UnderPointer(string name, bool hover)
+        {
+            var made = new List<WeakReference>();
+            for (var index = 0; index < 12; index++)
+            {
+                var element = SidebarList(SidebarText("Probe")); element.Width = 200; element.Height = 34;
+                made.Add(new WeakReference(element));
+                inspector.Children.Add(element); await PerformanceYield();
+                if (hover) { await CaptureHover(element); await PerformanceYield(); }
+                inspector.Children.Remove(element); await PerformanceYield();
+            }
+            await CaptureHover(chatScroll); await PerformanceYield(); await Settled();
+            PerformanceTrace.Note("leak.pointer", new { name, made = made.Count, alive = made.Count(entry => entry.IsAlive) });
+        }
+        await UnderPointer("list_row_away", false);
+        await UnderPointer("list_row_hovered", true);
+        NativeSidebarRow? VisibleSidebarRow()
+        {
+            var queue = new Queue<DependencyObject>(); queue.Enqueue(side);
+            while (queue.Count > 0)
+            {
+                var node = queue.Dequeue();
+                if (node is NativeSidebarRow { IsLoaded: true, ActualHeight: > 0 } found) return found;
+                for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node); index++)
+                    queue.Enqueue(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(node, index));
+            }
+            return null;
+        }
+        async Task ReleaseAsync(string name, Func<Task> release)
+        {
+            await Settled(); var before = DetachedSidebarRows();
+            await release(); await PerformanceYield(); await Settled(); var after = DetachedSidebarRows();
+            PerformanceTrace.Note("leak.release", new { name, before, after });
+        }
+        await ReleaseAsync("pointer_away", () => CaptureHover(chatScroll));
+        await ReleaseAsync("redraw_away", () => { DrawSide(); return Task.CompletedTask; });
+        await ReleaseAsync("hover_redraw", async () =>
+        {
+            if (VisibleSidebarRow() is { } target) { await CaptureHover(target); await PerformanceYield(); }
+            DrawSide();
+        });
+        await ReleaseAsync("then_away", () => CaptureHover(chatScroll));
     }
 
     // CI-only: the tracked rows that outlived full collections while out of
