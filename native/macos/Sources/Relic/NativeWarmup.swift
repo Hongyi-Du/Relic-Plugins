@@ -6,13 +6,13 @@ import RelicCore
 /// one-time table, TextKit and font setup into launch, instead of blocking
 /// the first chat that appears after the data arrives.
 ///
-/// The third row is one message of every block kind (heading, emphasis,
-/// inline code and a link, a list, a quote, a code block and a table), with
-/// its Markdown already parsed, so it is built in the same launch
-/// transaction. The first chat's first rows were otherwise the first
-/// message, Markdown, code and table views the process ever created: CI
-/// runners spent 170-530 ms in that one row's display turn at startup,
-/// against under 50 ms for the same rows once warm.
+/// The next rows are a notice, an activity group and one message of every
+/// block kind (heading, emphasis, inline code and a link, a list, a quote,
+/// a code block and a table) with its Markdown already parsed, so all are
+/// built in the same launch transaction. The first chat's first rows were
+/// otherwise the first such views the process ever created: CI runners
+/// spent 170-530 ms in one such row's display turn at startup, against
+/// under 50 ms for the same rows once warm.
 struct NativeWarmup: View {
     private static let sample: (item: Node, body: PreparedMarkdown) = {
         let text = """
@@ -36,14 +36,21 @@ struct NativeWarmup: View {
                          "at": "2026-01-01T09:30:00Z", "body": text] as [String: Any])
         return (item, PreparedMarkdown(parsing: text))
     }()
+    private static let notice = Node(["id": "relic-warmup-notice", "type": "notice", "at": "2026-01-01T09:30:00Z",
+                                      "text": "示例提示 Preparing a notice"] as [String: Any])
+    private static let activity = Node(["id": "relic-warmup-acts", "type": "acts", "at": "2026-01-01T09:30:00Z",
+                                        "member": "relic-warmup", "steps": [Any]()] as [String: Any])
     var body: some View {
         List {
             ReferenceLabel("Relic 组织 Organization", size: 13.3, weight: 600)
             SelectableText(value: AttributedString("原生界面准备中。 Preparing native text."), pointSize: 14, lineHeight: 23.1)
+            MessageView(item: Self.notice)
+            MessageView(item: Self.activity)
             MessageView(item: Self.sample.item, preparedBody: Self.sample.body)
         }
         .listStyle(.plain)
-        .frame(width: 360, height: 120)
+        // Tall enough that the table creates every row, the message's too.
+        .frame(width: 360, height: 640)
         .opacity(0)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
