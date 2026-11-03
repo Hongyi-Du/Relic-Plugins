@@ -200,6 +200,32 @@ import RelicCore
         }
         try await Task.sleep(for: .milliseconds(150))
     }
+    /// Diagnostic runs only: how long until sample is seen sampling this
+    /// process (nil if not within the timeout). Each sample suspends the
+    /// whole task; a thread that reads the clock in a loop sees those
+    /// suspensions as regular gaps, about one every 3 ms, which ordinary
+    /// preemption on an otherwise idle process does not produce.
+    private static func samplerSuspensions(timeout: Double) async -> Double? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Double?, Never>) in
+            let thread = Thread {
+                func now() -> Double { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000 }
+                let started = now()
+                var last = started, window = started, gaps = 0
+                while last - started < timeout {
+                    let current = now()
+                    if current - last > 0.00025 { gaps += 1 }
+                    last = current
+                    if current - window >= 0.1 {
+                        if gaps >= 15 { continuation.resume(returning: (current - started) * 1000); return }
+                        gaps = 0; window = current
+                    }
+                }
+                continuation.resume(returning: nil)
+            }
+            thread.qualityOfService = .userInitiated
+            thread.start()
+        }
+    }
     /// Diagnostic runs only: wait until sample has written its file, so the
     /// phase cannot end while it is still symbolicating, and the actions
     /// after it run without the sampler's own load.
@@ -239,10 +265,10 @@ import RelicCore
             // sampler time to attach before the cold presentation begins.
             let sampled = env["RELIC_PERF_DIAGNOSTIC"] == "true" && !diagnosedDialog
             if sampled {
-                // /usr/bin/sample prints its first line seconds before it takes
-                // its first sample: samples whose dialog opened 150 ms and 3 s
-                // after that line held only the idle wait that followed it.
-                // Open it 10 s after the line, inside a 16-second sample.
+                // /usr/bin/sample prints its first line long before it takes
+                // its first sample: samples whose dialog opened 150 ms, 3 s and
+                // 10 s after that line held only the idle wait that followed.
+                // Open it once the sample is seen suspending this process.
                 diagnosedDialog = true
                 let log = output.appendingPathComponent("first-dialog.sampler.log")
                 let deadline = ProcessInfo.processInfo.systemUptime + 6
@@ -250,7 +276,9 @@ import RelicCore
                       !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
                     try await Task.sleep(for: .milliseconds(20))
                 }
-                try await Task.sleep(for: .seconds(10))
+                let seen = await samplerSuspensions(timeout: 40)
+                result["sampler_seen_after_ms"] = seen.map { $0 as Any } ?? NSNull()
+                try await Task.sleep(for: .milliseconds(300))
             }
             result["responder_before"] = responder(window)
             // Wall-clock marks in the stall records' clock: a long probe can
