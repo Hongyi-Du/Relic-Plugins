@@ -60,6 +60,27 @@ import RelicCore
         }
     }
 
+    func testRepeatedSidebarDatesKeepLocaleTimeZoneAndRelativeDayChanges() throws {
+        let at = try XCTUnwrap(Timeline.date(Node("2026-10-29T00:30:00Z")))
+        let node = Node("2026-10-29T00:30:00Z")
+        for _ in 0..<2 {
+            for language in ["zh-CN", "en-US"] {
+                let model = model(language)
+                for zone in ["UTC", "America/Chicago", "Asia/Shanghai"] {
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = try XCTUnwrap(TimeZone(identifier: zone))
+                    let clock = DateFormatter(); clock.locale = Locale(identifier: "en_US_POSIX")
+                    clock.timeZone = calendar.timeZone; clock.dateFormat = "HH:mm"
+                    XCTAssertEqual(model.shortWhen(node, now: at, calendar: calendar), clock.string(from: at))
+                    XCTAssertEqual(model.shortWhen(node, now: calendar.date(byAdding: .day, value: 1, to: at), calendar: calendar), model.t("time.yesterday"))
+                    let short = DateFormatter(); short.locale = Locale(identifier: model.words.language)
+                    short.timeZone = calendar.timeZone; short.setLocalizedDateFormatFromTemplate("Md")
+                    XCTAssertEqual(model.shortWhen(node, now: calendar.date(byAdding: .day, value: 10, to: at), calendar: calendar), short.string(from: at))
+                }
+            }
+        }
+    }
+
     func testSameMessageIdentityRecomputesChangedTimestampAndTimeZone() throws {
         let model = model("en-US")
         var calendar = Calendar(identifier: .gregorian)
