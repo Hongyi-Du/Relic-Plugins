@@ -801,7 +801,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not a.get("all") and not key:
                     return self._error(400, "key or all is required")
                 if api[1] == "stop":
-                    result = monitor.stop_all(store) if a.get("all") else monitor.stop(store, key)
+                    # Turns the App runs are cancelled by the App, never by ending its own process.
+                    result = (monitor.stop_all(store, cancel_turn=hub.cancel) if a.get("all")
+                              else monitor.stop(store, key, cancel_turn=hub.cancel))
                 else:
                     result = monitor.resume_all(store) if a.get("all") else monitor.resume(store, key)
                 app.bus.publish({"type": "monitor"})

@@ -167,18 +167,31 @@ def _thread(key):
     return key.split(":", 1)[1] if key.startswith("codex:") else None
 
 
-def stop(store, key, why="stopped by the person in the Relic window"):
+def _in_app(state):
+    """A turn the Relic App runs itself records the App's own process (via relic-app). Ending that process would end
+    the App and every member it runs; the App cancels such a turn instead."""
+    return state.get("via") == "relic-app" or state.get("pid") == os.getpid()
+
+
+def stop(store, key, why="stopped by the person in the Relic window", cancel_turn=None):
     """Stop one session: end its Relic runners, brake its hooks, turn off its wake-ups and pause the Codex automations
-    that would start it. Returns what was done."""
+    that would start it. A turn the App runs is cancelled through cancel_turn(org_id, member). Returns what was done."""
     key = _base(key)
     brakes = _load_brakes()
     agents = brakes.setdefault("agents", {})
     previous = agents.get(key) or {}
-    done = {"key": key, "killed": [], "wake_off": list(previous.get("wake_off") or []),
+    done = {"key": key, "killed": [], "cancelled": [], "wake_off": list(previous.get("wake_off") or []),
             "paused": dict(previous.get("paused") or {})}
     for org_id, member in store.seat_keys(key):
         state = runner.run_state(org_id, member) or {}
-        if state.get("status") == "running" and state.get("pid") and _kill_tree(state["pid"]):
+        if state.get("status") == "running" and _in_app(state):
+            if cancel_turn is not None:
+                try:
+                    cancel_turn(org_id, member)
+                    done["cancelled"].append([org_id, member])
+                except Exception:  # the turn may have ended meanwhile; stop the rest
+                    pass
+        elif state.get("status") == "running" and state.get("pid") and _kill_tree(state["pid"]):
             done["killed"].append(state["pid"])
             runner.write_state(org_id, member, dict(state, status="stopped", error=why, ended=time.time()))
         org = store.get(org_id)
@@ -221,11 +234,11 @@ def _resume_automations(paused):
             _set_automation(automation["path"], before)
 
 
-def stop_all(store, now=None):
+def stop_all(store, now=None, cancel_turn=None):
     """Stop every session that is working, turn off automatic wake-ups in every organization and pause every Codex
     automation. Resume all turns back on exactly what this turned off."""
     snap = snapshot(store, now)
-    stopped = [stop(store, agent["key"], "stopped with Stop all in the Relic window")["key"]
+    stopped = [stop(store, agent["key"], "stopped with Stop all in the Relic window", cancel_turn)["key"]
                for agent in snap["agents"] + snap["others"] if agent["working"] and agent["can_stop"]]
     brakes = _load_brakes()
     record = brakes.setdefault("all", {"orgs": [], "paused": {}})
