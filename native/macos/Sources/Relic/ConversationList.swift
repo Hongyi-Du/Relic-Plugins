@@ -56,8 +56,12 @@ struct ConversationWindow: Equatable {
 struct ConversationRowContent: View, Equatable {
     let row: ConversationRow
     let compact: Bool
-    /// The placeholder height a row has until its own turn builds it.
-    static func estimatedHeight(_ row: ConversationRow) -> CGFloat { row.item["type"].text == "notice" ? 32 : 100 }
+    /// The placeholder height a row has until its own turn builds it. A
+    /// continued message (same author, shortly after) has no avatar or name
+    /// line and is usually one or two lines.
+    static func estimatedHeight(_ row: ConversationRow) -> CGFloat {
+        row.item["type"].text == "notice" ? 32 : row.continued ? 40 : 100
+    }
     static func == (a: Self, b: Self) -> Bool {
         a.compact == b.compact && a.row.id == b.row.id && a.row.continued == b.row.continued
             && a.row.separator == b.row.separator && a.row.clockLabel == b.row.clockLabel
@@ -92,6 +96,8 @@ struct ConversationRowContent: View, Equatable {
 /// application supplies a bounded window of identities and reading intent,
 /// never virtual offsets.
 struct ConversationStream: View {
+    /// The List's leading space row; AppKit rejects a zero row height.
+    static let startHeight: CGFloat = 8
     @EnvironmentObject var m: Model
     @Environment(\.isEnabled) private var enabled
     @FocusState private var viewportFocused: Bool
@@ -130,7 +136,7 @@ struct ConversationStream: View {
                     let all = presented
                     let range = window.range(in: all, selection: m.selection.key)
                     List {
-                        Color.clear.frame(height: 8).id("start").accessibilityHidden(true)
+                        Color.clear.frame(height: Self.startHeight).id("start").accessibilityHidden(true)
                             .background(mount)
                             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
                         let rows = mountedRows ? Array(all[range]) : []
@@ -348,6 +354,7 @@ struct ConversationStream: View {
         pinsTop = false
         let anchor = all[range.lowerBound].id
         ReadingPositionTrace.before("older-page", row: anchor, top: true, scroll: keyboard.scroll)
+        keyboard.hideLeadingSpace(Self.startHeight)
         let start = max(0, range.lowerBound - ConversationWindow.page)
         let end = min(range.upperBound, start + ConversationWindow.maximum)
         request(.top(anchor), window: end < all.count ? ConversationWindow.pinned(start..<end, in: all, selection: m.selection.key)

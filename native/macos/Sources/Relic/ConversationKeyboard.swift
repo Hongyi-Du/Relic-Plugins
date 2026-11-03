@@ -106,6 +106,24 @@ import SwiftUI
         return true
     }
 
+    /// AppKit keeps the first visible table row where it is while rows are
+    /// inserted above it. At the very top that row is the List's leading
+    /// space, so an older page inserted below it pushed the message being read
+    /// down by the whole page until the reveal scrolled it back, a frame
+    /// later. Scroll that space (at most its own height) out of view first:
+    /// the message being read is then the row AppKit keeps in place.
+    func hideLeadingSpace(_ height: CGFloat) {
+        guard let scroll, let document = scroll.documentView else { return }
+        let clip = scroll.contentView, bounds = clip.bounds
+        guard document.frame.height > bounds.height + height else { return }
+        let top = document.isFlipped ? bounds.minY - document.bounds.minY : document.bounds.maxY - bounds.maxY
+        guard top < height else { return }
+        var target = bounds
+        target.origin.y += (document.isFlipped ? 1 : -1) * (height - top)
+        clip.scroll(to: clip.constrainBoundsRect(target).origin)
+        scroll.reflectScrolledClipView(clip)
+    }
+
     func preserveDisclosurePosition() {
         discardDisclosurePosition()
         guard let scroll, let document = scroll.documentView else { return }
