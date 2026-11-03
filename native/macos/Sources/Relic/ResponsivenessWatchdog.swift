@@ -50,8 +50,15 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         if sample { queue.async { self.sample("startup-diagnostic", seconds: 8) } }
     }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
+    func recordActions(_ receipt: [String: Any]) {
+        // The external watchdog may stop a failed phase before finish(). Keep
+        // already-observed input/results, without serializing or writing on UI.
+        // A partial receipt never supplies completion or acceptance eligibility.
+        queue.async { self.write(receipt, "performance-actions.json") }
+    }
     func finish(_ receipt: [String: Any]) {
         source?.cancel(); source = nil
+        queue.sync {} // Retain the last partial receipt before process shutdown.
         lock.lock(); sequence += 1
         let heartbeat: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage,

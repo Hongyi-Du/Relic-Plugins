@@ -56,6 +56,10 @@ import RelicCore
             guard current.ready else { throw RelicError.message(current.error) }
             try await settleConversation(current)
             for action in manifest["plan"].rows {
+                defer {
+                    watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
+                        "actions": receipts, "random_seconds": randomSeconds, "random_actions": randomActions])
+                }
                 if phase == .switchChats, !action["warmup"].flag, !action["switch_index"].isNull {
                     watchdog.action("switch:" + action["switch_index"].text)
                 } else { watchdog.action(action["id"].text + ":" + action["kind"].text) }
@@ -126,6 +130,8 @@ import RelicCore
                 receipt["id"] = "monkey-\(randomActions)"; receipts.append(receipt)
                 randomActions += 1
                 randomSeconds = ProcessInfo.processInfo.systemUptime - start
+                watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
+                    "actions": receipts, "random_seconds": randomSeconds, "random_actions": randomActions])
             } while randomSeconds < Double(max(180, manifest["seconds"].integer))
             }
         } catch {
