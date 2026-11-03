@@ -49,6 +49,8 @@ internal sealed class NativeChatList : Grid
         internal bool SeekLanded;
         // CI evidence: what the last check that did nothing waited for.
         internal string? Waiting;
+        // Since when the reading row has been missing from the realized rows.
+        internal long UnrealizedAt;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
 
@@ -254,8 +256,11 @@ internal sealed class NativeChatList : Grid
         var shift = pendingShift; pendingShift = 0;
         if (userPanning) return;
         // A seek's own view change is still pending: a ChangeView now would
-        // replace it, and the seek repositions every row anyway.
-        if (position is { SeekedAbove: true, SeekLanded: false, SeekedRow: false }) return;
+        // replace it, and the seek repositions every row anyway. That holds for
+        // any seek, the reading row's own too: a shift computed from the view
+        // before the seek undid it, and the row it had brought in was gone.
+        if (position is { SeekIndex: >= 0, SeekLanded: false } seeking && !SeekLanded(seeking, viewport)
+            && System.Diagnostics.Stopwatch.GetElapsedTime(seeking.SeekAt).TotalMilliseconds < 1000) return;
         PerformanceTrace.Count(TraceName + ".list.keep_rows_on_screen", shift);
         RequestOffset(viewport, RequestedOffset(viewport) + shift);
         // A correction still on its way moves with the rows too.
@@ -605,6 +610,16 @@ internal sealed class NativeChatList : Grid
         return first is { IsLoaded: true } ? Bounds(first, viewport).Top : double.NegativeInfinity;
     }
 
+    // Seek the reading row itself. Its view change lands in a later pass (see
+    // SeekLanded), and nothing may move the view before (ApplyPendingShift).
+    private void SeekRow(Position intent, Entry entry, int index, string step)
+    {
+        intent.SeekedRow = true; intent.SeekIndex = index; intent.SeekLanded = false;
+        intent.SeekAt = System.Diagnostics.Stopwatch.GetTimestamp(); intent.LastGeometry = null;
+        TracePosition(intent, step);
+        list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
+    }
+
     // Whether every realized row from `from` down to the reading row has been
     // built. An unbuilt row still has its estimated height: a walk judged 13 ms
     // after the seek, before the rows above the reading row were built, put it
@@ -722,8 +737,7 @@ internal sealed class NativeChatList : Grid
             // wrong. Wait for the move; seek the reading row itself only if it
             // never comes.
             if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 1000) { TraceWait(intent, "seek_unlanded"); return; }
-            intent.SeekedRow = true; TracePosition(intent, "seek_row.unlanded");
-            list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
+            SeekRow(intent, entry, index, "seek_row.unlanded");
             return;
         }
         if (host == null && intent.SeekedAbove && !intent.SeekedRow)
@@ -753,11 +767,22 @@ internal sealed class NativeChatList : Grid
             }
             if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 1000)
             { TraceWait(intent, !built ? "rows_unbuilt" : "row_unrealized"); return; }
-            intent.SeekedRow = true; TracePosition(intent, "seek_row");
-            list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
+            SeekRow(intent, entry, index, "seek_row");
             return;
         }
-        if (host == null) { TraceWait(intent, "row_unrealized"); return; }
+        if (host == null)
+        {
+            // The panel can re-place the rows around a restored row so that it
+            // leaves the realized range (a 1356 px row did after a walk, and
+            // again after it was sought). Seek it again rather than wait for
+            // it until the restore times out.
+            if (intent.Waiting != "row_unrealized") intent.UnrealizedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            TraceWait(intent, "row_unrealized");
+            if (intent.Kind == PositionKind.Reading && intent.Reseeks < 2 && !intent.CorrectionPending
+                && System.Diagnostics.Stopwatch.GetElapsedTime(intent.UnrealizedAt).TotalMilliseconds > 500)
+            { intent.Reseeks++; SeekRow(intent, entry, index, "reseek_row"); }
+            return;
+        }
         if (!ReadyHost(host)) { TraceWait(intent, host.Child == null ? "row_unbuilt" : "row_unmeasured"); return; }
         if (!intent.IsReady()) { TraceWait(intent, ContentWait()); return; }
         // Rows between the seek and the reading row that are still unbuilt will
@@ -832,9 +857,12 @@ internal sealed class NativeChatList : Grid
         // absorbed: the panel places them by estimate and moves the rows with
         // the view (five corrections of 406 px once left the row where it
         // was). Seek a row above again instead, further up each time; the
-        // corrections from there go down, and those land.
+        // corrections from there go down, and those land. A longer rise is
+        // sought from above even when realized rows seem to cover it: rows
+        // above the view still being placed absorbed five corrections of
+        // 416 px after a walk overshot by 287 px.
         var rise = intent.Kind == PositionKind.Reading ? intent.Top - bounds.Top : 0;
-        if (rise > 1 && intent.Reseeks < 2 && FirstRealizedTop(viewport, index) + rise > 0)
+        if (rise > 1 && intent.Reseeks < 2 && (rise > 40 || FirstRealizedTop(viewport, index) + rise > 0))
         {
             intent.Reseeks++;
             var reseek = SeekIndex(intent, index, Math.Max(intent.Top, 0) + 240 * (intent.Reseeks + 1));
@@ -853,10 +881,15 @@ internal sealed class NativeChatList : Grid
         // A reading row taller than the view, cut by the top edge, is moved down
         // past most of its own height. One 1301 px move left the panel's
         // realized range: the row was gone and the restore waited for it until
-        // it timed out. Move at most most of a view at a time; each step is a
-        // correction of its own.
-        if (intent.Kind == PositionKind.Reading && offset - viewport.VerticalOffset > viewport.ViewportHeight * .9)
+        // it timed out. Move such a row at most most of a view at a time; each
+        // step is a correction of its own, and the next check goes on from
+        // where the step left it (not a correction that failed to land).
+        if (intent.Kind == PositionKind.Reading && bounds.Height > viewport.ViewportHeight
+            && offset - viewport.VerticalOffset > viewport.ViewportHeight * .9)
+        {
             offset = viewport.VerticalOffset + viewport.ViewportHeight * .9;
+            intent.LastGeometry = null;
+        }
         var clamped = Math.Clamp(offset, 0, viewport.ScrollableHeight);
         if (intent.Kind == PositionKind.Reading && Math.Abs(offset - clamped) > 1)
         {
