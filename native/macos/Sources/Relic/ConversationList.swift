@@ -244,8 +244,14 @@ struct ConversationStream: View {
                 // Adopt the published rows in this later turn, then let the
                 // List receive the changed collection before its one semantic
                 // request. It retains the same native viewport.
-                let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
-                if presentedKey != key {
+                if presentedKey != m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count) {
+                    // The List replaces or extends its rows in a display update
+                    // of its own, ahead of the rows waiting to be built and
+                    // after the one being built now (RowMountQueue.adoptPriority).
+                    let turn = UUID()
+                    guard await RowMountQueue.shared.acquire(turn, label: "adopt", priority: RowMountQueue.adoptPriority) else { return }
+                    guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
+                    let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
                     // Another chat's rows start from the latest few; the rest
                     // of its window is admitted above them in later turns.
                     let anotherChat = !presentedKey.hasPrefix(m.selection.key + "#")
@@ -255,6 +261,7 @@ struct ConversationStream: View {
                     if anotherChat, window.anchor == nil, window.selection == m.selection.key, window.count > tail {
                         window.count = tail
                     }
+                    RowMountQueue.shared.releaseAfterUpdate(turn)
                     await Task.yield()
                 }
                 await Task.yield()
