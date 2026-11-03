@@ -275,7 +275,14 @@ public sealed partial class MainWindow : Window
                 if (target.Length > 0 && target != org) return;  // another organization's streamed output
                 Schedule();
                 return;
-            case "org" or "decision" or "digest" or "plain":
+            case "digest":
+                // The event carries the digest (or why it failed) itself, taken
+                // above. Only the open group chat's card shows it: redraw that
+                // card. A whole refresh read the open chat again 350 ms after
+                // every organization switch, while it was still being drawn.
+                if (target == org) RedrawDigest();
+                return;
+            case "org" or "decision" or "plain":
                 if (target.Length > 0 && target != org) { ScheduleSidebar(); return; }
                 Schedule();
                 return;

@@ -975,6 +975,10 @@ public sealed partial class MainWindow
         catch (Exception ex) { if (org != selectedOrg) return; digestPending = false; Note(T("digest.failed", ("error", ex.Message))); }
         await DrawConversationAsync();
     }
+    private void RedrawDigest()
+    {
+        if (digestOpen && member.Length == 0 && conversationBanner.Child != null) conversationBanner.Child = DigestCard();
+    }
     private UIElement DigestCard()
     {
         var hasDigest = digest.Text("text").Length > 0;
