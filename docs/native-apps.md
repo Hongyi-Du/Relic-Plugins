@@ -1,5 +1,13 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: integrated Mac bounded date-formatter reuse through
+8735b16; REQUESTS adds no shared API changes. Windows menus now retain their
+native anchors/items through chat navigation. Enabled/check/secretary labels
+and actions read the current state; opening via pointer or keyboard refreshes
+the bindings. Language/theme changes still rebuild the presentation. This
+targets297 measured DrawMenu calls/8.162s in the86dfb81 switch run, including
+unnecessary construction of closed menus on each conversation selection.
+
 Windows86dfb81 full41550963937 person-shape idle passes (1.5455%one-core,
 44.767ms UI,233.688MiB/33threads). Its200-switch phase still fails opening
 15/269 warmup/measured actions and resource flatness. Earlier a4a7cc9 large

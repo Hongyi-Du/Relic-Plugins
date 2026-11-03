@@ -158,6 +158,9 @@ public sealed partial class MainWindow
 
     private void OpenNativeMenu(NativeMenuEntry entry, bool keyboard, bool last = false)
     {
+        // Keyboard/toolbar actions can change pane and check states without
+        // fetching a new snapshot. Refresh these values at the real menu open.
+        UpdateMenuState();
         if (ReferenceEquals(openNativeMenu, entry)) { if (keyboard) FocusNativeMenuItem(entry, last); return; }
         RememberNativeMenuFocus();
         var previous = openNativeMenu;
