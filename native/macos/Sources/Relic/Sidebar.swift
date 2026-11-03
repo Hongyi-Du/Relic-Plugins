@@ -33,7 +33,7 @@ struct Sidebar: View {
                     ForEach(OrganizationOutline.rows(organizations: m.organizations, selected: m.organization,
                         members: m.members, folded: m.folded, search: m.search, groupLabel: m.t("common.group_chat"),
                         secretaryLabel: m.t("common.secretary"), revealMembers: revealMembers && !m.snapshot["org"].isNull)) { row in
-                        ProgressiveRow(estimatedHeight: row.kind == .organization ? 46 : 61) { SidebarOutlineRow(row: row) }
+                        ProgressiveRow(estimatedHeight: row.kind == .organization ? 46 : 61) { SidebarOutlineRow(row: row).equatable() }
                     }
                     if m.organizations.isEmpty { ReferenceLabel(m.t("side.no_orgs"), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
                     }
@@ -69,9 +69,19 @@ struct Sidebar: View {
     }
 }
 
-private struct SidebarOutlineRow: View {
+/// Evaluating the sidebar again (a chat switch, a new snapshot) must not
+/// rebuild every organization and member row: a row updates when its own
+/// outline entry changes. Rows still observe the model fields they read.
+private struct SidebarOutlineRow: View, Equatable {
     @EnvironmentObject var m: Model
     let row: OrganizationOutlineRow
+    static func == (a: Self, b: Self) -> Bool {
+        let left = a.row, right = b.row
+        guard left.id == right.id, left.organization == right.organization, left.kind == right.kind, left.depth == right.depth,
+              left.hasChildren == right.hasChildren, left.first == right.first, left.last == right.last else { return false }
+        let leftNode = left.node.raw as AnyObject, rightNode = right.node.raw as AnyObject
+        return leftNode === rightNode || (leftNode as? NSObject)?.isEqual(rightNode) == true
+    }
     var body: some View {
         VStack(spacing: 0) {
             if row.kind == .organization { OrgTree(node: row.node, depth: row.depth, hasChildren: row.hasChildren) }
