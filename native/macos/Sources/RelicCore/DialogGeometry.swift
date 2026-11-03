@@ -11,6 +11,7 @@ public struct DialogGeometry {
         case "chart": return max(0, window.width - 40)
         case "card": return min(340, max(0, window.width - 24))
         case "copies": return min(760, max(0, window.width - 32))
+        case "monitor": return min(900, max(0, window.width - 32))
         case "member", "protocolForm", "forward": return min(620, max(0, window.width - 32))
         default: return min(520, max(0, window.width - 32))
         }

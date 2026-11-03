@@ -119,6 +119,8 @@ import Combine
         }
     }
     let dialogPresentation = DialogPresentation()
+    // The toolbar reads only the monitor's working count; the panel reads the rest while it is open.
+    let monitor = MonitorState()
     var sheet: Sheet? {
         get { dialogPresentation.sheet }
         set {
@@ -200,7 +202,7 @@ import Combine
     @ObservationIgnored private var previousMessages: [String: String] = [:]
     @ObservationIgnored private var previousCopies: Int?
     enum Sheet: String, Identifiable {
-        case create, member, settings, copies, chart, protocolForm, card, secretary, forward, details, shortcuts
+        case create, member, settings, copies, chart, protocolForm, card, secretary, forward, details, shortcuts, monitor
         var id: String { rawValue }
     }
     init(client: Client? = nil, defaults: UserDefaults = .standard) {
@@ -251,6 +253,7 @@ import Combine
             _ = await NativeTextPreparation.shared.prepare(String(labels.joined(separator: " ").prefix(512)))
             startupStage?("publish")
             ready = true
+            monitor.tick(client)
             eventTask = Task { [weak self] in
                 guard let client = self?.client else { return }
                 await client.events { [weak self] event in await self?.receive(event) }
@@ -260,6 +263,9 @@ import Combine
     func receive(_ event: Node) async {
         let type = event["type"].text
         if type == "shutdown" { ready = false; error = t("state.idle"); eventTask?.cancel(); client = nil; host.stop(); return }
+        // Work in any organization announces itself with these events. The monitor's toolbar count follows them,
+        // read at most every 15 s; they never reload another organization's list or chat.
+        if ["org", "orgs", "decision", "monitor"].contains(type) { monitor.tick(client) }
         if type == "reconnect" {
             let retry = Array(plainPending); plainPending = []
             for id in retry { enqueuePlain(id) }

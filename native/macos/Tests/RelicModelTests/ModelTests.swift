@@ -227,12 +227,18 @@ final class ModelTransport: URLProtocol {
     }
     func testUnrelatedEventsDoNotReloadTheOrganizationList() async throws {
         let model = try model(); model.setSelection(ChatSelection())
-        let unwanted = expectation(description: "no network request for unrelated event"); unwanted.isInverted = true
-        ModelTransport.handler = { _ in unwanted.fulfill(); return (200, "[]") }
+        let unwanted = expectation(description: "no organization or chat request for unrelated event"); unwanted.isInverted = true
+        var monitorReads = 0
+        ModelTransport.handler = { request in
+            if request.url!.path == "/api/monitor" { monitorReads += 1; return (200, "{}") }
+            unwanted.fulfill(); return (200, "[]")
+        }
         await model.receive(Node(["type": "org", "org": "other"]))
         await model.receive(Node(["type": "live", "org": "other", "member": "ana"]))
+        await model.receive(Node(["type": "org", "org": "other"]))
         await model.receive(Node(["type": "heartbeat"]))
         await fulfillment(of: [unwanted], timeout: 0.5)
+        XCTAssertEqual(monitorReads, 1, "Another organization's work only lets the monitor's toolbar count follow, at most every 15 s")
         XCTAssertTrue(model.organization.isEmpty); XCTAssertTrue(model.organizations.isEmpty); model.stop()
     }
     func testFileFailureStaysInThePreviewWithTheRequestedPath() async throws {
@@ -525,7 +531,7 @@ final class ModelTransport: URLProtocol {
         let model = try model(); defer { model.stop() }
         model.setSelection(ChatSelection("a"))
         let loading = expectation(description: "snapshot request in flight")
-        var snapshots = 0
+        var snapshots = 0, monitorReads = 0
         ModelTransport.handler = { request in
             switch request.url!.path {
             case "/api/orgs": return (200, #"[{"id":"a"}]"#)
@@ -536,6 +542,7 @@ final class ModelTransport: URLProtocol {
                 Thread.sleep(forTimeInterval: 0.15)
                 return (200, #"{"members":[]}"#)
             case "/api/org/a/chat": return (200, #"{"items":[],"more":false}"#)
+            case "/api/monitor": monitorReads += 1; return (200, "{}")
             default: XCTFail("Unexpected request"); return (500, "{}")
             }
         }
@@ -545,6 +552,7 @@ final class ModelTransport: URLProtocol {
         try await refresh.value
         try await Task.sleep(for: .milliseconds(500))
         XCTAssertEqual(snapshots, 2)
+        XCTAssertEqual(monitorReads, 1, "A burst of events reads the monitor's toolbar count once")
     }
     func testChangingChatPreservesItsOrganizationTreeButChangingOrganizationClearsIt() throws {
         let model = try model(); defer { model.stop() }
