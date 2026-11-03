@@ -18,6 +18,22 @@ internal static class PerformanceTrace
     {
         if (Enabled) records.Enqueue(new { name, detail, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
     }
+    // Where the process's memory is at one point of a scenario: the managed
+    // heap (and how much of it is free space), what the GC has committed, and
+    // the process totals, so growth can be told apart as managed or native.
+    internal static void Memory(string at)
+    {
+        if (!Enabled) return;
+        var info = GC.GetGCMemoryInfo(GCKind.Any);
+        using var process = Process.GetCurrentProcess();
+        records.Enqueue(new { name = "memory.checkpoint", at, gc_index = info.Index,
+            heap_bytes = info.HeapSizeBytes, fragmented_bytes = info.FragmentedBytes, committed_bytes = info.TotalCommittedBytes,
+            generations = info.GenerationInfo.ToArray().Select(generation => new { size = generation.SizeAfterBytes,
+                fragmentation = generation.FragmentationAfterBytes }).ToArray(),
+            live_bytes = GC.GetTotalMemory(false), allocated_bytes = GC.GetTotalAllocatedBytes(),
+            working_set = process.WorkingSet64, private_bytes = process.PrivateMemorySize64,
+            unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+    }
     internal static object[] Drain()
     {
         var batch = new List<object>();

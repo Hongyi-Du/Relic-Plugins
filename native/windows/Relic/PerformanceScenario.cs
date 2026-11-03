@@ -507,6 +507,10 @@ public sealed partial class MainWindow
                 : phase == "open-every-chat" ? "open-every-chat:" + step.Text("id")
                 : (random ? "monkey " : "") + kind + ": " + target;
             Volatile.Write(ref performanceAction, actionLabel);
+            // The person profile's first 50 measured switches use about 30 MB
+            // less than the later ones; record where the growth is.
+            if (phase == "switch-chats" && !step.Flag("warmup") && int.TryParse(step.Text("switch_index"), out var switchIndex)
+                && switchIndex % 25 == 0) PerformanceTrace.Memory(actionLabel);
             var clock = Stopwatch.StartNew(); var record = new JsonObject {
                 ["id"] = random ? "monkey-" + randomActions : step.Text("id"), ["kind"] = kind, ["target"] = target,
                 ["warmup"] = step.Flag("warmup"), ["switch_index"] = step["switch_index"]?.DeepClone(),

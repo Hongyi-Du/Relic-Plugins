@@ -640,10 +640,10 @@ internal sealed class NativeChatList : Grid
             // rows between turned out far taller than estimated, or the seek
             // has not landed after a while.
             var seekHost = TryGetRealizedRow(intent.SeekIndex);
-            var landed = seekHost is { IsLoaded: true } && Bounds(seekHost, viewport) is var seekBounds
+            var seekLanded = seekHost is { IsLoaded: true } && Bounds(seekHost, viewport) is var seekBounds
                 && seekBounds.Bottom > 0 && seekBounds.Top < viewport.ViewportHeight;
-            if (!landed && System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 500) return;
-            intent.SeekedRow = true; TracePosition(intent, landed ? "seek_row" : "seek_row.unlanded");
+            if (!seekLanded && System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 500) return;
+            intent.SeekedRow = true; TracePosition(intent, seekLanded ? "seek_row" : "seek_row.unlanded");
             list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
             return;
         }
