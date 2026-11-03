@@ -11,9 +11,6 @@ public struct PreparedMarkdown {
     public func inline(_ text: String) -> AttributedString { attributed[text] ?? AttributedString(text) }
     public func list(_ block: MarkdownBlock) -> [MarkdownListItem] { lists[block.text] ?? [] }
     public func table(_ block: MarkdownBlock) -> [[String]] { tables[block.text] ?? [] }
-    /// Parses on the calling thread. Only the launch warm-up's one short
-    /// sample message uses it; conversation text is parsed on the actor below.
-    public init(parsing text: String) { self.init(text) }
     fileprivate init(_ text: String) {
         source = text; blocks = NativeMarkdown.blocks(text)
         var runs: [String: AttributedString] = [:], listRows: [String: [MarkdownListItem]] = [:], tableRows: [String: [[String]]] = [:]
