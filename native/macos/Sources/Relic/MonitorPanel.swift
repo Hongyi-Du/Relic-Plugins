@@ -147,8 +147,7 @@ struct MonitorPanel: View {
         let monitor = m.monitor
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 8) {
-                ReferenceIcon(name: "chart", size: 18)
-                PlainLabel(m.t("mon.title"), size: 17, weight: 650).lineLimit(1)
+                PlainLabel(m.t("mon.title"), size: 18, weight: 600).lineLimit(1)
                 Spacer(minLength: 0)
                 IconButton(title: m.t("common.close"), icon: "x") { m.sheet = nil }
             }
@@ -183,7 +182,7 @@ private struct MonitorLive: View {
                 MonitorTotalCard(name: "Codex", totals: snapshot.codex, plan: snapshot.codexPlan, claude: false)
             }
             HStack(spacing: 8) {
-                ReferenceActionButton(m.t(monitor.stopAllArmed ? "mon.stop_all_sure" : "mon.stop_all"), small: true, danger: true) { monitor.stopAll(model: m) }
+                ReferenceActionButton(m.t(monitor.stopAllArmed ? "mon.stop_all_sure" : "mon.stop_all"), small: true) { monitor.stopAll(model: m) }
                 if snapshot.anyStopped {
                     ReferenceActionButton(m.t("mon.resume_all"), small: true) { monitor.resumeAll(model: m) }
                 }
@@ -259,7 +258,8 @@ private struct MonitorRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     PlainLabel(agent.title, size: 13.5, weight: 600).lineLimit(1).truncationMode(.tail).help(agent.title)
-                    SmallBadge(text: agent.codex ? "Codex" : "Claude")
+                    PlainLabel(agent.codex ? "Codex" : "Claude", size: 11, color: RelicStyle.secondary, lineHeight: 15).lineLimit(1).fixedSize()
+                        .padding(.horizontal, 6).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 5).fill(RelicStyle.bubble))
                     PlainLabel(stateText, size: 12, color: RelicStyle.muted).lineLimit(1).fixedSize()
                 }
                 if !agent.seats.isEmpty { MonitorQuiet(MonitorText.seats(agent)) }
@@ -279,7 +279,7 @@ private struct MonitorRow: View {
             if agent.stopped {
                 ReferenceActionButton(m.t("mon.resume"), small: true) { monitor.resume(agent.key, model: m) }.fixedSize()
             } else {
-                ReferenceActionButton(m.t("mon.stop"), small: true, danger: true) { monitor.stop(agent.key, model: m) }.fixedSize()
+                ReferenceActionButton(m.t("mon.stop"), small: true) { monitor.stop(agent.key, model: m) }.fixedSize()
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)

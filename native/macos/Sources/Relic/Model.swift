@@ -263,8 +263,9 @@ import Combine
     func receive(_ event: Node) async {
         let type = event["type"].text
         if type == "shutdown" { ready = false; error = t("state.idle"); eventTask?.cancel(); client = nil; host.stop(); return }
-        // Members' work announces itself here; the monitor's toolbar count follows it at most every 15 s.
-        if type != "install" { monitor.tick(client) }
+        // Work in any organization announces itself with these events. The monitor's toolbar count follows them,
+        // read at most every 15 s; they never reload another organization's list or chat.
+        if ["org", "orgs", "decision", "monitor"].contains(type) { monitor.tick(client) }
         if type == "reconnect" {
             let retry = Array(plainPending); plainPending = []
             for id in retry { enqueuePlain(id) }
