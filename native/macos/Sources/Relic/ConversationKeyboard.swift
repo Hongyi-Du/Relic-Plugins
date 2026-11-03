@@ -23,6 +23,11 @@ import SwiftUI
     private var scrollObservers: [NSObjectProtocol] = []
     private let mounts = NSHashTable<NSView>.weakObjects()
     private weak var observedDocument: NSView?
+    /// While the person follows the latest message, the document's end stays
+    /// at the viewport's bottom through every height change of the List.
+    var keepsEnd = false
+    private struct HeldRow { let index: Int, rows: Int, offset: CGFloat; var applied = false }
+    private var held: HeldRow?
     private var disclosureOrigin: NSPoint?
     private var disclosureHeight: CGFloat = 0
     private var disclosureGeneration = 0
@@ -55,6 +60,13 @@ import SwiftUI
         scrollObservers.append(NotificationCenter.default.addObserver(forName: NSScrollView.didLiveScrollNotification, object: current, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.userScrolled() }
         })
+        if let document = current.documentView {
+            // Synchronous: AppKit posts this while the List applies an update,
+            // before the frame is displayed, so a correction here is never seen.
+            scrollObservers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.documentResized() }
+            })
+        }
         queueGeometry()
     }
     func detach(_ owner: NSView) {
@@ -81,6 +93,9 @@ import SwiftUI
         guard enabled, let scroll, let document = scroll.documentView else { return }
         let clip = scroll.contentView.bounds
         let gap = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+        // The person's own scroll owns the position from here on.
+        held = nil
+        if gap >= 120 { keepsEnd = false }
         didUserScroll?(gap < 120)
     }
 
@@ -106,6 +121,45 @@ import SwiftUI
         return true
     }
 
+    /// Rows inserted above the viewport (an older page) or rows growing below
+    /// the latest message move the content in AppKit's update; the stream's
+    /// own scroll could only follow a frame later, and the reader saw the
+    /// rows jump. Put the held row, or the document's end, back where it was
+    /// inside the same update.
+    private func documentResized() {
+        guard let scroll, let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        var target = clip.bounds
+        if var row = held, let table = document as? NSTableView, table.numberOfRows == row.rows, row.index < row.rows {
+            let rect = table.rect(ofRow: row.index)
+            let top = table.isFlipped ? rect.minY - clip.bounds.minY : clip.bounds.maxY - rect.maxY
+            row.applied = true; held = row
+            if abs(top - row.offset) > 0.5 { target.origin.y += (table.isFlipped ? 1 : -1) * (top - row.offset) }
+        } else if keepsEnd, held == nil, document.frame.height > clip.bounds.height {
+            target.origin.y = document.isFlipped ? document.bounds.maxY - clip.bounds.height : document.bounds.minY
+        }
+        let constrained = clip.constrainBoundsRect(target)
+        if abs(constrained.origin.y - clip.bounds.origin.y) > 0.5 {
+            clip.scroll(to: constrained.origin); scroll.reflectScrolledClipView(clip)
+        }
+        ReadingPositionTrace.after(scroll: scroll)
+    }
+
+    /// Hold the table row that will sit at `index` once the List has `rows`
+    /// rows (the first row shown before an older page is inserted above it)
+    /// at its current distance from the viewport's top.
+    func hold(row index: Int, currentIndex: Int, rows: Int) {
+        guard let scroll, let table = scroll.documentView as? NSTableView, currentIndex < table.numberOfRows else { held = nil; return }
+        let clip = scroll.contentView, rect = table.rect(ofRow: currentIndex)
+        let top = table.isFlipped ? rect.minY - clip.bounds.minY : clip.bounds.maxY - rect.maxY
+        held = HeldRow(index: index, rows: rows, offset: top)
+    }
+    /// Ends the hold; true when it kept the row in place, so no reveal scroll is needed.
+    func releaseHold() -> Bool {
+        defer { held = nil }
+        return held?.applied == true
+    }
+
     /// The viewport already shows the document's end: the latest row's bottom.
     var showsEnd: Bool {
         guard let scroll, let document = scroll.documentView else { return false }
@@ -115,26 +169,9 @@ import SwiftUI
         return gap <= 1
     }
 
-    /// AppKit keeps the first visible table row where it is while rows are
-    /// inserted above it. At the very top that row is the List's leading
-    /// space, so an older page inserted below it pushed the message being read
-    /// down by the whole page until the reveal scrolled it back, a frame
-    /// later. Scroll that space (at most its own height) out of view first:
-    /// the message being read is then the row AppKit keeps in place.
-    func hideLeadingSpace(_ height: CGFloat) {
-        guard let scroll, let document = scroll.documentView else { return }
-        let clip = scroll.contentView, bounds = clip.bounds
-        guard document.frame.height > bounds.height + height else { return }
-        let top = document.isFlipped ? bounds.minY - document.bounds.minY : document.bounds.maxY - bounds.maxY
-        guard top < height else { return }
-        var target = bounds
-        target.origin.y += (document.isFlipped ? 1 : -1) * (height - top)
-        clip.scroll(to: clip.constrainBoundsRect(target).origin)
-        scroll.reflectScrolledClipView(clip)
-    }
-
     func preserveDisclosurePosition() {
         discardDisclosurePosition()
+        keepsEnd = false
         guard let scroll, let document = scroll.documentView else { return }
         disclosureOrigin = scroll.contentView.bounds.origin
         disclosureHeight = document.frame.height

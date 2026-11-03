@@ -232,14 +232,16 @@ struct ConversationStream: View {
                 }
                 await Task.yield()
                 guard !Task.isCancelled else { return }
-                // CI only: where the row being read is now, before any scroll.
+                // CI only: where the row being read is now (when AppKit's update
+                // did not already report it), then whether it stayed there.
                 ReadingPositionTrace.after(scroll: keyboard.scroll)
+                ReadingPositionTrace.settle(scroll: keyboard.scroll)
                 // An earlier server page arrived above the oldest shown row:
                 // show one page of it while the same row stays at the top.
                 if revealRequestedOlderRows() { return }
                 let target = reveal; reveal = nil
                 switch target {
-                case .top(let id): proxy.scrollTo(id, anchor: .top)
+                case .top(let id): if !keyboard.releaseHold() { proxy.scrollTo(id, anchor: .top) }
                 case .bottom(let id): proxy.scrollTo(id, anchor: .bottom)
                 case .start: proxy.scrollTo("start", anchor: .top)
                 case .latest: seekLatest(proxy)
@@ -249,8 +251,11 @@ struct ConversationStream: View {
                 }
                 await admitEarlierRows()
             }
+            .onChange(of: followsLatest) { keyboard.keepsEnd = followsLatest && !preservingDisclosure }
+            .onChange(of: preservingDisclosure) { keyboard.keepsEnd = followsLatest && !preservingDisclosure }
             .onChange(of: m.selection) {
-                keyboard.discardDisclosurePosition(); followsLatest = true
+                _ = keyboard.releaseHold()
+                keyboard.discardDisclosurePosition(); followsLatest = true; keyboard.keepsEnd = true
                 preservingDisclosure = false; keyboard.observedHeight = 0
                 window = ConversationWindow(selection: m.selection.key); reveal = nil; olderRequest = nil; pinsTop = false
             }
@@ -261,6 +266,7 @@ struct ConversationStream: View {
             .onAppear {
                 PerformanceRendering.observed(streamVersion: m.streamVersion)
                 window = ConversationWindow(selection: m.selection.key)
+                keyboard.keepsEnd = followsLatest && !preservingDisclosure
                 keyboard.positionObservation = {
                     let range = shownRange
                     return ["last_row_id": latestID as Any? ?? NSNull(), "follows_latest": followsLatest,
@@ -270,6 +276,7 @@ struct ConversationStream: View {
                 keyboard.didUserScroll = { nearBottom in
                     let all = presented, range = window.range(in: all, selection: m.selection.key)
                     followsLatest = nearBottom && range.upperBound == all.count
+                    keyboard.keepsEnd = followsLatest
                     preservingDisclosure = false; pinsTop = false
                     if followsLatest, window.anchor != nil {
                         window = .showing(range, in: all, selection: m.selection.key)
@@ -282,12 +289,13 @@ struct ConversationStream: View {
                 keyboard.scrollToEdge = { top in
                     preservingDisclosure = false; olderRequest = nil
                     let all = presented, key = m.selection.key
+                    _ = keyboard.releaseHold()
                     if top {
-                        followsLatest = false; pinsTop = true
+                        followsLatest = false; pinsTop = true; keyboard.keepsEnd = false
                         let end = min(all.count, ConversationWindow.initial)
                         request(.start, window: end < all.count ? ConversationWindow.pinned(0..<end, in: all, selection: key) : ConversationWindow.showing(0..<end, in: all, selection: key))
                     } else {
-                        followsLatest = true; pinsTop = false
+                        followsLatest = true; pinsTop = false; keyboard.keepsEnd = true
                         request(.latest, window: ConversationWindow(selection: key))
                     }
                 }
@@ -356,9 +364,14 @@ struct ConversationStream: View {
         pinsTop = false
         let anchor = all[range.lowerBound].id
         ReadingPositionTrace.before("older-page", row: anchor, top: true, scroll: keyboard.scroll)
-        keyboard.hideLeadingSpace(Self.startHeight)
         let start = max(0, range.lowerBound - ConversationWindow.page)
         let end = min(range.upperBound, start + ConversationWindow.maximum)
+        // Table rows: the leading space, then the shown messages (and a live
+        // turn after them). The first shown row is held at its distance from
+        // the top while the older page goes in above it.
+        if let rows = (keyboard.scroll?.documentView as? NSTableView)?.numberOfRows {
+            keyboard.hold(row: 1 + range.lowerBound - start, currentIndex: 1, rows: rows - range.count + (end - start))
+        }
         request(.top(anchor), window: end < all.count ? ConversationWindow.pinned(start..<end, in: all, selection: m.selection.key)
                                                       : ConversationWindow.showing(start..<end, in: all, selection: m.selection.key))
     }
