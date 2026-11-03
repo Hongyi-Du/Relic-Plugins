@@ -440,13 +440,14 @@ internal sealed class NativeChatList : Grid
         var bounds = Bounds(host, viewport);
         var visible = bounds.Bottom > 0 && bounds.Top < viewport.ViewportHeight;
         // A restored reading position aims within half a pixel, inside the 1 px
-        // the person (and CI) would notice.
+        // the person (and CI) would notice. Opening at the first row keeps 1 px:
+        // nothing above it can move it, and waiting would only delay the open.
         var settled = intent.Kind == PositionKind.Latest
             ? visible && Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1
-            : visible && Math.Abs(bounds.Top - intent.Top) <= .5 && (intent.Kind != PositionKind.First || viewport.VerticalOffset <= 1);
+            : visible && Math.Abs(bounds.Top - intent.Top) <= (intent.Kind == PositionKind.Reading ? .5 : 1) && (intent.Kind != PositionKind.First || viewport.VerticalOffset <= 1);
         if (settled)
         {
-            if (intent.Kind != PositionKind.Latest)
+            if (intent.Kind == PositionKind.Reading)
             {
                 // Rows realized by the last view change can still build and
                 // resize after this check. Hold the restored position until it
@@ -478,7 +479,7 @@ internal sealed class NativeChatList : Grid
         }
         // Three corrections reach the target; two more cover drift found while
         // confirming it. Each one still needs a changed geometry.
-        if (intent.Corrections >= (intent.Kind == PositionKind.Latest ? 3 : 5))
+        if (intent.Corrections >= (intent.Kind == PositionKind.Reading ? 5 : 3))
         {
             // A failed reading restoration must release the in-flight page,
             // so the person can still navigate and request another page. The

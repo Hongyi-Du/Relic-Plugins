@@ -22,6 +22,8 @@ public sealed partial class MainWindow : Window
     private readonly CopyInbox copyInbox = new();
     private JsonArray copies => copyInbox.Items;
     private JsonNode snap = new JsonObject(), preferences = new JsonObject();
+    // The organization the current snapshot belongs to.
+    private string snapOrg = "";
     private string org = "", member = "", pane = "overview";
     private readonly HashSet<string> folded = new();
     private readonly Dictionary<string, string> drafts = new();
@@ -313,21 +315,47 @@ public sealed partial class MainWindow : Window
             var oldConversation = conversation; var oldLive = liveData; var oldThread = threadData;
             // These reads have no dependency on one another. Keep one bounded
             // refresh in flight, but do not serialize its HTTP round trips.
-            var organizationsRequest = api.Get("/api/orgs");
-            var copiesRequest = api.Get("/api/cc");
+            // CI records how long each read takes, so a slow endpoint shows up.
+            var timed = PerformanceEnabled;
+            Task<JsonNode> Timed(string name, Task<JsonNode> request)
+            {
+                if (!timed) return request;
+                var started = System.Diagnostics.Stopwatch.GetTimestamp();
+                _ = request.ContinueWith(_ => PerformanceTrace.Count("http." + name,
+                    System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds), TaskScheduler.Default);
+                return request;
+            }
+            var organizationsRequest = Timed("orgs", api.Get("/api/orgs"));
+            var copiesRequest = Timed("cc", api.Get("/api/cc"));
             // The selected chat's snapshot and messages do not depend on those
             // two reads either. Start them together instead of a second round
             // trip; only an organization that no longer exists asks again below.
             string ChatPath() => PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit);
+            string ConvoPath() => PathFor("/convo?member=" + Client.Segment(member) + "&limit=" + chatLimit);
+            string LivePath() => PathFor("/live?member=" + Client.Segment(member));
             var requestedOrg = org; var requestedMember = member;
-            Task<JsonNode>? earlySnapshot = null, earlyChat = null;
+            Task<JsonNode>? earlySnapshot = null, earlyChat = null, earlyTranscript = null, earlyLive = null;
+            // A discarded early read must not surface later as an unobserved fault.
+            static void Observe(Task<JsonNode>? early)
+            {
+                if (early != null) _ = early.ContinueWith(task => _ = task.Exception, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
             if (org.Length > 0)
             {
-                earlySnapshot = api.Get(PathFor()); earlyChat = api.Get(ChatPath());
-                // A discarded early read must not surface later as an unobserved fault.
-                foreach (var early in new[] { earlySnapshot, earlyChat })
-                    _ = early.ContinueWith(task => _ = task.Exception, CancellationToken.None,
-                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                earlySnapshot = Timed("snapshot", api.Get(PathFor())); earlyChat = Timed("chat", api.Get(ChatPath()));
+                Observe(earlySnapshot); Observe(earlyChat);
+                // A member's transcript and live state otherwise wait for the new
+                // snapshot to say they exist. The snapshot already loaded for this
+                // organization says the same in nearly every case; start them now
+                // and confirm against the new snapshot below.
+                if (member.Length > 0 && snapOrg == org)
+                {
+                    var known = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
+                    if (known.Flag("has_transcript")) earlyTranscript = Timed("convo", api.Get(ConvoPath()));
+                    if (known.Flag("embedded")) earlyLive = Timed("live", api.Get(LivePath()));
+                    Observe(earlyTranscript); Observe(earlyLive);
+                }
             }
             try { await Task.WhenAll(organizationsRequest, copiesRequest); }
             catch (Exception ex)
@@ -344,13 +372,13 @@ public sealed partial class MainWindow : Window
             if (org.Length > 0)
             {
                 var reuse = earlySnapshot != null && org == requestedOrg && member == requestedMember;
-                var snapshotRequest = reuse ? earlySnapshot! : api.Get(PathFor());
-                var chatRequest = reuse ? earlyChat! : api.Get(ChatPath());
+                var snapshotRequest = reuse ? earlySnapshot! : Timed("snapshot", api.Get(PathFor()));
+                var chatRequest = reuse ? earlyChat! : Timed("chat", api.Get(ChatPath()));
                 await Task.WhenAll(snapshotRequest, chatRequest);
                 var snapshot = await snapshotRequest;
                 var chat = await chatRequest;
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-                snap = snapshot;
+                snap = snapshot; snapOrg = org;
                 var loadedMessages = messages;
                 var mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
@@ -359,8 +387,10 @@ public sealed partial class MainWindow : Window
                 if (member.Length > 0)
                 {
                     var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
-                    var transcriptRequest = m.Flag("has_transcript") ? api.Get(PathFor("/convo?member=" + Client.Segment(member) + "&limit=" + chatLimit)) : Task.FromResult<JsonNode>(new JsonObject());
-                    var liveRequest = m.Flag("embedded") ? api.Get(PathFor("/live?member=" + Client.Segment(member))) : Task.FromResult<JsonNode>(new JsonObject());
+                    var transcriptRequest = !m.Flag("has_transcript") ? Task.FromResult<JsonNode>(new JsonObject())
+                        : reuse && earlyTranscript != null ? earlyTranscript : Timed("convo", api.Get(ConvoPath()));
+                    var liveRequest = !m.Flag("embedded") ? Task.FromResult<JsonNode>(new JsonObject())
+                        : reuse && earlyLive != null ? earlyLive : Timed("live", api.Get(LivePath()));
                     await Task.WhenAll(transcriptRequest, liveRequest);
                     if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                     conversation = await transcriptRequest;
