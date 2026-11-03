@@ -45,7 +45,7 @@ import RelicCore
             defer { defaults.removePersistentDomain(forName: suite) }
             let current = Model(client: try Client(port: fixture["port"].integer, token: fixture["token"].text), defaults: defaults)
             model = current
-            let window = NSWindow(contentRect: NSRect(x: 40, y: 60, width: 1440, height: 900),
+            let window = TracedWindow(contentRect: NSRect(x: 40, y: 60, width: 1440, height: 900),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             activeWindow = window
@@ -57,7 +57,7 @@ import RelicCore
             // Framework initialization is complete; all organization loading,
             // layout, parsing and events are included from this point onward.
             // The idle phase measures CPU; it does not need the run loop timer.
-            if phase != .idle { UIWorkTrace.observeRunLoop() }
+            if phase != .idle { UIWorkTrace.observeRunLoop(); FlushTrace.install(output: output) }
             if watchdog.sampleStartupNow() {
                 startupSamplerSeen = try await waitForSampler("startup-diagnostic", output: output)
             }
