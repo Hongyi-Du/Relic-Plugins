@@ -320,8 +320,8 @@ def resource_summary(samples):
             "steady_windows": windows, "errors": errors}
 
 
-def sample_idle_threads(native, client, phase, process_sample, ui_thread_id=None):
-    """External numeric-only diagnostics; never change the process CPU sample."""
+def sample_idle_threads(native, client, phase, process_sample, ui_thread_id=None, describe_thread=None):
+    """External thread diagnostics; never change the process CPU sample."""
     if client != "windows" or phase != "idle":
         return None
     row = {"elapsed_seconds": process_sample["elapsed_seconds"], "action": process_sample["action"],
@@ -334,6 +334,14 @@ def sample_idle_threads(native, client, phase, process_sample, ui_thread_id=None
         # psutil can lose a thread/process or access while enumerating. This
         # optional observation is not a replacement for the mandatory gate.
         row["error"] = f"{type(error).__name__}: {error}"
+    if describe_thread is not None:
+        for thread in row.get("threads", []):
+            try:
+                thread.update(describe_thread(thread["thread_id"]))
+            except Exception as error:
+                # A name lookup must not discard a successful CPU snapshot.
+                thread.update(thread_description=None, thread_description_status="unavailable",
+                              thread_description_error=f"{type(error).__name__}: {error}")
     return row
 
 
@@ -342,6 +350,7 @@ def idle_thread_report(observations, ui_thread_id=None):
     result = {"source": "External psutil.Process.threads at the existing one-second process sampling cadence",
               "ui_thread_id": ui_thread_id or None,
               "ui_thread_source": "GetWindowThreadProcessId of the owned visible native window" if ui_thread_id else "not observed",
+              "thread_description_source": "GetThreadDescription with THREAD_QUERY_LIMITED_INFORMATION; first observation cached per TID, including empty names and failures",
               "cpu_time_not_subtracted": True,
               "limitations": "Observed deltas are a lower bound: work before first/after last observation, terminated threads and reused IDs may be absent. They never replace whole-process CPU.",
               "samples": observations, "intervals": [], "ranking": [], "errors": []}
@@ -375,6 +384,9 @@ def idle_thread_report(observations, ui_thread_id=None):
             total = totals.setdefault(tid, {"thread_id": tid, "is_ui_thread": tid == ui_thread_id,
                                             "observed_cpu_seconds": 0, "user_seconds": 0, "system_seconds": 0,
                                             "observed_intervals": 0})
+            for field in ("thread_description", "thread_description_status", "thread_description_error"):
+                if field in after[tid]:
+                    total.setdefault(field, after[tid][field])
             total["observed_cpu_seconds"] += user + system
             total["user_seconds"] += user
             total["system_seconds"] += system
@@ -395,7 +407,19 @@ class WindowsProbe:
     def __init__(self, pid):
         self.pid, self.handle = pid, 0
         self.thread_id = 0
+        self.thread_descriptions = {}
         self.user = ctypes.WinDLL("user32", use_last_error=True)
+        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel.OpenThread.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        self.kernel.OpenThread.restype = ctypes.c_void_p
+        self.kernel.GetProcessIdOfThread.argtypes = [ctypes.c_void_p]
+        self.kernel.GetProcessIdOfThread.restype = ctypes.c_ulong
+        self.kernel.GetThreadDescription.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        self.kernel.GetThreadDescription.restype = ctypes.c_long
+        self.kernel.LocalFree.argtypes = [ctypes.c_void_p]
+        self.kernel.LocalFree.restype = ctypes.c_void_p
+        self.kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        self.kernel.CloseHandle.restype = ctypes.c_int
         self.callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
         self.user.IsWindowVisible.argtypes = [ctypes.c_void_p]
         self.user.IsHungAppWindow.argtypes = [ctypes.c_void_p]
@@ -404,6 +428,35 @@ class WindowsProbe:
         self.user.SendMessageTimeoutW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t,
                                                  ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_size_t)]
         self.user.SendMessageTimeoutW.restype = ctypes.c_size_t
+
+    def describe_thread(self, thread_id):
+        """Read each observed TID once, without modifying or suspending it."""
+        if thread_id in self.thread_descriptions:
+            return self.thread_descriptions[thread_id]
+        description = {"thread_description": None, "thread_description_status": "unavailable"}
+        handle, pointer = None, ctypes.c_void_p()
+        try:
+            handle = self.kernel.OpenThread(0x0800, False, thread_id)  # THREAD_QUERY_LIMITED_INFORMATION
+            if not handle:
+                raise OSError(f"OpenThread failed: winerror {ctypes.get_last_error()}")
+            owner = self.kernel.GetProcessIdOfThread(handle)
+            if owner != self.pid:
+                # A TID may exit and be reused between psutil and OpenThread.
+                raise OSError(f"Thread owner {owner} does not match owned process {self.pid}")
+            status = self.kernel.GetThreadDescription(handle, ctypes.byref(pointer))
+            if status & 0x80000000:
+                raise OSError(f"GetThreadDescription failed: HRESULT 0x{status & 0xffffffff:08X}")
+            name = ctypes.wstring_at(pointer.value) if pointer.value else ""
+            description.update(thread_description=name, thread_description_status="available" if name else "unnamed")
+        except Exception as error:
+            description["thread_description_error"] = f"{type(error).__name__}: {error}"
+        finally:
+            if pointer.value:
+                self.kernel.LocalFree(pointer)
+            if handle:
+                self.kernel.CloseHandle(handle)
+        self.thread_descriptions[thread_id] = description
+        return description
 
     def sample(self):
         if not self.handle:
@@ -545,7 +598,9 @@ def measure(exe, output, fixture, client, seconds, seed_value, mode, diagnostic=
                                "threads": native.num_threads(), "cpu_seconds": cpu.user + cpu.system,
                                "action": (heartbeat or {}).get("action", "startup")}
                     row["phase"] = "monkey" if row["action"].lower().startswith(("random", "monkey")) else "exhaustive"
-                    thread_sample = sample_idle_threads(native, client, phase, row, window_probe.thread_id if window_probe else None)
+                    thread_sample = sample_idle_threads(native, client, phase, row,
+                                                        window_probe.thread_id if window_probe else None,
+                                                        window_probe.describe_thread if window_probe else None)
                     if thread_sample is not None:
                         idle_threads.append(thread_sample)
                     children = []
