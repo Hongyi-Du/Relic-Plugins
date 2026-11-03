@@ -7,6 +7,7 @@ internal static class PerformanceTrace
 {
     private static readonly bool Enabled = Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true"
         && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RELIC_PERF_MANIFEST"));
+    internal static bool IsEnabled => Enabled;
     private static readonly ConcurrentQueue<object> records = new();
     internal static Scope Measure(string name) => new Scope(name);
     // Set while the idle phase measures: record every timed scope, not only
