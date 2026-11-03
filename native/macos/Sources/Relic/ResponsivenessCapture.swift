@@ -205,7 +205,7 @@ import RelicCore
     /// after it run without the sampler's own load.
     private static func waitForSample(_ name: String, output: URL) async throws {
         let log = output.appendingPathComponent(name + ".sampler.log")
-        let deadline = ProcessInfo.processInfo.systemUptime + 45
+        let deadline = ProcessInfo.processInfo.systemUptime + 90
         while ProcessInfo.processInfo.systemUptime < deadline,
               !((try? String(contentsOf: log, encoding: .utf8))?.contains("written to file") ?? false) {
             try await Task.sleep(for: .milliseconds(250))
@@ -239,10 +239,10 @@ import RelicCore
             // sampler time to attach before the cold presentation begins.
             let sampled = env["RELIC_PERF_DIAGNOSTIC"] == "true" && !diagnosedDialog
             if sampled {
-                // /usr/bin/sample prints its first line before it is attached:
-                // two samples that opened the dialog 150 ms after that line saw
-                // an idle main thread for their whole two seconds. Open it 3 s
-                // after the line, inside an eight-second sample.
+                // /usr/bin/sample prints its first line seconds before it takes
+                // its first sample: samples whose dialog opened 150 ms and 3 s
+                // after that line held only the idle wait that followed it.
+                // Open it 10 s after the line, inside a 16-second sample.
                 diagnosedDialog = true
                 let log = output.appendingPathComponent("first-dialog.sampler.log")
                 let deadline = ProcessInfo.processInfo.systemUptime + 6
@@ -250,7 +250,7 @@ import RelicCore
                       !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
                     try await Task.sleep(for: .milliseconds(20))
                 }
-                try await Task.sleep(for: .milliseconds(3000))
+                try await Task.sleep(for: .seconds(10))
             }
             result["responder_before"] = responder(window)
             // Wall-clock marks in the stall records' clock: a long probe can
