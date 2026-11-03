@@ -23,7 +23,9 @@ struct Sidebar: View {
                 }.padding(.horizontal, 10).frame(height: 34).modifier(RecordedSurface(background: RelicStyle.hover, radius: 8, kind: "card", owner: "relic-card/sidebar-search"))
                     .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/sidebar-search").accessibilityLabel("")
             }.padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 6)
-            ScrollView {
+            // The stack offers the tree all the height between the search
+            // field and the profile; it is not measured row by row to say so.
+            ScrollRegion { ScrollView {
                 LazyVStack(spacing: 0) {
                     if revealMembers {
                     HStack {
@@ -42,7 +44,7 @@ struct Sidebar: View {
                         if ResponsivenessCapture.enabled { NativeScrollOwner(identifier: "relic-performance-sidebar", title: "") }
                         else { ScrollAppearance() }
                     }
-            }.frame(maxHeight: .infinity).accessibilityLabel(m.t("page.tree"))
+            }.accessibilityLabel(m.t("page.tree")) }.frame(maxHeight: .infinity)
                 .modifier(RecordedSurface(background: .clear, kind: "region"))
             HStack(spacing: 4) {
                 Button { m.sheet = .settings } label: {

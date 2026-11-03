@@ -279,7 +279,7 @@ struct RightPane: View {
             case "workspace": WorkspaceView()
             case "files": FilePreview()
             case "thread": ThreadView()
-            default: ScrollView { if !m.snapshot["org"].isNull { Overview().background(ScrollAppearance()) } }.defaultScrollAnchor(.top)
+            default: ScrollRegion { ScrollView { if !m.snapshot["org"].isNull { Overview().background(ScrollAppearance()) } }.defaultScrollAnchor(.top) }
             } } else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityHidden(true) }
         }.frame(maxHeight: .infinity, alignment: .top).padding(.leading, 1)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region", shadows: floating ? SurfaceShadow.dialog : [])).help(m.t("panel.resize"))
