@@ -30,7 +30,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import desktop, runner
+from . import desktop, gui_receipt, runner
 
 SETTLE = 10  # seconds after the newest unread message before waking: messages sent in a row make one wake-up
 QUIET = 60
@@ -47,9 +47,21 @@ RECEIPT_MARK = "[Relic auto-receipt]"
 
 
 def no_turn(error):
-    """Whether a failed wake-up never reached the member's model: its chat was held, or busy in the desktop app."""
+    """Whether a failed wake-up never reached the member's model: its chat was held, or busy in the desktop app
+    (a Claude Desktop session that still owes an earlier request its Stop counts as busy)."""
     text = str(error or "")
-    return bool(text) and (IN_USE in text or desktop.BUSY in text)
+    return bool(text) and (IN_USE in text or desktop.BUSY in text or gui_receipt.WAITING in text)
+
+
+def desktop_hold(store, seat, config):
+    """Seconds a Claude Desktop seat waits because its session still owes an earlier Relic request its GUI Stop,
+    whichever of the session's seats that request was for (at most claude_desktop.PENDING_EXPIRY); 0 otherwise."""
+    config = config if config is not None else (seat or {}).get("config") or {}
+    if (store is None or config.get("harness") != "claude-code" or config.get("surface") != "gui" or
+            not (seat or {}).get("carrier")):
+        return 0
+    from . import claude_desktop
+    return claude_desktop.hold(store, seat["carrier"])
 
 
 def wakeable(seat, config=None):
@@ -213,6 +225,9 @@ def _due(org, org_id, member, messages, mine, now, age, store=None):
         return None, None
     if busy(store, org_id, member, seat, now):
         return RECHECK, None  # its runner dispatches when the turn ends; the retry covers a runner that dies
+    held = desktop_hold(store, seat, config)
+    if held:
+        return min(held, RECHECK), None  # never a second request while the Desktop session owes the first its Stop
     wait = max(gap(seat) - (now - mine.get("last_at", 0)), mine.get("retry_at", 0) - now)
     if SETTLE:
         wait = max(wait, SETTLE - (now - max(_epoch(m.get("at")) for m in fresh)))
@@ -241,7 +256,7 @@ def _settle(store, org_id, member, claimed_at, error=None, busy=False):
             for key in ("failures", "error", "retry_at", "in_use", "waiting_since", "gave_up_at"):
                 mine.pop(key, None)
             return None
-        busy = busy or desktop.BUSY in str(error)
+        busy = busy or desktop.BUSY in str(error) or gui_receipt.WAITING in str(error)
         held = not busy and IN_USE in str(error)
         if held:
             mine["in_use"] = mine.get("in_use", 0) + 1

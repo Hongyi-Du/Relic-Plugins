@@ -655,15 +655,23 @@ class Store:
     def seat_config(self, org_id, member, org=None):
         """How Relic starts turns of a seat: its own config, else (an ex officio seat, a subgroup seat) the config of
         the seat its session holds elsewhere, its main seat first."""
+        source = self.config_source(org_id, member, org)
+        return (source[0]["members"][source[1]].get("config") or {}) if source else {}
+
+    def config_source(self, org_id, member, org=None):
+        """(organization, member) of the seat whose config starts this seat's turns (see seat_config): the seat
+        itself, or the seat of the same session it inherits from; None when neither has one. A Claude Desktop
+        session is addressed by that seat's name, whichever of the session's seats a turn is for."""
         org = org or self.get(org_id)
         seat = (org.get("members") or {}).get(member) or {}
-        if seat.get("config") or not seat.get("carrier"):
-            return seat.get("config") or {}
+        if seat.get("config"):
+            return org, member
+        if not seat.get("carrier"):
+            return None
         for other, name, main in self.seats_of(seat["carrier"]):
-            config = (other["members"].get(name) or {}).get("config")
-            if other["id"] != org_id and config:
-                return config
-        return {}
+            if other["id"] != org_id and (other["members"].get(name) or {}).get("config"):
+                return other, name
+        return None
 
     def seat_keys(self, actor):
         """[(organization id, member)] of every seat a session holds, its main seat first."""
@@ -1576,6 +1584,22 @@ class Store:
         org, member = self.require(actor)
         if not body or not body.strip():
             raise OrgError("Empty message.")
+        # A seat's reply may also name members of another organization this seat can write to (above or below it),
+        # not only those already in the thread: they get a copy, as thread participants from elsewhere do.
+        reachable, refused = {}, {}
+        for name in names if seat_reply else []:
+            place, _, other = name.partition("/")
+            if not other or place == org["id"]:
+                continue
+            try:
+                _, _, there, way = self.reach(actor, place, up=True)
+            except OrgError as error:
+                refused[name] = str(error)
+                continue
+            if way and there.get("status") == "active" and other in there["members"]:
+                reachable[name] = (there["id"], other)
+            elif way:
+                refused[name] = "%s has no member %s" % (there["name"], other)
         with self.db() as db:
             root = self._thread_root(db, org["id"], reply_to)
             people = self._thread_people(db, org["id"], root) if root else []
@@ -1589,6 +1613,8 @@ class Store:
                         continue
                     if there.get("status") == "active" and other in there["members"]:
                         external[name] = (place, other)
+            for name, value in reachable.items():
+                external.setdefault(name, value)
             if root and not to:
                 recipients = [m for m in people if m != member and (m in org["members"] or m == HUMAN or m in external)]
                 if not recipients:
@@ -1600,7 +1626,9 @@ class Store:
                 # "human" is the person: they read and answer in the Relic App 
                 unknown = set(recipients) - set(org["members"]) - {HUMAN} - set(external)
                 if unknown:
-                    raise OrgError("Unknown members: " + ", ".join(sorted(unknown)))
+                    reasons = "; ".join("%s: %s" % (n, refused[n]) for n in sorted(unknown) if n in refused)
+                    raise OrgError("Unknown members: " + ", ".join(sorted(unknown)) +
+                                   (" (%s)" % reasons if reasons else ""))
             if not recipients:
                 raise OrgError("No other members yet.")
             cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
@@ -2051,6 +2079,16 @@ class Store:
         with self.change(org_id) as (org, db):
             org["auto_wake"] = bool(on)
             self._event(db, org_id, "human", "organization.auto_wake", {"on": bool(on)})
+
+    def set_seat_auto_wake(self, org_id, member, on, reason=""):
+        """One seat's switch for automatic wake-ups (wake.wakeable reads it); the person's Stop in the Relic window
+        turns it off for every seat of the stopped session, and Resume turns back on what Stop turned off."""
+        with self.change(org_id) as (org, db):
+            seat = org["members"].get(member)
+            if seat is None:
+                raise OrgError("No member %s in %s" % (member, org["name"]))
+            seat["auto_wake"] = bool(on)
+            self._event(db, org_id, member, "member.auto_wake", {"on": bool(on), "reason": reason})
 
     # ---------------- shared work ----------------
     def work(self, actor, op, a):
