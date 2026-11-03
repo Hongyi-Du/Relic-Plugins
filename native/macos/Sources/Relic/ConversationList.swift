@@ -57,18 +57,23 @@ struct ConversationStream: View {
     /// Home keeps the actual first row at the top until the person scrolls or
     /// a page arrives, even when AppKit restores an offset after the update.
     @State private var pinsTop = false
+    /// Rows the List holds. They are adopted one turn after the model
+    /// publishes them, so a chat switch's sidebar, inspector and header
+    /// update and the List's row replacement are separate UI transactions.
+    @State private var presented: [ConversationRow] = []
+    @State private var presentedKey = ""
     private enum Reveal: Equatable { case top(String), bottom(String), start, latest }
     private struct UpdateKey: Hashable {
         let selection: String, version: Int, enabled: Bool, window: String, request: Int
     }
-    private var latestID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
-    private var shownRange: Range<Int> { window.range(in: m.streamRows, selection: m.selection.key) }
+    private var latestID: String? { m.displayLiveItems.isEmpty ? presented.last?.id : "live-end" }
+    private var shownRange: Range<Int> { window.range(in: presented, selection: m.selection.key) }
 
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
                 if mountedViewport {
-                    let all = m.streamRows
+                    let all = presented
                     let range = window.range(in: all, selection: m.selection.key)
                     List {
                         Color.clear.frame(height: 8).id("start").accessibilityHidden(true)
@@ -78,7 +83,7 @@ struct ConversationStream: View {
                         let hasLive = mountedRows && range.upperBound == all.count && !m.displayLiveItems.isEmpty
                         let compact = m.preferences["density"].text == "compact"
                         let last = hasLive ? "live-end" : all.last?.id
-                        if mountedRows && all.isEmpty && !hasLive {
+                        if mountedRows && all.isEmpty && m.streamRows.isEmpty && !hasLive {
                             NoticeLayout {
                                 ReferenceLabel(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private"),
                                     size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
@@ -163,8 +168,11 @@ struct ConversationStream: View {
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
                 }
-                // List must receive the changed collection before its one
-                // semantic request. It retains the same native viewport.
+                // Adopt the published rows in this later turn, then let the
+                // List receive the changed collection before its one semantic
+                // request. It retains the same native viewport.
+                let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
+                if presentedKey != key { presented = m.streamRows; presentedKey = key; await Task.yield() }
                 await Task.yield()
                 guard !Task.isCancelled else { return }
                 // An earlier server page arrived above the oldest shown row:
@@ -198,7 +206,7 @@ struct ConversationStream: View {
                             "window_start": range.lowerBound, "window_end": range.upperBound, "loaded_rows": m.streamRows.count]
                 }
                 keyboard.didUserScroll = { nearBottom in
-                    let all = m.streamRows, range = window.range(in: all, selection: m.selection.key)
+                    let all = presented, range = window.range(in: all, selection: m.selection.key)
                     followsLatest = nearBottom && range.upperBound == all.count
                     preservingDisclosure = false; pinsTop = false
                     if followsLatest, window.anchor != nil {
@@ -211,7 +219,7 @@ struct ConversationStream: View {
                 }
                 keyboard.scrollToEdge = { top in
                     preservingDisclosure = false; olderRequest = nil
-                    let all = m.streamRows, key = m.selection.key
+                    let all = presented, key = m.selection.key
                     if top {
                         followsLatest = false; pinsTop = true
                         let end = min(all.count, ConversationWindow.initial)
@@ -236,7 +244,7 @@ struct ConversationStream: View {
                     if pinsTop, reveal == nil, geometry.topGap > 1 { proxy.scrollTo("start", anchor: .top); return }
                     guard !followsLatest, reveal == nil, olderRequest == nil, !m.isPreparingConversation,
                           geometry.height > geometry.viewportHeight else { return }
-                    let all = m.streamRows, range = window.range(in: all, selection: m.selection.key)
+                    let all = presented, range = window.range(in: all, selection: m.selection.key)
                     guard !range.isEmpty else { return }
                     if geometry.topGap < 100 {
                         if range.lowerBound > 0 { showOlder(all, above: range) }
@@ -290,7 +298,7 @@ struct ConversationStream: View {
     }
     private func revealRequestedOlderRows() -> Bool {
         guard let anchor = olderRequest else { return false }
-        let all = m.streamRows, range = window.range(in: all, selection: m.selection.key)
+        let all = presented, range = window.range(in: all, selection: m.selection.key)
         guard !range.isEmpty, all[range.lowerBound].id == anchor else { olderRequest = nil; return false }
         guard range.lowerBound > 0 else {
             if !m.loadingOlder { olderRequest = nil }
@@ -301,7 +309,7 @@ struct ConversationStream: View {
         return true
     }
     private func seekLatest(_ proxy: ScrollViewProxy) {
-        let all = m.streamRows
+        let all = presented
         if shownRange.upperBound < all.count {
             // The newest rows are outside the window: show them first, then
             // scroll after the List has received that bounded collection.

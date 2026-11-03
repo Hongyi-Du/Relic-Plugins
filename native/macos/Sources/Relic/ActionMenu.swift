@@ -16,7 +16,9 @@ struct ActionMenu: View {
                 }
             }.padding(7)
         }.frame(width: max(250, contentWidth + 14))
-            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.dialog, nativeFill: true))
+            // A small shadow: the broad blurred one was rasterized on the UI
+            // thread over the whole menu every time it opened.
+            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.small, nativeFill: true))
             .onPreferenceChange(MenuIntrinsicWidth.self) { contentWidth = $0 }
             .onExitCommand { m.appMenu = nil }
     }
