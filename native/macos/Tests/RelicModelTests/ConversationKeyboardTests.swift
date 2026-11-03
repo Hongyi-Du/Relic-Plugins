@@ -111,6 +111,11 @@ import RelicCore
         }
         try await settled("initial presentation")
         let scroll = try XCTUnwrap(find(host))
+        let table = try XCTUnwrap(scroll.documentView as? NSTableView)
+        XCTAssertGreaterThanOrEqual(table.numberOfRows, messageCount, "Virtualization must retain the whole loaded history")
+        var realizedRows = 0
+        table.enumerateAvailableRowViews { _, _ in realizedRows += 1 }
+        XCTAssertLessThan(realizedRows, 100, "A 400pt viewport must not instantiate thousands of native message rows")
         let keyboard = try XCTUnwrap(ConversationKeyboardMount.controller(for: scroll))
         func visibleText(_ expected: String, in view: NSView) -> Bool {
             if let text = view as? QuoteTextView, text.string == expected {

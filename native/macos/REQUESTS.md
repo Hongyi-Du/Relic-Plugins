@@ -1,4 +1,13 @@
 AMENDMENT 9 — shared contract received (2026-11-02)
+2323989 Native41549812156 PASS342 tests, Python41549811994 four jobsPASS,
+window41549812037 bothPASS. Large pressure41549811995 still fails350/341/307/
+500/401ms(open/switch/workflows/history/monkey), idlePASS1.28547%/163.359MiB/7.
+Next Mac candidate lets standard List recycle message rows directly, removing
+the second ProgressiveRow placeholder inside each List cell. Native tests keep
+whole history and bound actual instantiated table rows. No page-size/gate change.
+Mac now writes completed per-action partial receipts asynchronously to the
+existing performance-actions.json contract, so an early stop retains real input
+evidence. Partial data never supplies completion or acceptance eligibility.
 Mac next candidate separates cold native List creation from first-page adoption
 and skips redundant geometry-triggered scrollTo when actual bottomGap<=1. First
 navigation/End/new-content seeks and real history assertions remain. Native
