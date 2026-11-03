@@ -33,6 +33,9 @@ internal sealed class NativeChatList : Grid
         internal long ConfirmAfter;
         internal bool Settled;
         internal bool CorrectionPending, CorrectionCompleted;
+        // Where the last correction asked the viewport to go. A ViewChanged
+        // from an earlier scroll can arrive before that correction lands.
+        internal double? CorrectionTarget;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
 
@@ -62,6 +65,7 @@ internal sealed class NativeChatList : Grid
 
     internal new VirtualRows.RowCollection Children { get; }
     internal event Action? ItemsReplacing;
+    internal event Action? PositionEnded;
     internal event Action<ScrollViewer>? ViewportReady;
     internal ScrollViewer? Viewport { get; private set; }
     internal string ViewIdentity { get; set; } = "";
@@ -96,11 +100,8 @@ internal sealed class NativeChatList : Grid
     }
 
     // Content above the rows that is not one of them: the "load older" control.
-    // As a row it was the first visible item when the person read from the top,
-    // and KeepItemsInView kept it in place while an older page went in below it,
-    // pushing the message being read hundreds of rows down; bringing it back took
-    // a far ScrollIntoView, where ModernCollectionBasePanel failed fast. The list
-    // header is not an item, so the message being read anchors instead.
+    // The list header is not an item, so the message being read, not this
+    // control, is the reading anchor when an older page goes in above it.
     internal FrameworkElement? TopContent
     {
         get => list.Header as FrameworkElement;
@@ -122,12 +123,22 @@ internal sealed class NativeChatList : Grid
             dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             { commitQueued = false; Commit(); });
         });
+        // Rows are scroll anchor candidates: while the person reads (anchor ratio
+        // 0), the ScrollViewer keeps the row at the top of the viewport in place
+        // when rows above it are built or change height. Following the latest
+        // message (ratio 1) anchors the bottom edge instead.
         list.ItemTemplate = XamlTemplates.Load<DataTemplate>(
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
-            "<Border HorizontalAlignment='Stretch' UseLayoutRounding='False'/></DataTemplate>");
+            "<Border HorizontalAlignment='Stretch' UseLayoutRounding='False' CanBeScrollAnchor='True'/></DataTemplate>");
+        // KeepScrollOffset turns off the panel's own "maintain viewport" tracking.
+        // That tracking generates from a remembered row index; once the index fell
+        // outside the realized rows (a long chat, an older page, a far scroll),
+        // ContainerManager::PlaceInValidElements failed fast (E_UNEXPECTED,
+        // 0xC000027B) and took the app down. The ScrollViewer's anchoring and the
+        // position intents below keep the latest row and the reading row in place.
         list.ItemsPanel = XamlTemplates.Load<ItemsPanelTemplate>(
             "<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
-            "<ItemsStackPanel ItemsUpdatingScrollMode='KeepItemsInView' CacheLength='0.5'/></ItemsPanelTemplate>");
+            "<ItemsStackPanel ItemsUpdatingScrollMode='KeepScrollOffset' CacheLength='0.5'/></ItemsPanelTemplate>");
         var itemStyle = new Style(typeof(ListViewItem));
         itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
         itemStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0d));
@@ -222,14 +233,10 @@ internal sealed class NativeChatList : Grid
         }
         identities.Clear();
         committed = revision; committedView = ViewIdentity; committedPresentationContext = PresentationContext;
-        // Another chat is cleared and filled row by row while the panel keeps its
-        // last item in view, so its latest message is placed without a seek. (A
-        // one-step reset started the list at its oldest rows and built those
-        // first.) Older pages stay incremental too: rows inserted above the
-        // visible ones keep the reading position in place (KeepItemsInView)
-        // without a far ScrollIntoView, which is where ModernCollectionBasePanel
-        // failed fast (ContainerManager::PlaceInValidElements, E_UNEXPECTED) on
-        // lists of thousands of rows.
+        // Another chat is cleared and filled row by row; its latest-row intent
+        // asks for the last row before the first layout. Older pages are
+        // inserted row by row above the rows on screen, and the reading intent
+        // brings the message being read back to where it was.
         if (!sameView) entries.Clear();
         var wanted = next.ToHashSet();
         for (var index = entries.Count - 1; index >= 0; index--)
@@ -358,20 +365,36 @@ internal sealed class NativeChatList : Grid
     {
         Commit(); StopFollowingLast();
         if (entries.Count == 0 || !isCurrent()) return Task.FromResult(false);
-        position = new(kind, key, top, isCurrent, isReady, ViewIdentity, CaptureSeekInputGeneration());
-        if (list.ItemsPanelRoot is ItemsStackPanel panel)
-            panel.ItemsUpdatingScrollMode = kind == PositionKind.Latest ? ItemsUpdatingScrollMode.KeepLastItemInView : ItemsUpdatingScrollMode.KeepItemsInView;
+        var intent = position = new(kind, key, top, isCurrent, isReady, ViewIdentity, CaptureSeekInputGeneration());
+        // A chat that was just filled starts at its top. Ask for its last row
+        // before the first layout, so the panel realizes the newest rows rather
+        // than building the oldest ones first and seeking afterwards.
+        // The usual check still runs afterwards and seeks again if this did not land.
+        if (kind == PositionKind.Latest && TryGetRealizedRow(entries.Count - 1) == null)
+        {
+            TracePosition(intent, "seek_early");
+            list.ScrollIntoView(entries[^1], ScrollIntoViewAlignment.Default);
+        }
         QueuePositionCheck();
-        return position.Completion.Task;
+        return intent.Completion.Task;
     }
 
     internal void StopFollowingLast()
     {
-        position?.Completion.TrySetResult(false); position = null;
-        if (list.ItemsPanelRoot is ItemsStackPanel panel) panel.ItemsUpdatingScrollMode = ItemsUpdatingScrollMode.KeepItemsInView;
+        if (position is { } ended)
+        {
+            if (ended.Kind != PositionKind.Latest) TracePosition(ended, "cleared");
+            EndPosition(ended, false);
+        }
     }
 
-    private void HostSizeChanged(object sender, SizeChangedEventArgs args) => QueuePositionCheck();
+    private void HostSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        // A row that changed height moves the bottom; following it again is
+        // not a repeat of the previous correction.
+        if (position is { Kind: PositionKind.Latest } follow) { follow.Corrections = 0; follow.LastGeometry = null; }
+        QueuePositionCheck();
+    }
     private void ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
     {
         if (args.IsIntermediate) return;
@@ -439,7 +462,7 @@ internal sealed class NativeChatList : Grid
             using (PerformanceTrace.Measure("conversation.list.layout_before_seek")) list.UpdateLayout();
             if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
             intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
-            intent.CorrectionPending = false; intent.CorrectionCompleted = false;
+            intent.CorrectionPending = false; intent.CorrectionCompleted = false; intent.CorrectionTarget = null;
             // The platform realizes the target; this does not construct or
             // manually position an off-viewport item in an ItemsRepeater.
             var existing = TryGetRealizedRow(index);
@@ -491,22 +514,28 @@ internal sealed class NativeChatList : Grid
                 }
                 if (now < intent.ConfirmAfter) return;
             }
-            intent.Settled = true; TracePosition(intent, "settled"); intent.Completion.TrySetResult(true);
-            if (intent.Kind != PositionKind.Latest) position = null;
+            intent.Settled = true; TracePosition(intent, "settled");
+            if (intent.Kind != PositionKind.Latest) EndPosition(intent, true);
+            else intent.Completion.TrySetResult(true);
             return;
         }
         intent.Settled = false; intent.ConfirmAfter = 0;
         var geometry = (viewport.ViewportWidth, viewport.ViewportHeight, host.ActualWidth, host.ActualHeight,
             Math.Round((bounds.Top + viewport.VerticalOffset) * 64) / 64);
-        if (intent.LastGeometry == geometry)
+        // The row has not moved, so only the viewport can still be wrong. If it
+        // is not where the last correction asked, that correction has not landed
+        // yet (an earlier scroll's ViewChanged ended the wait): ask again below.
+        var landed = intent.CorrectionTarget is not { } target || Math.Abs(viewport.VerticalOffset - target) <= 1;
+        if (intent.LastGeometry == geometry && (landed || intent.Kind == PositionKind.Latest))
         {
             // The actual view change finished but this prepared geometry still
             // cannot restore the reading position. Release the pending page;
             // waiting for a geometry change that never comes is not a retry.
             if (intent.CorrectionCompleted && intent.Kind != PositionKind.Latest)
-            { TracePosition(intent, "failed.same_geometry"); intent.Completion.TrySetResult(false); position = null; }
+            { TracePosition(intent, "failed.same_geometry"); EndPosition(intent, false); }
             return;
         }
+        if (!landed) TracePosition(intent, "not_landed");
         // Three corrections reach the target; two more cover drift found while
         // confirming it. Each one still needs a changed geometry.
         if (intent.Corrections >= (intent.Kind == PositionKind.Reading ? 5 : 3))
@@ -516,7 +545,7 @@ internal sealed class NativeChatList : Grid
             // caller and CI retain the actual anchor evidence; false is not
             // a successful restore. Follow-latest remains visibly unsettled.
             if (intent.Kind != PositionKind.Latest)
-            { TracePosition(intent, "failed.corrections"); intent.Completion.TrySetResult(false); position = null; }
+            { TracePosition(intent, "failed.corrections"); EndPosition(intent, false); }
             return;
         }
         intent.LastGeometry = geometry; intent.Corrections++;
@@ -530,9 +559,9 @@ internal sealed class NativeChatList : Grid
         {
             // No legal viewport offset can preserve this prepared anchor to
             // the existing one-DIP tolerance. Do not await an impossible move.
-            TracePosition(intent, "failed.out_of_range"); intent.Completion.TrySetResult(false); position = null; return;
+            TracePosition(intent, "failed.out_of_range"); EndPosition(intent, false); return;
         }
-        intent.CorrectionPending = true; intent.CorrectionCompleted = false;
+        intent.CorrectionPending = true; intent.CorrectionCompleted = false; intent.CorrectionTarget = clamped;
         TracePosition(intent, "correct");
         if (!viewport.ChangeView(null, clamped, null, true))
         {
@@ -540,8 +569,18 @@ internal sealed class NativeChatList : Grid
             // No final ViewChanged is required when the view did not change.
             // Latest remains unsettled; a failed history restore must finish.
             if (intent.Kind != PositionKind.Latest)
-            { intent.Completion.TrySetResult(false); position = null; }
+            { TracePosition(intent, "failed.change_view"); EndPosition(intent, false); }
         }
+    }
+
+    // Ends a reading or first-row restore. Code that waited for it to finish
+    // (a scroll to the top that could not load older messages meanwhile)
+    // can act once the list holds no restore.
+    private void EndPosition(Position intent, bool restored)
+    {
+        intent.Completion.TrySetResult(restored);
+        if (ReferenceEquals(position, intent)) position = null;
+        if (intent.Kind != PositionKind.Latest) PositionEnded?.Invoke();
     }
 
     internal bool IsLastPositionSettled

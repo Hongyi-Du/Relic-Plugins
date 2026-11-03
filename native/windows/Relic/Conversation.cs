@@ -649,9 +649,25 @@ public sealed partial class MainWindow
         UpdateRecipient(); editor.PlaceholderText = member.Length == 0 ? T("composer.group_placeholder") : T("composer.dm_placeholder", ("name", Display(member)));
         if (plainMode && member.Length == 0) plainTimer.Start();
     }
-    private Task LoadOlderAtTop() => !closing && org.Length > 0 && api != null
-        && !keepLatest && !loadingOlder && !stream.ReadingAnchorRestorePending && chatMore && chatScroll.VerticalOffset < 32
-        ? Run(LoadOlderMessages) : Task.CompletedTask;
+    private bool olderAfterRestore;
+    private Task LoadOlderAtTop()
+    {
+        if (closing || org.Length == 0 || api == null || !chatMore || chatScroll.VerticalOffset >= 32) return Task.CompletedTask;
+        var blocked = keepLatest ? "keep_latest" : loadingOlder ? "loading" : stream.ReadingAnchorRestorePending ? "restoring" : null;
+        if (blocked == null) return Run(LoadOlderMessages);
+        PerformanceTrace.Count("conversation.history.blocked." + blocked, latestRequest);
+        // The view reached the top while a redraw was still restoring the
+        // reading position, so this scroll could not ask for the older page.
+        // Ask once that restore ends; at the top no further scroll event comes.
+        if (blocked == "restoring") olderAfterRestore = true;
+        return Task.CompletedTask;
+    }
+    private void LoadOlderAfterRestore()
+    {
+        if (!olderAfterRestore) return;
+        olderAfterRestore = false;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = LoadOlderAtTop());
+    }
     private bool ConversationContentReady() => PendingConversationPreparation == 0 && PendingMarkdown == 0 && VirtualRows.PendingBuilds == 0 && NativeChatList.PendingBuilds == 0
         && NativePathText.PendingPreparations == 0 && NativeLabel.PendingPreparations == 0 && NativeGlyphWarmup.PendingPreparations == 0;
     private async Task LoadOlderMessages()

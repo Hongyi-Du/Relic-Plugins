@@ -134,6 +134,7 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(conversationBanner, 1); chat.Children.Add(conversationBanner);
         // The native ListView owns the only scrolling viewport. Nesting it in
         // another ScrollViewer would give it infinite height and disable recycling.
+        stream.PositionEnded += LoadOlderAfterRestore;
         stream.ViewportReady += viewport =>
         {
             chatScroll = viewport;
@@ -493,6 +494,8 @@ public sealed partial class MainWindow : Window
         // A selected chat opens at its latest message. Its first draw starts that one scroll intent; a second request
         // here would restart positioning that is already under way.
         keepLatest = true; followInputGeneration = conversationScrollInput.Generation;
+        // Anchor the bottom edge while the chat is filled (see NativeChatList).
+        if (chatScroll != null) chatScroll.VerticalAnchorRatio = 1;
         var requested = latestRequest;
         await Refresh();
         if (org != id || member != who) return;
