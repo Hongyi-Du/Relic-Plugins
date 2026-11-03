@@ -91,6 +91,23 @@ internal sealed class NativeChatList : Grid
         {
             spacing = value;
             foreach (var host in mounted.Keys) host.Margin = new Thickness(0, 0, 0, spacing);
+            if (list.Header is FrameworkElement top) top.Margin = new Thickness(0, 0, 0, spacing);
+        }
+    }
+
+    // Content above the rows that is not one of them: the "load older" control.
+    // As a row it was the first visible item when the person read from the top,
+    // and KeepItemsInView kept it in place while an older page went in below it,
+    // pushing the message being read hundreds of rows down; bringing it back took
+    // a far ScrollIntoView, where ModernCollectionBasePanel failed fast. The list
+    // header is not an item, so the message being read anchors instead.
+    internal FrameworkElement? TopContent
+    {
+        get => list.Header as FrameworkElement;
+        set
+        {
+            if (value != null) value.Margin = new Thickness(0, 0, 0, spacing);
+            if (!ReferenceEquals(list.Header, value)) list.Header = value;
         }
     }
 
@@ -217,18 +234,6 @@ internal sealed class NativeChatList : Grid
         var wanted = next.ToHashSet();
         for (var index = entries.Count - 1; index >= 0; index--)
             if (!wanted.Contains(entries[index])) entries.RemoveAt(index);
-        // Reading from the top, the "load older" control is the first visible row,
-        // and KeepItemsInView holds the first visible row: an older page inserted
-        // below it pushed the message being read hundreds of rows down, and a far
-        // ScrollIntoView had to bring it back (the call ModernCollectionBasePanel
-        // failed fast in). Take the control out while the page goes in above the
-        // message, then put it back on top, out of view.
-        Entry? top = null;
-        if (sameView && entries.Count > 1 && entries[0].Row.Key == "older" && next.Count > 1
-            && ReferenceEquals(next[0], entries[0]) && !ReferenceEquals(next[1], entries[1]))
-        {
-            top = entries[0]; entries.RemoveAt(0); next.RemoveAt(0);
-        }
         var existing = entries.ToHashSet();
         for (var index = 0; index < next.Count; index++)
         {
@@ -237,7 +242,6 @@ internal sealed class NativeChatList : Grid
             if (existing.Contains(entry)) entries.Move(entries.IndexOf(entry), index);
             else { entries.Insert(index, entry); existing.Add(entry); }
         }
-        if (top != null) entries.Insert(0, top);
         foreach (var (host, binding) in mounted.ToArray())
         {
             if (!wanted.Contains(binding.Entry)) { Release(host); continue; }
@@ -461,11 +465,16 @@ internal sealed class NativeChatList : Grid
         var bounds = Bounds(host, viewport);
         var visible = bounds.Bottom > 0 && bounds.Top < viewport.ViewportHeight;
         // A restored reading position aims within half a pixel, inside the 1 px
-        // the person (and CI) would notice. Opening at the first row keeps 1 px:
-        // nothing above it can move it, and waiting would only delay the open.
-        var settled = intent.Kind == PositionKind.Latest
-            ? visible && Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1
-            : visible && Math.Abs(bounds.Top - intent.Top) <= (intent.Kind == PositionKind.Reading ? .5 : 1) && (intent.Kind != PositionKind.First || viewport.VerticalOffset <= 1);
+        // the person (and CI) would notice. Opening at the first row only needs
+        // the top: nothing above it can move it, and waiting would delay the open.
+        var settled = intent.Kind switch
+        {
+            PositionKind.Latest => visible && Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1,
+            // The first row sits below the list header (the "load older" control)
+            // when there is one; being scrolled to the top is the target.
+            PositionKind.First => visible && viewport.VerticalOffset <= 1,
+            _ => visible && Math.Abs(bounds.Top - intent.Top) <= .5,
+        };
         if (settled)
         {
             if (intent.Kind == PositionKind.Reading)

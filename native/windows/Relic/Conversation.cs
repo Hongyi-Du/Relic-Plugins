@@ -39,6 +39,7 @@ public sealed partial class MainWindow
     // following began (wheel, touchpad, pointer, key, scrollbar) makes a native
     // direct manipulation the person's own scroll.
     private long followInputGeneration;
+    private Button? olderButton;
     private readonly ScrollInputIntent conversationScrollInput = new();
     private NativeTouchpadInput? conversationTouchpadInput;
     private int chatPages = 1;
@@ -593,11 +594,17 @@ public sealed partial class MainWindow
         }
         var atBottom = !loadingOlder && !stream.ReadingAnchorRestorePending
             && (keepLatest || chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120);
+        // The "load older" control is the list header rather than a row, so the
+        // message being read anchors an older page (see NativeChatList.TopContent).
         if (chatMore)
         {
-            stream.Children.Add(() => Button(T("trace.load_older"), LoadOlderMessages), key: "older");
-            stream.SetPresentationIdentity("older", T("trace.load_older"));
+            olderButton ??= Button("", LoadOlderMessages);
+            var label = T("trace.load_older");
+            if (olderButton.Content is TextBlock text && text.Text != label) text.Text = label;
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(olderButton, label);
+            stream.TopContent = olderButton;
         }
+        else stream.TopContent = null;
         if (rows.Count == 0)
         {
             var emptyText = T(member.Length == 0 ? "chat.empty_group" : "chat.empty_private");
