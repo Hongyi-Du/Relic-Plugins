@@ -23,9 +23,6 @@ import SwiftUI
     private var scrollObservers: [NSObjectProtocol] = []
     private let mounts = NSHashTable<NSView>.weakObjects()
     private weak var observedDocument: NSView?
-    /// While the person follows the latest message, the document's end stays
-    /// at the viewport's bottom through every height change of the List.
-    var keepsEnd = false
     private struct HeldRow { let index: Int, rows: Int, offset: CGFloat; var applied = false }
     private var held: HeldRow?
     private var disclosureOrigin: NSPoint?
@@ -95,7 +92,6 @@ import SwiftUI
         let gap = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
         // The person's own scroll owns the position from here on.
         held = nil
-        if gap >= 120 { keepsEnd = false }
         didUserScroll?(gap < 120)
     }
 
@@ -121,11 +117,10 @@ import SwiftUI
         return true
     }
 
-    /// Rows inserted above the viewport (an older page) or rows growing below
-    /// the latest message move the content in AppKit's update; the stream's
-    /// own scroll could only follow a frame later, and the reader saw the
-    /// rows jump. Put the held row, or the document's end, back where it was
-    /// inside the same update.
+    /// Rows inserted above the viewport (an older page) move the content in
+    /// AppKit's update; the stream's own reveal scroll could only follow a
+    /// frame later, and the reader saw the rows jump by the whole page. Put
+    /// the held row back where it was inside the same update.
     private func documentResized() {
         guard let scroll, let document = scroll.documentView else { return }
         let clip = scroll.contentView
@@ -135,8 +130,6 @@ import SwiftUI
             let top = table.isFlipped ? rect.minY - clip.bounds.minY : clip.bounds.maxY - rect.maxY
             row.applied = true; held = row
             if abs(top - row.offset) > 0.5 { target.origin.y += (table.isFlipped ? 1 : -1) * (top - row.offset) }
-        } else if keepsEnd, held == nil, document.frame.height > clip.bounds.height {
-            target.origin.y = document.isFlipped ? document.bounds.maxY - clip.bounds.height : document.bounds.minY
         }
         let constrained = clip.constrainBoundsRect(target)
         if abs(constrained.origin.y - clip.bounds.origin.y) > 0.5 {
@@ -171,7 +164,6 @@ import SwiftUI
 
     func preserveDisclosurePosition() {
         discardDisclosurePosition()
-        keepsEnd = false
         guard let scroll, let document = scroll.documentView else { return }
         disclosureOrigin = scroll.contentView.bounds.origin
         disclosureHeight = document.frame.height

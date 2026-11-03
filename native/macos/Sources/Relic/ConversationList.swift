@@ -251,11 +251,9 @@ struct ConversationStream: View {
                 }
                 await admitEarlierRows()
             }
-            .onChange(of: followsLatest) { keyboard.keepsEnd = followsLatest && !preservingDisclosure }
-            .onChange(of: preservingDisclosure) { keyboard.keepsEnd = followsLatest && !preservingDisclosure }
             .onChange(of: m.selection) {
                 _ = keyboard.releaseHold()
-                keyboard.discardDisclosurePosition(); followsLatest = true; keyboard.keepsEnd = true
+                keyboard.discardDisclosurePosition(); followsLatest = true
                 preservingDisclosure = false; keyboard.observedHeight = 0
                 window = ConversationWindow(selection: m.selection.key); reveal = nil; olderRequest = nil; pinsTop = false
             }
@@ -266,7 +264,6 @@ struct ConversationStream: View {
             .onAppear {
                 PerformanceRendering.observed(streamVersion: m.streamVersion)
                 window = ConversationWindow(selection: m.selection.key)
-                keyboard.keepsEnd = followsLatest && !preservingDisclosure
                 keyboard.positionObservation = {
                     let range = shownRange
                     return ["last_row_id": latestID as Any? ?? NSNull(), "follows_latest": followsLatest,
@@ -276,7 +273,6 @@ struct ConversationStream: View {
                 keyboard.didUserScroll = { nearBottom in
                     let all = presented, range = window.range(in: all, selection: m.selection.key)
                     followsLatest = nearBottom && range.upperBound == all.count
-                    keyboard.keepsEnd = followsLatest
                     preservingDisclosure = false; pinsTop = false
                     if followsLatest, window.anchor != nil {
                         window = .showing(range, in: all, selection: m.selection.key)
@@ -291,11 +287,11 @@ struct ConversationStream: View {
                     let all = presented, key = m.selection.key
                     _ = keyboard.releaseHold()
                     if top {
-                        followsLatest = false; pinsTop = true; keyboard.keepsEnd = false
+                        followsLatest = false; pinsTop = true
                         let end = min(all.count, ConversationWindow.initial)
                         request(.start, window: end < all.count ? ConversationWindow.pinned(0..<end, in: all, selection: key) : ConversationWindow.showing(0..<end, in: all, selection: key))
                     } else {
-                        followsLatest = true; pinsTop = false; keyboard.keepsEnd = true
+                        followsLatest = true; pinsTop = false
                         request(.latest, window: ConversationWindow(selection: key))
                     }
                 }
