@@ -26,18 +26,30 @@ struct MainView: View {
     var body: some View {
         let _ = UIWorkTrace.count("body.main")
         GeometryReader { geometry in
+        // Below the fixed toolbar row the sidebar and the chat get exact
+        // frames. A stack that probes how far a child can shrink or grow asks
+        // its frame; with a definite width and height the frame answers that
+        // size itself instead of measuring the chat or sidebar at zero and at
+        // infinite width or height on every pass over the window.
+        let sidebarWidth = InspectorGeometry.sidebarWidth(window: geometry.size.width)
+        let reservedPanel = m.panelOpen && !floatingPanel ? min(panelWidth, m.windowSize.width - 48) : 0
+        let chatWidth = max(0, geometry.size.width - (m.sidebarOpen ? sidebarWidth : 0) - reservedPanel)
+        let regionHeight: CGFloat? = !m.ready && !m.error.isEmpty ? nil : max(0, geometry.size.height - WindowChrome.rowHeight)
         // Overlays (dialogs, the inspector, toasts, a loading cover) align to
         // these regions; each boundary answers that alignment without
         // measuring the region's whole subtree again. See AlignmentBoundary.
-        AlignmentBoundary { VStack(spacing: 0) {
+        // Each sits inside its region's frame: a stack probing how far the
+        // region can grow asks the frame, which answers from its own width,
+        // instead of a custom layout that must measure the whole region.
+        AlignmentBoundary(trace: "window") { VStack(spacing: 0) {
             AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready && !m.error.isEmpty { Button(m.t("appmenu.reload")) { Task { await m.start() } } }
-            AlignmentBoundary { HStack(spacing: 0) {
-                if m.sidebarOpen { AlignmentBoundary { Sidebar(revealMembers: revealPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)) }.measuredRegion("sidebar", createsAccessibilityContainer: false) }
+            AlignmentBoundary(trace: "panes") { HStack(spacing: 0) {
+                if m.sidebarOpen { AlignmentBoundary(trace: "sidebar") { Sidebar(revealMembers: revealPhase >= 1) }.frame(width: sidebarWidth, height: regionHeight).measuredRegion("sidebar", createsAccessibilityContainer: false) }
                 if revealPhase < 2 { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else {
-                    AlignmentBoundary { ChatView().frame(minWidth: 0, maxWidth: .infinity) }.measuredRegion("conversation", createsAccessibilityContainer: false)
+                    AlignmentBoundary(trace: "chat") { ChatView() }.frame(width: chatWidth, height: regionHeight).measuredRegion("conversation", createsAccessibilityContainer: false)
                         .disabled(loadingOrganization)
                         .overlay {
                             if loadingOrganization {
@@ -50,14 +62,14 @@ struct MainView: View {
                     // one structural location across responsive breakpoints.
                     // Moving it between HStack and overlay destroys its native
                     // controls and rebuilds them inside the resize transaction.
-                    Color.clear.frame(width: min(panelWidth, m.windowSize.width - 48))
+                    Color.clear.frame(width: reservedPanel)
                 }
-            }.frame(maxHeight: .infinity) }.overlay(alignment: .trailing) {
+            } }.frame(maxHeight: .infinity).overlay(alignment: .trailing) {
                 if revealPhase >= 3 && m.panelOpen {
-                    AlignmentBoundary { inspector }.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
+                    AlignmentBoundary(trace: "inspector") { inspector }.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
                 }
             }
-        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading) }
+        } }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
         .background(alignment: .topLeading) { if !m.ready { NativeWarmup() } }
         .modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }
@@ -251,6 +263,10 @@ struct SheetContent: View {
 struct RightPane: View {
     @EnvironmentObject var m: Model
     @State private var presentedPane: String?
+    /// The pane and the organization it shows. Like another pane, another
+    /// organization's overview is built in its own turn after the switch
+    /// publishes, not inside the transaction that renders the switch.
+    private var paneKey: String { m.pane + "@" + m.organization }
     var floating = false
     var body: some View {
         VStack(spacing: 0) {
@@ -275,7 +291,7 @@ struct RightPane: View {
             }.padding(.leading, 8).padding(.trailing, 6).frame(height: 44)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card", owner: "relic-card/right-pane-header"))
                 .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/right-pane-header").accessibilityLabel("")
-            if presentedPane == m.pane { switch m.pane {
+            if presentedPane == paneKey { switch m.pane {
             case "workspace": WorkspaceView()
             case "files": FilePreview()
             case "thread": ThreadView()
@@ -283,14 +299,14 @@ struct RightPane: View {
             } } else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityHidden(true) }
         }.frame(maxHeight: .infinity, alignment: .top).padding(.leading, 1)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region", shadows: floating ? SurfaceShadow.dialog : [])).help(m.t("panel.resize"))
-            .task(id: m.pane) {
-                guard presentedPane != m.pane else { return }
+            .task(id: paneKey) {
+                guard presentedPane != paneKey else { return }
                 let ticket = PerformanceRendering.beginSurface(), turn = UUID()
                 defer { PerformanceRendering.endSurface(ticket) }
                 guard await RowMountQueue.shared.acquire(turn, label: "inspector." + m.pane) else { return }
                 defer { RowMountQueue.shared.release(turn) }
                 guard !Task.isCancelled else { return }
-                presentedPane = m.pane
+                presentedPane = paneKey
                 try? await Task.sleep(for: .milliseconds(32))
             }
     }

@@ -16,7 +16,10 @@ struct Overview: View {
             let scope = m.snapshot["org"]["id"].text + "/"
             ForEach(OverviewOutline.rows(snapshot: m.snapshot, liaison: m.overviewMode == "liaison").map { KeyedEntry(id: scope + $0.id, entry: $0) }) { keyed in
                 let entry = keyed.entry
-                ProgressiveRow(estimatedHeight: entry.kind == "introduction" ? 240 : entry.kind == "hierarchy" ? 260 : entry.kind == "decision" ? 120 : 60) {
+                ProgressiveRow(estimatedHeight: entry.kind == "introduction" ? 240 : entry.kind == "hierarchy" ? 260 : entry.kind == "decision" ? 120 : 60,
+                               // Only headings and one-line notes share a turn: four member or
+                               // protocol cards together made a 277 ms flush (run 41689887320).
+                               weight: entry.kind.hasSuffix("-heading") || ["empty", "nothing-open", "more-tasks", "details"].contains(entry.kind) ? 1 : RowMountQueue.budget) {
                 VStack(alignment: .leading, spacing: 0) {
                     if entry.kind == "introduction" { introduction }
                     else if entry.kind == "hierarchy" { HierarchyView() }

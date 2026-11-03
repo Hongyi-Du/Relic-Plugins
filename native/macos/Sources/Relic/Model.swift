@@ -125,6 +125,8 @@ import Combine
         get { dialogPresentation.sheet }
         set {
             guard newValue != dialogPresentation.sheet else { return }
+            // CI only: how long the transaction that shows or removes it takes.
+            UIWorkTrace.untilNextTurn(newValue != nil ? "dialog.open" : "dialog.close")
             activeSpeech?.stop()
             if newValue != nil {
                 if recipientPicker { recipientPicker = false }
@@ -326,6 +328,7 @@ import Combine
                     decisions: self.snapshot["decisions"].rows, words: self.words, now: self.displayNow, privateChat: !self.member.isEmpty)
                 guard !Task.isCancelled else { return }
                 if generation == self.conversationGeneration {
+                    UIWorkTrace.untilNextTurn("publish.stream")
                     self.streamRows = rows; self.streamVersion += 1; return
                 }
             }
@@ -362,6 +365,8 @@ import Combine
         }
     }
     private func refreshOnce() async throws {
+        // CI only: a background refresh's requests overlap chat switches.
+        let traced = UIWorkTrace.begin("refresh.once"); defer { UIWorkTrace.end(traced) }
         startupStage?("organizations")
         do {
             let updated = try await get("/api/orgs").rows
@@ -399,7 +404,7 @@ import Combine
         startupStage?("publish")
         let snapshotChanged = !(await Node.sameContent(snapshot, snap))
         guard selected == selection, navigation == navigationGeneration else { return }
-        if snapshotChanged { snapshot = snap; revision += 1 }
+        if snapshotChanged { UIWorkTrace.untilNextTurn("publish.snapshot"); snapshot = snap; revision += 1 }
         if !hadHistory { moreChat = chat["more"].flag }
         let chatKey = member.isEmpty ? "group" : "member:" + member
         if !snap["chats"][chatKey]["last"]["id"].isNull { defaults.set(snap["chats"][chatKey]["last"]["id"].integer, forKey: "seen." + organization + "/" + chatKey) }
@@ -518,6 +523,10 @@ import Combine
 
     private func loadSelectedChat(_ selected: ChatSelection, generation: Int, record: Bool) async throws {
         guard !selected.org.isEmpty else { return }
+        // CI only: how long a chat's requests and its background preparation
+        // take, and how often a change elsewhere restarts that preparation.
+        let loading = UIWorkTrace.begin("load.chat"); defer { UIWorkTrace.end(loading) }
+        let requesting = UIWorkTrace.begin("load.requests"); defer { UIWorkTrace.end(requesting) }
         let query = selected.member.isEmpty ? "/chat?kind=group&limit=200"
             : "/chat?kind=private&member=" + Client.segment(selected.member) + "&limit=200"
         // Like the reference, a chat switch inside the open organization only
@@ -532,7 +541,11 @@ import Combine
         async let liveRequest = optionalChatResource(who["embedded"].flag, path: selected.path("/live?member=" + Client.segment(selected.member)))
         async let transcriptRequest = optionalChatResource(who["has_transcript"].flag, path: selected.path("/convo?member=" + Client.segment(selected.member)))
         let (chat, live, transcript) = try await (chatRequest, liveRequest, transcriptRequest)
+        UIWorkTrace.end(requesting)
+        var attempt = 0
         while !Task.isCancelled, generation == navigationGeneration {
+            attempt += 1; if attempt > 1 { UIWorkTrace.count("load.restarted") }
+            let preparing = UIWorkTrace.begin("load.prepare")
             let sameChat = selected == selection
             let messageRevision = messageGeneration, liveRevision = liveGeneration, presentationRevision = conversationGeneration
             let current = sameChat ? messages : []
@@ -551,7 +564,8 @@ import Combine
             let rows = changed ? await ConversationRow.prepare(messages: merged, steps: transcript["steps"].rows,
                 member: who, live: nextLive, status: nextStatus, decisions: snap["decisions"].rows,
                 words: words, now: displayNow, privateChat: !selected.member.isEmpty) : streamRows
-            guard !Task.isCancelled, generation == navigationGeneration else { return }
+            UIWorkTrace.end(preparing)
+            guard !Task.isCancelled, generation == navigationGeneration else { UIWorkTrace.count("load.superseded"); return }
             // Rebase a current-chat refresh if history or SSE advanced while
             // the background projection was running. New-chat replies never
             // merge the old displayed chat's messages into the requested chat.
@@ -563,6 +577,7 @@ import Combine
                 conversationTask?.cancel(); conversationTask = nil; conversationTaskID = nil
                 conversationGeneration += 1
                 preparationSuspended += 1
+                UIWorkTrace.untilNextTurn(selected.org != organization ? "publish.organization" : !sameChat ? "publish.chat" : "publish.refresh")
                 if !sameChat { changeSelection(selected, record: record, clearContent: false) }
                 if !sameSnapshot { snapshot = snap; revision += 1 }
                 if !sameMessages || !sameChat { messages = merged }

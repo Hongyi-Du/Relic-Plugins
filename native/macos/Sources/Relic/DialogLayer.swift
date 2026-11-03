@@ -45,7 +45,7 @@ struct DialogLayer: View {
                 .accessibilityElement(children: .contain).accessibilityIdentifier(scrimIdentity).accessibilityLabel("")
                 .onTapGesture { m.sheet = nil }
             // The ZStack centers the panel without measuring its content again.
-            AlignmentBoundary { panel }
+            AlignmentBoundary(trace: "dialog") { panel }
                 .offset(x: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).x : 0,
                         y: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).y : 0)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)

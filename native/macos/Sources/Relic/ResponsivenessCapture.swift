@@ -33,6 +33,11 @@ import RelicCore
             let watchdog = ResponsivenessWatchdog(output: output); monitor = watchdog
             watchdog.samplesStartup = phase != .workflows
             watchdog.samplesEarlyStalls = phase != .workflows
+            // Diagnostic switch, history and monkey runs sample 20 s
+            // of the phase instead: sample starts about 20 s late, so the
+            // early-stall and first-stall samples held unrelated later work.
+            let samplesPhase = env["RELIC_PERF_DIAGNOSTIC"] == "true" && [.switchChats, .history, .monkey].contains(phase)
+            if samplesPhase { watchdog.samplesStartup = false; watchdog.samplesEarlyStalls = false; watchdog.samplesFirstStall = false }
             for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
             let fixture = manifest["fixture"]
             let suite = "Relic.Responsiveness." + UUID().uuidString
@@ -51,29 +56,34 @@ import RelicCore
             await settle()
             // Framework initialization is complete; all organization loading,
             // layout, parsing and events are included from this point onward.
+            // The idle phase measures CPU; it does not need the run loop timer.
+            if phase != .idle { UIWorkTrace.observeRunLoop() }
+            if watchdog.sampleStartupNow() {
+                startupSamplerSeen = try await waitForSampler("startup-diagnostic", output: output)
+            }
             watchdog.begin()
             current.startupStage = { watchdog.action("startup:" + $0) }
             await current.start()
             current.startupStage = nil
             guard current.ready else { throw RelicError.message(current.error) }
             try await settleConversation(current)
-            // A diagnostic workflows run studies the first dialog. An earlier
-            // failure's 30 s retention can end the run before the manifest's
-            // dialogs, so it opens the first chat, then the dialogs, then the
-            // rest. Acceptance runs keep the manifest's order.
-            let rows = manifest["plan"].rows
-            let studiesDialogs = env["RELIC_PERF_DIAGNOSTIC"] == "true" && phase == .workflows && !rows.isEmpty
-            let plan = studiesDialogs
-                ? [rows[0]] + rows.dropFirst().filter { $0["kind"].text == "dialog" } + rows.dropFirst().filter { $0["kind"].text != "dialog" } : rows
-            var quietedBeforeDialog = false
+            // Every run keeps the manifest's order. A diagnostic workflows run
+            // samples the settings dialog where acceptance opens it: warm,
+            // after the large group chat, panes and menus before it. The
+            // sampler arms when the phase reaches that dialog.
+            let plan = manifest["plan"].rows
+            // Diagnostic runs sample the last organization opened by pointer
+            // (the largest in the large profile) from its click on.
+            if env["RELIC_PERF_DIAGNOSTIC"] == "true", phase == .openEveryChat,
+               let last = plan.last(where: { $0["kind"].text == "organization" }) {
+                watchdog.armedStage = last["id"].text + ":organization"
+                watchdog.samplesEarlyStalls = false
+                armedActionID = last["id"].text
+            }
+            if samplesPhase, watchdog.samplePhaseNow(seconds: 20) {
+                phaseSamplerSeen = try await waitForSampler("phase", output: output)
+            }
             for action in plan {
-                if studiesDialogs, !quietedBeforeDialog, action["kind"].text == "dialog" {
-                    // Let the chat finish its row admission and Markdown first,
-                    // so the dialog's sample holds the dialog, not that work.
-                    quietedBeforeDialog = true
-                    try await settleConversation(current)
-                    try await Task.sleep(for: .seconds(3))
-                }
                 defer {
                     watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
                         "actions": receipts, "random_seconds": randomSeconds, "random_actions": randomActions])
@@ -110,6 +120,8 @@ import RelicCore
                         let work = UIWorkTrace.shared.counts()
                         var completed = try await perform(action, model: current, window: window, output: output, phase: phase)
                         completed["ui_work"] = UIWorkTrace.shared.delta(since: work)
+                        let reading = ReadingPositionTrace.take()
+                        if !reading.isEmpty { completed["reading_position"] = reading }
                         receipt = completed
                     }
                     receipts.append(receipt)
@@ -140,6 +152,8 @@ import RelicCore
                 let work = UIWorkTrace.shared.counts()
                 var receipt = try await perform(action, model: current, window: window, output: output, phase: phase)
                 receipt["ui_work"] = UIWorkTrace.shared.delta(since: work)
+                let reading = ReadingPositionTrace.take()
+                if !reading.isEmpty { receipt["reading_position"] = reading }
                 if receipt["passed"] as? Bool == false { throw RelicError.message((receipt["errors"] as? [String] ?? ["Monkey navigation failed"]).joined(separator: "; ")) }
                 random = random &* 6364136223846793005 &+ 1442695040888963407
                 let targets = ["sidebar", "menu:file", "menu:edit", "menu:view", "menu:help", "pane:overview", "pane:workspace", "pane:files"]
@@ -174,18 +188,79 @@ import RelicCore
                 catch { errors.append(String(describing: error)) }
             }
         }
+        // Diagnostic only: keep the process until the phase sample is written.
+        if phaseSamplerSeen != nil, let output = captureOutput { try? await waitForSample("phase", output: output) }
         let independentTruth = !phase.usesPointerNavigation || receipts.filter { ["organization", "group", "private"].contains($0["kind"] as? String ?? "") }
             .allSatisfy { $0["amendment9_eligible"] as? Bool == true }
         monitor?.finish(["phase": phase.rawValue, "fixture_profile": fixtureProfile, "profile": fixtureProfile,
                          "amendment9_eligible": phase != .legacy && env["RELIC_PERF_DIAGNOSTIC"] != "true" && independentTruth,
                          "actions": receipts, "errors": errors, "random_seconds": randomSeconds,
                          "random_actions": randomActions, "seed": seed, "idle_interval": idleInterval,
-                         "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState])
+                         "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState,
+                         "reading_position": ReadingPositionTrace.summary(),
+                         "startup_sampler_seen_after_ms": startupSamplerSeen.map { $0 as Any } ?? NSNull(),
+                         "phase_sampler_seen_after_ms": phaseSamplerSeen.map { $0 as Any } ?? NSNull()])
         model?.stop(); activeWindow?.orderOut(nil); activeWindow?.contentView = nil; activeWindow?.close()
         display?.restore(); NSApp.terminate(nil)
     }
 
     private static var diagnosedDialog = false
+    private static var armedActionID: String?
+    private static var startupSamplerSeen: Double?, phaseSamplerSeen: Double?
+    /// Diagnostic runs only: wait until a sample just started is actually
+    /// sampling. Its first line comes long before its first sample (about
+    /// 20 s on the CI runners), so the samples that began work 150 ms after
+    /// that line held later, unrelated work instead. Returns how long the
+    /// sampling took to be seen after the line, or nil if it was not seen.
+    @discardableResult
+    private static func waitForSampler(_ name: String, output: URL) async throws -> Double? {
+        let log = output.appendingPathComponent(name + ".sampler.log")
+        let deadline = ProcessInfo.processInfo.systemUptime + 6
+        while ProcessInfo.processInfo.systemUptime < deadline,
+              !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let seen = await samplerSuspensions(timeout: 45)
+        try await Task.sleep(for: .milliseconds(300))
+        return seen
+    }
+    /// Diagnostic runs only: how long until sample is seen sampling this
+    /// process (nil if not within the timeout). Each sample suspends the
+    /// whole task; a thread that reads the clock in a loop sees those
+    /// suspensions as regular gaps, about one every 3 ms, which ordinary
+    /// preemption on an otherwise idle process does not produce.
+    private static func samplerSuspensions(timeout: Double) async -> Double? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Double?, Never>) in
+            let thread = Thread {
+                func now() -> Double { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000 }
+                let started = now()
+                var last = started, window = started, gaps = 0
+                while last - started < timeout {
+                    let current = now()
+                    if current - last > 0.00025 { gaps += 1 }
+                    last = current
+                    if current - window >= 0.1 {
+                        if gaps >= 15 { continuation.resume(returning: (current - started) * 1000); return }
+                        gaps = 0; window = current
+                    }
+                }
+                continuation.resume(returning: nil)
+            }
+            thread.qualityOfService = .userInitiated
+            thread.start()
+        }
+    }
+    /// Diagnostic runs only: wait until sample has written its file, so the
+    /// phase cannot end while it is still symbolicating, and the actions
+    /// after it run without the sampler's own load.
+    private static func waitForSample(_ name: String, output: URL) async throws {
+        let log = output.appendingPathComponent(name + ".sampler.log")
+        let deadline = ProcessInfo.processInfo.systemUptime + 90
+        while ProcessInfo.processInfo.systemUptime < deadline,
+              !((try? String(contentsOf: log, encoding: .utf8))?.contains("written to file") ?? false) {
+            try await Task.sleep(for: .milliseconds(250))
+        }
+    }
     private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL, phase: PerformancePhase = .legacy) async throws -> [String: Any] {
         let env = ProcessInfo.processInfo.environment
         let started = ProcessInfo.processInfo.systemUptime, kind = action["kind"].text
@@ -193,6 +268,7 @@ import RelicCore
         m.appMenu = nil; m.sheet = nil
         switch kind {
         case "organization", "group", "private":
+            if action["id"].text == armedActionID { armedActionID = nil; try await waitForSampler("armed-action", output: output) }
             if phase.usesPointerNavigation { return await PerformanceNavigation.open(action, phase: phase, model: m, window: window) }
             try await m.select(action["org"].text, kind == "private" ? action["member"].text : "")
             try await settleConversation(m)
@@ -211,17 +287,15 @@ import RelicCore
         case "dialog":
             // Diagnostic runs sample the first dialog from its start. Give the
             // sampler time to attach before the cold presentation begins.
-            if env["RELIC_PERF_DIAGNOSTIC"] == "true", !diagnosedDialog {
-                // /usr/bin/sample prints its first line once it is attached.
-                // Open the dialog only then, or the sample misses its first frame.
+            let sampled = env["RELIC_PERF_DIAGNOSTIC"] == "true" && !diagnosedDialog
+            if sampled {
+                // /usr/bin/sample prints its first line long before it takes
+                // its first sample: samples whose dialog opened 150 ms, 3 s and
+                // 10 s after that line held only the idle wait that followed.
+                // Open it once the sample is seen suspending this process.
                 diagnosedDialog = true
-                let log = output.appendingPathComponent("first-dialog.sampler.log")
-                let deadline = ProcessInfo.processInfo.systemUptime + 6
-                while ProcessInfo.processInfo.systemUptime < deadline,
-                      !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
-                    try await Task.sleep(for: .milliseconds(20))
-                }
-                try await Task.sleep(for: .milliseconds(150))
+                let seen = try await waitForSampler("first-dialog", output: output)
+                result["sampler_seen_after_ms"] = seen.map { $0 as Any } ?? NSNull()
             }
             result["responder_before"] = responder(window)
             // Wall-clock marks in the stall records' clock: a long probe can
@@ -239,6 +313,10 @@ import RelicCore
             result["close_requested_unix_ms"] = Date().timeIntervalSince1970 * 1000
             m.sheet = nil; try await settleConversation(m); result["responder_after"] = responder(window)
             result["closed_unix_ms"] = Date().timeIntervalSince1970 * 1000
+            // The dialogs come last in the workflows phase. Without this wait
+            // the phase ended while sample was still symbolicating, and the
+            // runner collected no first-dialog sample.
+            if sampled { try await waitForSample("first-dialog", output: output) }
         case "scroll-history":
             try await m.select(action["org"].text); try await settleConversation(m)
             while m.moreChat {

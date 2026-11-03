@@ -239,7 +239,12 @@ enum PerformancePhase: String {
         if let root = view.window?.contentView { rect = rect.intersection(view.convert(root.bounds, from: root)) }
         return !rect.isNull && rect.width > 1 && rect.height > 1
     }
-    private static func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    /// Every view under `view`, without rebuilding an array per level.
+    private static func descendants(_ view: NSView) -> [NSView] {
+        var result: [NSView] = [], pending = [view]
+        while let next = pending.popLast() { result.append(next); pending.append(contentsOf: next.subviews) }
+        return result
+    }
 
     private static func revealOrganization(_ id: String, model: Model, window: NSWindow, receipts: inout [[String: Any]]) async throws {
         var ancestors: [String] = [], cursor = id, visited: Set<String> = []
@@ -270,7 +275,11 @@ enum PerformancePhase: String {
                 if probe.clippedBounds.height >= min(20, probe.bounds.height), probe.clippedBounds.width > 20 { return }
                 _ = probe.scrollToVisible(probe.bounds)
             } else if let root = window.contentView,
-                      let scroll = descendants(root).compactMap({ $0 as? NSScrollView }).first(where: { $0.accessibilityIdentifier() == "relic-performance-sidebar" }),
+                      // The registered sidebar scroll view; a walk of every view in a
+                      // large window took the main thread for up to ~300 ms each time
+                      // this loop looked (every 50 ms while a row was not yet built).
+                      let scroll = NativeScrollOwner.scroll("relic-performance-sidebar", in: window)
+                          ?? descendants(root).compactMap({ $0 as? NSScrollView }).first(where: { $0.accessibilityIdentifier() == "relic-performance-sidebar" }),
                       let document = scroll.documentView {
                 // Let the actual lazy rows at this viewport finish mounting
                 // before paging past them. This is untimed target positioning,

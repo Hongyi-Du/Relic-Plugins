@@ -7,6 +7,27 @@ import RelicCore
 /// never the whole loaded history in one AppKit table update.
 struct ConversationWindow: Equatable {
     static let initial = 24, page = 16, maximum = 72
+    /// A newly opened chat's List first receives only its latest rows, at
+    /// least `tail` and enough by their placeholder heights to fill the
+    /// window; the rest of `initial` arrive `step` rows at a time in later
+    /// turns. Building two dozen table rows (a hosting view, pointer regions
+    /// and an automatic height each) in the switch's own transaction stalled it.
+    static let tail = 8, step = 8
+    static func tailCount(of rows: [ConversationRow], filling height: CGFloat) -> Int {
+        fillCount(rows.reversed(), height: height)
+    }
+    /// The same for a jump to the first loaded rows (Home).
+    static func headCount(of rows: [ConversationRow], filling height: CGFloat) -> Int {
+        fillCount(rows, height: height)
+    }
+    private static func fillCount<S: Sequence>(_ rows: S, height: CGFloat) -> Int where S.Element == ConversationRow {
+        var count = 0, total: CGFloat = 0
+        for row in rows where count < initial {
+            if count >= tail && total >= height { break }
+            count += 1; total += ConversationRowContent.estimatedHeight(row)
+        }
+        return max(tail, count)
+    }
     /// The chat this window belongs to. Another chat starts at its own tail.
     var selection = ""
     /// First shown row while reading history; `nil` keeps the newest rows.
@@ -39,9 +60,15 @@ struct ConversationWindow: Equatable {
 /// the reading window, an opened dialog) must not rebuild and measure every
 /// visible message again: a row updates when its own presentation changes.
 /// The message still observes the model fields it reads itself.
-private struct ConversationRowContent: View, Equatable {
+struct ConversationRowContent: View, Equatable {
     let row: ConversationRow
     let compact: Bool
+    /// The placeholder height a row has until its own turn builds it. A
+    /// continued message (same author, shortly after) has no avatar or name
+    /// line and is usually one or two lines.
+    static func estimatedHeight(_ row: ConversationRow) -> CGFloat {
+        row.item["type"].text == "notice" ? 32 : row.continued ? 40 : 100
+    }
     static func == (a: Self, b: Self) -> Bool {
         a.compact == b.compact && a.row.id == b.row.id && a.row.continued == b.row.continued
             && a.row.separator == b.row.separator && a.row.clockLabel == b.row.clockLabel
@@ -53,8 +80,28 @@ private struct ConversationRowContent: View, Equatable {
         let left = a.raw as AnyObject, right = b.raw as AnyObject
         return left === right || (left as? NSObject)?.isEqual(right) == true
     }
+    /// CI only: which kind of row a mount turn built, so the traces show
+    /// what each kind costs (mount-turn.row.conversation.<kind>).
+    static func workLabel(_ row: ConversationRow) -> String {
+        let kind = row.item["type"].text
+        if kind == "notice" || kind == "acts" || kind == "receipt" { return "row.conversation." + kind }
+        let blocks = row.preparedBody?.blocks ?? []
+        if blocks.contains(where: { $0.kind == "table" }) { return "row.conversation.table" }
+        if blocks.contains(where: { $0.kind == "code" }) { return "row.conversation.code" }
+        let length = (row.item["body"].text.isEmpty ? row.item["text"].text : row.item["body"].text).utf16.count
+        return length > 2000 ? "row.conversation.long" : "row.conversation.message"
+    }
+    /// What admitting this row costs, in RowMountQueue.budget units. Only
+    /// one-line rows (notices, activity groups, receipts) share a turn; a
+    /// message keeps a turn of its own. Two messages admitted together
+    /// made one 252 ms flush in CI (run 41689887320, large switch-chats).
+    static func mountWeight(_ row: ConversationRow) -> Int {
+        let kind = row.item["type"].text
+        return kind == "notice" || kind == "acts" || kind == "receipt" ? 1 : RowMountQueue.budget
+    }
     var body: some View {
-        ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
+        ProgressiveRow(estimatedHeight: Self.estimatedHeight(row), workLabel: UIWorkTrace.enabled ? Self.workLabel(row) : nil,
+                       weight: Self.mountWeight(row)) {
             VStack(alignment: .leading, spacing: 0) {
                 if let separator = row.separator {
                     PlainLabel(separator, size: 11.5, color: RelicStyle.muted).lineLimit(1)
@@ -76,6 +123,8 @@ private struct ConversationRowContent: View, Equatable {
 /// application supplies a bounded window of identities and reading intent,
 /// never virtual offsets.
 struct ConversationStream: View {
+    /// The List's leading space row; AppKit rejects a zero row height.
+    static let startHeight: CGFloat = 8
     @EnvironmentObject var m: Model
     @Environment(\.isEnabled) private var enabled
     @FocusState private var viewportFocused: Bool
@@ -114,7 +163,7 @@ struct ConversationStream: View {
                     let all = presented
                     let range = window.range(in: all, selection: m.selection.key)
                     List {
-                        Color.clear.frame(height: 8).id("start").accessibilityHidden(true)
+                        Color.clear.frame(height: Self.startHeight).id("start").accessibilityHidden(true)
                             .background(mount)
                             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
                         let rows = mountedRows ? Array(all[range]) : []
@@ -196,22 +245,44 @@ struct ConversationStream: View {
                 // List receive the changed collection before its one semantic
                 // request. It retains the same native viewport.
                 let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
-                if presentedKey != key { presented = m.streamRows; presentedKey = key; await Task.yield() }
+                if presentedKey != key {
+                    // Another chat's rows start from the latest few; the rest
+                    // of its window is admitted above them in later turns.
+                    let anotherChat = !presentedKey.hasPrefix(m.selection.key + "#")
+                    UIWorkTrace.untilNextTurn(anotherChat ? "stream.adopt-chat" : "stream.adopt")
+                    presented = m.streamRows; presentedKey = key
+                    let tail = ConversationWindow.tailCount(of: presented, filling: m.windowSize.height)
+                    if anotherChat, window.anchor == nil, window.selection == m.selection.key, window.count > tail {
+                        window.count = tail
+                    }
+                    await Task.yield()
+                }
                 await Task.yield()
                 guard !Task.isCancelled else { return }
+                // CI only: where the row being read is now (when AppKit's update
+                // did not already report it), then whether it stayed there.
+                ReadingPositionTrace.after(scroll: keyboard.scroll)
+                ReadingPositionTrace.settle(scroll: keyboard.scroll)
                 // An earlier server page arrived above the oldest shown row:
                 // show one page of it while the same row stays at the top.
                 if revealRequestedOlderRows() { return }
                 let target = reveal; reveal = nil
                 switch target {
-                case .top(let id): proxy.scrollTo(id, anchor: .top)
+                case .top(let id): if !keyboard.releaseHold() { proxy.scrollTo(id, anchor: .top) }
                 case .bottom(let id): proxy.scrollTo(id, anchor: .bottom)
                 case .start: proxy.scrollTo("start", anchor: .top)
                 case .latest: seekLatest(proxy)
-                case nil: if followsLatest { seekLatest(proxy) }
+                // Earlier rows admitted above keep the latest row in place; a
+                // scroll request there only costs the List another update.
+                case nil:
+                    // The rows admitted above have been received; end their hold.
+                    _ = keyboard.releaseHold()
+                    if followsLatest, !keyboard.showsEnd { seekLatest(proxy) }
                 }
+                await admitWindowRows()
             }
             .onChange(of: m.selection) {
+                _ = keyboard.releaseHold()
                 keyboard.discardDisclosurePosition(); followsLatest = true
                 preservingDisclosure = false; keyboard.observedHeight = 0
                 window = ConversationWindow(selection: m.selection.key); reveal = nil; olderRequest = nil; pinsTop = false
@@ -244,13 +315,16 @@ struct ConversationStream: View {
                 keyboard.scrollToEdge = { top in
                     preservingDisclosure = false; olderRequest = nil
                     let all = presented, key = m.selection.key
+                    _ = keyboard.releaseHold()
                     if top {
                         followsLatest = false; pinsTop = true
-                        let end = min(all.count, ConversationWindow.initial)
+                        // The first rows that fill the window now, the rest of
+                        // the window below them in later turns (admitWindowRows).
+                        let end = min(all.count, ConversationWindow.headCount(of: all, filling: m.windowSize.height))
                         request(.start, window: end < all.count ? ConversationWindow.pinned(0..<end, in: all, selection: key) : ConversationWindow.showing(0..<end, in: all, selection: key))
                     } else {
                         followsLatest = true; pinsTop = false
-                        request(.latest, window: ConversationWindow(selection: key))
+                        request(.latest, window: ConversationWindow(selection: key, count: ConversationWindow.tailCount(of: all, filling: m.windowSize.height)))
                     }
                 }
                 keyboard.geometryChanged = { geometry in
@@ -290,13 +364,65 @@ struct ConversationStream: View {
     private func request(_ target: Reveal, window next: ConversationWindow) {
         window = next; reveal = target; revealRequest &+= 1
     }
+    /// A window following the latest message (a newly opened chat, End) that
+    /// does not yet hold `initial` rows grows above the rows shown.
+    private var growsAbove: Bool {
+        followsLatest && window.anchor == nil && window.selection == m.selection.key && shownRange.lowerBound > 0
+    }
+    /// A window that jumped to the first loaded rows (Home) grows below them
+    /// while those rows stay pinned at the top.
+    private var growsBelow: Bool {
+        pinsTop && !followsLatest && window.selection == m.selection.key && window.anchor != nil
+            && window.anchor == presented.first?.id && shownRange.upperBound < presented.count
+    }
+    /// The rest of such a window arrives `step` rows at a time, one bounded
+    /// table insertion per display turn, away from the rows being read; this
+    /// task restarts after each. It stops once the person scrolls (the window
+    /// is then pinned elsewhere), a page arrives or another chat opens.
+    private func admitWindowRows() async {
+        guard window.count < ConversationWindow.initial, growsAbove || growsBelow else { return }
+        // Let the rows this update shows ask for their turns first, so the
+        // latest row (priority 20) is built before these offscreen rows.
+        try? await Task.sleep(for: .milliseconds(16))
+        let turn = UUID()
+        guard !Task.isCancelled, await RowMountQueue.shared.acquire(turn, label: "conversation-earlier", priority: 15) else { return }
+        let above = growsAbove
+        guard !Task.isCancelled, window.count < ConversationWindow.initial, above || growsBelow else { RowMountQueue.shared.release(turn); return }
+        let next = min(ConversationWindow.initial, window.count + ConversationWindow.step)
+        if above {
+            if let latest = latestID { ReadingPositionTrace.before("earlier-rows", row: latest, top: false, scroll: keyboard.scroll) }
+            // Hold the last table row (the latest message or the live turn)
+            // where it is while the rows go in above it. AppKit's update
+            // moved the content for them, but the frame it committed showed
+            // the latest row pushed down by their whole height (64-2,900 pt in
+            // CI) until this stream's next update scrolled it back. A hold,
+            // as for an older page, is applied inside that update instead.
+            let all = presented, size = min(max(1, next), ConversationWindow.maximum)
+            let inserted = max(0, shownRange.lowerBound - max(0, all.count - size))
+            if inserted > 0, let rows = (keyboard.scroll?.documentView as? NSTableView)?.numberOfRows, rows > 1 {
+                keyboard.hold(row: rows - 1 + inserted, currentIndex: rows - 1, rows: rows + inserted)
+            }
+        }
+        window.count = next
+        // Changing the window restarts this task; that cancellation ends the
+        // turn once the List has received the rows.
+        do { try await Task.sleep(for: .milliseconds(32)) } catch { RowMountQueue.shared.release(turn); return }
+        RowMountQueue.shared.release(turn)
+    }
     /// Page one bounded step toward older loaded rows, keeping the current
     /// first row at the top. Newer rows beyond the window size are released.
     private func showOlder(_ all: [ConversationRow], above range: Range<Int>) {
         pinsTop = false
         let anchor = all[range.lowerBound].id
+        ReadingPositionTrace.before("older-page", row: anchor, top: true, scroll: keyboard.scroll)
         let start = max(0, range.lowerBound - ConversationWindow.page)
         let end = min(range.upperBound, start + ConversationWindow.maximum)
+        // Table rows: the leading space, then the shown messages (and a live
+        // turn after them). The first shown row is held at its distance from
+        // the top while the older page goes in above it.
+        if let rows = (keyboard.scroll?.documentView as? NSTableView)?.numberOfRows {
+            keyboard.hold(row: 1 + range.lowerBound - start, currentIndex: 1, rows: rows - range.count + (end - start))
+        }
         request(.top(anchor), window: end < all.count ? ConversationWindow.pinned(start..<end, in: all, selection: m.selection.key)
                                                       : ConversationWindow.showing(start..<end, in: all, selection: m.selection.key))
     }
@@ -305,6 +431,7 @@ struct ConversationStream: View {
     private func showNewer(_ all: [ConversationRow], below range: Range<Int>) {
         pinsTop = false
         let anchor = all[range.upperBound - 1].id
+        ReadingPositionTrace.before("newer-page", row: anchor, top: false, scroll: keyboard.scroll)
         let end = min(all.count, range.upperBound + ConversationWindow.page)
         let start = max(range.lowerBound, end - ConversationWindow.maximum)
         request(.bottom(anchor), window: end < all.count ? ConversationWindow.pinned(start..<end, in: all, selection: m.selection.key)
@@ -338,7 +465,7 @@ struct ConversationStream: View {
             // The newest rows are outside the window: show them first, then
             // scroll after the List has received that bounded collection.
             pinsTop = false
-            request(.latest, window: ConversationWindow(selection: m.selection.key)); return
+            request(.latest, window: ConversationWindow(selection: m.selection.key, count: ConversationWindow.tailCount(of: all, filling: m.windowSize.height))); return
         }
         if let id = latestID { proxy.scrollTo(id, anchor: .bottom) }
     }

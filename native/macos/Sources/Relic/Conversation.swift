@@ -688,12 +688,13 @@ struct ComposerView: View {
             }
             // The editor's AppKit text system and the inline command controls
             // are separate cold mounts. Keep them on distinct UI turns, using
-            // the same bounded queue as message and inspector rows.
-            ProgressiveRow(estimatedHeight: 26.4) {
+            // the same bounded queue as message and inspector rows, each with
+            // a whole turn's weight.
+            ProgressiveRow(estimatedHeight: 26.4, weight: RowMountQueue.budget) {
                 MentionEditor(text: $m.draft, placeholder: placeholder, focusChanged: { focused = $0 }, members: m.member.isEmpty ? m.members : [], onMention: { who in m.recipients.removeAll { $0 == "all" }; if !m.recipients.contains(who) { m.recipients.append(who) } }, send: send)
                     .accessibilityLabel(placeholder)
             }
-            ProgressiveRow(estimatedHeight: 32) {
+            ProgressiveRow(estimatedHeight: 32, weight: RowMountQueue.budget) {
             HStack(spacing: 6) {
                 if m.member.isEmpty {
                     Button {
@@ -757,7 +758,7 @@ struct ThreadView: View {
                     ReferenceLabel(m.t(m.threadData["replies"].rows.isEmpty ? "thread.no_replies" : "thread.replies", ["n": String(m.threadData["replies"].rows.count)]), size: 12, color: RelicStyle.muted).padding(.horizontal, 16).padding(.top, 10)
                         .accessibilitySortPriority(Double(rows.count * 2 + 3))
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        ProgressiveRow(estimatedHeight: 100, workLabel: "thread-reply") {
+                        ProgressiveRow(estimatedHeight: 100, workLabel: "thread-reply", weight: RowMountQueue.budget) {
                             MessageView(item: row.item, inThread: true, continued: row.continued, preparedBody: row.preparedBody)
                                 .onAppear { PerformanceRendering.rowAppeared("thread") }
                                 .onDisappear { PerformanceRendering.rowDisappeared("thread") }

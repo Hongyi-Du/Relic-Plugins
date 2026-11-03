@@ -12,10 +12,18 @@ import SwiftUI
 /// overlay. No view in these regions defines an explicit guide, so the merged
 /// answer was always the default one the region now gives directly.
 struct AlignmentBoundary: Layout {
+    /// CI only: names this region's measuring and placing in the UI work
+    /// traces ("layout.<name>", "place.<name>"), so a slow transaction names
+    /// the region whose layout it spent its time in.
+    var trace: String? = nil
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        subviews.first?.sizeThatFits(proposal) ?? .zero
+        let token = UIWorkTrace.enabled ? trace.flatMap { UIWorkTrace.begin("layout." + $0) } : nil
+        defer { UIWorkTrace.end(token) }
+        return subviews.first?.sizeThatFits(proposal) ?? .zero
     }
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let token = UIWorkTrace.enabled ? trace.flatMap { UIWorkTrace.begin("place." + $0) } : nil
+        defer { UIWorkTrace.end(token) }
         subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: proposal)
     }
     func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }

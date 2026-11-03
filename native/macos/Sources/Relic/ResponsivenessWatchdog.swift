@@ -24,7 +24,16 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     private var pings = 0, sequence = 0
     private var stage = "startup"
     private var pendingStage = "startup"
+    /// The traced work totals when the pending probe was sent: a probe that
+    /// waits over 120 ms lists the work that ran meanwhile, finished or not.
+    private var pendingWork: [String: (calls: Int, ms: Double)] = [:]
+    private var pendingWorkVersion = -1
     private var stalls: [[String: Any]] = []
+    /// Probes that waited more than 120 ms, with the traced work still open
+    /// when each was answered: which actions come close to the 250 ms limit,
+    /// how often, and under what work. Written whenever it grows.
+    private var nearStalls: [[String: Any]] = []
+    private var nearStallsWritten = 0
     private var sampledStall = false
     private var sampledStartup = false
     private var sampledDialog = false
@@ -36,6 +45,12 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     /// Diagnostic runs only. Early-stall samples slow the actions before the
     /// one a phase studies; the workflows phase samples its first dialog instead.
     var samplesEarlyStalls = true
+    /// Diagnostic runs with a whole-phase sample skip the first-stall sample.
+    var samplesFirstStall = true
+    /// Diagnostic runs only: the stage whose start arms a two-second sample,
+    /// so a known heavy action is sampled from its click, not from its 250 ms.
+    var armedStage: String?
+    private var sampledArmed = false
     private var persistence = HeartbeatPersistence()
 
     init(output: URL) { self.output = output }
@@ -47,6 +62,24 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         timer.setEventHandler { [weak self] in self?.probe() }
         source = timer; timer.resume()
     }
+    /// Diagnostic runs only: start the startup sample now, before the
+    /// first request. sample takes its first sample many seconds after it
+    /// starts (about 20 s on the CI runners); the capture waits until it
+    /// sees it sampling before it begins the startup it should cover.
+    /// Diagnostic runs only: one long sample of the phase's actions.
+    func samplePhaseNow(seconds: Int) -> Bool {
+        guard diagnostic else { return false }
+        queue.async { self.sample("phase", seconds: seconds) }
+        return true
+    }
+    func sampleStartupNow() -> Bool {
+        lock.lock()
+        let sample = diagnostic && samplesStartup && !sampledStartup
+        if sample { sampledStartup = true }
+        lock.unlock()
+        if sample { queue.async { self.sample("startup-diagnostic", seconds: 12) } }
+        return sample
+    }
     func action(_ name: String) {
         let diagnostic = ProcessEnvironment.value("RELIC_PERF_DIAGNOSTIC") == "true"
         lock.lock(); stage = name
@@ -56,12 +89,15 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // from a failed probe, which sees only the end of a 300 ms stall.
         let sampleDialog = diagnostic && !sampledDialog && name.hasSuffix(":dialog")
         if sampleDialog { sampledDialog = true }
+        let sampleArmed = diagnostic && !sampledArmed && armedStage != nil && name == armedStage
+        if sampleArmed { sampledArmed = true }
         lock.unlock()
         // Diagnostic-only sampling begins before the cold native view layout.
         // Starting sample after a 250 ms failure misses a 300 ms stall entirely.
         // Normal acceptance retains its original workload and watchdog limit.
         if sample { queue.async { self.sample("startup-diagnostic", seconds: 8) } }
-        if sampleDialog { queue.async { self.sample("first-dialog", seconds: 2) } }
+        if sampleDialog { queue.async { self.sample("first-dialog", seconds: 16) } }
+        if sampleArmed { queue.async { self.sample("armed-action", seconds: 4) } }
     }
     var maximum: Double { lock.lock(); defer { lock.unlock() }; return worst }
     func recordActions(_ receipt: [String: Any]) {
@@ -91,7 +127,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let probeRunLoop = runLoopPending == 0
         if probeRunLoop { runLoopPending = now }
         let enqueue = pending == 0
-        let sampleStall = worst > 250 && !sampledStall
+        let sampleStall = worst > 250 && !sampledStall && samplesFirstStall
         if sampleStall { sampledStall = true }
         // Diagnostic runs only: a sample that starts after a 250 ms failure
         // sees idle time. Start while a main-thread block is still growing,
@@ -102,13 +138,21 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let earlyName = "early-stall-" + String(earlySamples)
         let earlyReceipt: [String: Any] = ["action": stage, "pending_ms": pending > 0 ? (now - pending) * 1000 : 0]
         let persist = persistence.shouldWrite(now: now, action: stage, worst: worst, unfinished: !enqueue)
-        if enqueue { pending = now; pendingEpoch = Self.epoch; pendingStage = stage }
+        if enqueue {
+            pending = now; pendingEpoch = Self.epoch; pendingStage = stage
+            let work = UIWorkTrace.shared.counts(ifChangedSince: pendingWorkVersion)
+            if let counts = work.counts { pendingWork = counts }
+            pendingWorkVersion = work.version
+        }
         if persist { sequence += 1 }
         let receipt: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage,
             "max_runloop_stall_ms": runLoopWorst, "runloop_pings": runLoopPings]
         let observations = stalls
+        let near = nearStalls.count != nearStallsWritten ? nearStalls : nil
+        if near != nil { nearStallsWritten = nearStalls.count }
         lock.unlock()
+        if let near { write(["probes_over_120ms": near], "near-stalls.json") }
         if probeRunLoop {
             // Supplemental observation only: the existing DispatchQueue probe
             // and its unchanged 250 ms gate remain authoritative. Compare actual
@@ -145,6 +189,12 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
                     self.stalls.append(["started_unix_ms": self.pendingEpoch, "milliseconds": delay,
                                        "started_action": self.pendingStage, "completed_action": self.stage])
                 }
+                if delay > 120, self.nearStalls.count < 400 {
+                    self.nearStalls.append(["started_unix_ms": self.pendingEpoch, "milliseconds": (delay * 10).rounded() / 10,
+                                            "started_action": self.pendingStage, "completed_action": self.stage,
+                                            "open_work": UIWorkTrace.shared.openScopes(),
+                                            "work_during": UIWorkTrace.shared.work(since: self.pendingWork)])
+                }
                 self.pending = 0; self.pendingEpoch = 0; self.pings += 1
                 self.lock.unlock()
             }
@@ -160,11 +210,11 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
         // A long 1 ms startup sample can spend the entire diagnostic retention
         // interval symbolicating millions of recursive SwiftUI frames and leave
-        // no file. A 10 ms interval covers the same eight seconds with bounded
-        // diagnostic overhead. The acceptance probes are completely separate.
-        // The first dialog's 2 s at 3 ms resolves a 300 ms stall and still
-        // finishes symbolicating within the 30 s diagnostic retention.
-        let interval = name == "startup-diagnostic" ? "10" : name == "first-dialog" ? "3" : "1"
+        // no file. A 5 ms interval over twelve seconds keeps that bounded. The
+        // acceptance probes are completely separate.
+        // The first dialog's 16 s at 3 ms resolves a 300 ms stall; the dialog
+        // action waits until sample has written it.
+        let interval = name == "startup-diagnostic" ? "5" : name == "first-dialog" ? "3" : name == "phase" ? "4" : name == "armed-action" ? "2" : "1"
         sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), interval, "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
         let log = output.appendingPathComponent(name + ".sampler.log")
         FileManager.default.createFile(atPath: log.path, contents: nil)

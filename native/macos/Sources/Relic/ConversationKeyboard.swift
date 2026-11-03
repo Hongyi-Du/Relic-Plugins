@@ -23,6 +23,8 @@ import SwiftUI
     private var scrollObservers: [NSObjectProtocol] = []
     private let mounts = NSHashTable<NSView>.weakObjects()
     private weak var observedDocument: NSView?
+    private struct HeldRow { let index: Int, rows: Int, offset: CGFloat; var applied = false }
+    private var held: HeldRow?
     private var disclosureOrigin: NSPoint?
     private var disclosureHeight: CGFloat = 0
     private var disclosureGeneration = 0
@@ -55,6 +57,13 @@ import SwiftUI
         scrollObservers.append(NotificationCenter.default.addObserver(forName: NSScrollView.didLiveScrollNotification, object: current, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.userScrolled() }
         })
+        if let document = current.documentView {
+            // Synchronous: AppKit posts this while the List applies an update,
+            // before the frame is displayed, so a correction here is never seen.
+            scrollObservers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.documentResized() }
+            })
+        }
         queueGeometry()
     }
     func detach(_ owner: NSView) {
@@ -81,6 +90,8 @@ import SwiftUI
         guard enabled, let scroll, let document = scroll.documentView else { return }
         let clip = scroll.contentView.bounds
         let gap = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+        // The person's own scroll owns the position from here on.
+        held = nil
         didUserScroll?(gap < 120)
     }
 
@@ -104,6 +115,51 @@ import SwiftUI
         clip.scroll(to: clip.constrainBoundsRect(target).origin)
         scroll.reflectScrolledClipView(clip)
         return true
+    }
+
+    /// Rows inserted above the viewport (an older page) move the content in
+    /// AppKit's update; the stream's own reveal scroll could only follow a
+    /// frame later, and the reader saw the rows jump by the whole page. Put
+    /// the held row back where it was inside the same update.
+    private func documentResized() {
+        guard let scroll, let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        var target = clip.bounds
+        if var row = held, let table = document as? NSTableView, table.numberOfRows == row.rows, row.index < row.rows {
+            let rect = table.rect(ofRow: row.index)
+            let top = table.isFlipped ? rect.minY - clip.bounds.minY : clip.bounds.maxY - rect.maxY
+            row.applied = true; held = row
+            if abs(top - row.offset) > 0.5 { target.origin.y += (table.isFlipped ? 1 : -1) * (top - row.offset) }
+        }
+        let constrained = clip.constrainBoundsRect(target)
+        if abs(constrained.origin.y - clip.bounds.origin.y) > 0.5 {
+            clip.scroll(to: constrained.origin); scroll.reflectScrolledClipView(clip)
+        }
+        ReadingPositionTrace.after(scroll: scroll)
+    }
+
+    /// Hold the table row that will sit at `index` once the List has `rows`
+    /// rows (the first row shown before an older page is inserted above it)
+    /// at its current distance from the viewport's top.
+    func hold(row index: Int, currentIndex: Int, rows: Int) {
+        guard let scroll, let table = scroll.documentView as? NSTableView, currentIndex < table.numberOfRows else { held = nil; return }
+        let clip = scroll.contentView, rect = table.rect(ofRow: currentIndex)
+        let top = table.isFlipped ? rect.minY - clip.bounds.minY : clip.bounds.maxY - rect.maxY
+        held = HeldRow(index: index, rows: rows, offset: top)
+    }
+    /// Ends the hold; true when it kept the row in place, so no reveal scroll is needed.
+    func releaseHold() -> Bool {
+        defer { held = nil }
+        return held?.applied == true
+    }
+
+    /// The viewport already shows the document's end: the latest row's bottom.
+    var showsEnd: Bool {
+        guard let scroll, let document = scroll.documentView else { return false }
+        let clip = scroll.contentView.bounds
+        guard document.frame.height > clip.height else { return false }
+        let gap = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+        return gap <= 1
     }
 
     func preserveDisclosurePosition() {

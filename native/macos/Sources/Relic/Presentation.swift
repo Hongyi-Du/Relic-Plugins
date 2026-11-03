@@ -21,6 +21,21 @@ import RelicCore
     }
 }
 
+/// A sidebar row's last-message preview, per message. The text of a stored
+/// message never changes; its id and source length identify it.
+@MainActor enum SidebarPreviews {
+    private static var values: [String: String] = [:]
+    static func text(id: String, source: String, make: () -> String) -> String {
+        guard !id.isEmpty else { return make() }
+        let key = id + "#" + String(source.utf16.count)
+        if let value = values[key] { return value }
+        let value = make()
+        if values.count >= 512 { values.removeAll(keepingCapacity: true) }
+        values[key] = value
+        return value
+    }
+}
+
 // These tables drive controls and state labels; wording is always fetched from /api/i18n.
 enum Choices {
     static let accents = [("clay", "native.color_clay"), ("ink", "native.color_ink"), ("indigo", "native.color_indigo"), ("blue", "native.color_blue"), ("rose", "native.color_rose"), ("amber", "native.color_amber")]
@@ -134,15 +149,20 @@ extension Model {
     }
     func lastLine(_ member: String = "") -> String {
         let last = snapshot["chats"][member.isEmpty ? "group" : "member:" + member]["last"]
-        if last["body"].text.isEmpty { return "" }
-        // The preview shows about 70 characters; never run its regular
-        // expressions over a whole long message on every sidebar update.
-        let body = String(last["body"].text.prefix(2000))
-            .replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"(?m)^>.*\n+"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let preview = body.count > 70 ? String(body.prefix(69)) + "…" : body
+        let source = last["body"].text
+        if source.isEmpty { return "" }
+        // Every sidebar row asks again on each chat switch and snapshot; a
+        // message's preview never changes, so its expressions run once.
+        let preview = SidebarPreviews.text(id: last["id"].text, source: source) {
+            // The preview shows about 70 characters; never run its regular
+            // expressions over a whole long message on every sidebar update.
+            let body = String(source.prefix(2000))
+                .replacingOccurrences(of: #"^\[Relic auto-receipt\]\s*"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"(?m)^>.*\n+"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return body.count > 70 ? String(body.prefix(69)) + "…" : body
+        }
         return t(last["type"].text == "receipt" ? "side.last_receipt" : "side.last_line", ["name": name(last["from"].text), "text": preview])
     }
     func decisionTitle(_ decision: Node) -> String {
