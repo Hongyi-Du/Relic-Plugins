@@ -41,6 +41,7 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         StartupFontWarmup.Start();
+        StartupPrefetch.Start();
         window = new MainWindow(); window.Activate();
     }
 }

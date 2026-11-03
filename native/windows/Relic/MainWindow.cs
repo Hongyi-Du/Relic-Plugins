@@ -219,6 +219,8 @@ public sealed partial class MainWindow : Window
                 // let the font warm-up finish first (see StartupFontWarmup.Ready).
                 using (PerformanceTrace.Measure("startup.fonts.wait")) await StartupFontWarmup.Ready(TimeSpan.FromSeconds(2.5));
                 ApplyAppearance(); DrawMenu(); StartPerformanceProbe(); await Refresh();
+                // Modules the first load brought in are read ahead too.
+                StartupPrefetch.Start();
                 // The successfully opened startup conversation is the first
                 // navigation entry, so the first later selection can go back.
                 if (org.Length > 0) PushHistory();
