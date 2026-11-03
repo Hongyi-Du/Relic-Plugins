@@ -106,6 +106,15 @@ import SwiftUI
         return true
     }
 
+    /// The viewport already shows the document's end: the latest row's bottom.
+    var showsEnd: Bool {
+        guard let scroll, let document = scroll.documentView else { return false }
+        let clip = scroll.contentView.bounds
+        guard document.frame.height > clip.height else { return false }
+        let gap = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+        return gap <= 1
+    }
+
     /// AppKit keeps the first visible table row where it is while rows are
     /// inserted above it. At the very top that row is the List's leading
     /// space, so an older page inserted below it pushed the message being read

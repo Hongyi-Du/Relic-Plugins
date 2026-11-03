@@ -243,7 +243,9 @@ struct ConversationStream: View {
                 case .bottom(let id): proxy.scrollTo(id, anchor: .bottom)
                 case .start: proxy.scrollTo("start", anchor: .top)
                 case .latest: seekLatest(proxy)
-                case nil: if followsLatest { seekLatest(proxy) }
+                // Earlier rows admitted above keep the latest row in place; a
+                // scroll request there only costs the List another update.
+                case nil: if followsLatest, !keyboard.showsEnd { seekLatest(proxy) }
                 }
                 await admitEarlierRows()
             }
