@@ -15,6 +15,9 @@ public partial class App : Application
         // rising and falling. Keep enough workers for those bursts.
         ThreadPool.GetMinThreads(out var workers, out var completion);
         ThreadPool.SetMinThreads(Math.Max(workers, 12), completion);
+        // Those workers then stay: retiring them after each burst only meant
+        // creating them again at the next one (see ThreadPoolKeepAlive).
+        ThreadPoolKeepAlive.Start(Math.Max(workers, 12));
         UnhandledException += (_, args) => CaptureFailure("Xaml.UnhandledException", args.Exception, args.Message);
         AppDomain.CurrentDomain.UnhandledException += (_, args) => CaptureFailure("AppDomain.UnhandledException", args.ExceptionObject as Exception, args.ExceptionObject?.ToString());
         InitializeComponent();
