@@ -80,8 +80,19 @@ struct ConversationRowContent: View, Equatable {
         let left = a.raw as AnyObject, right = b.raw as AnyObject
         return left === right || (left as? NSObject)?.isEqual(right) == true
     }
+    /// CI only: which kind of row a mount turn built, so the traces show
+    /// what each kind costs (mount-turn.row.conversation.<kind>).
+    static func workLabel(_ row: ConversationRow) -> String {
+        let kind = row.item["type"].text
+        if kind == "notice" || kind == "acts" || kind == "receipt" { return "row.conversation." + kind }
+        let blocks = row.preparedBody?.blocks ?? []
+        if blocks.contains(where: { $0.kind == "table" }) { return "row.conversation.table" }
+        if blocks.contains(where: { $0.kind == "code" }) { return "row.conversation.code" }
+        let length = (row.item["body"].text.isEmpty ? row.item["text"].text : row.item["body"].text).utf16.count
+        return length > 2000 ? "row.conversation.long" : "row.conversation.message"
+    }
     var body: some View {
-        ProgressiveRow(estimatedHeight: Self.estimatedHeight(row)) {
+        ProgressiveRow(estimatedHeight: Self.estimatedHeight(row), workLabel: UIWorkTrace.enabled ? Self.workLabel(row) : nil) {
             VStack(alignment: .leading, spacing: 0) {
                 if let separator = row.separator {
                     PlainLabel(separator, size: 11.5, color: RelicStyle.muted).lineLimit(1)

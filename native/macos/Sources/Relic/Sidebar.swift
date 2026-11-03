@@ -30,7 +30,13 @@ struct Sidebar: View {
             // The stack offers the tree all the height between the search
             // field and the profile; it is not measured row by row to say so.
             ScrollRegion { ScrollView {
-                LazyVStack(spacing: 0) {
+                // A plain stack: the tree holds a few dozen rows at most. The
+                // lazy stack estimated its whole content again whenever one
+                // row changed, so every row admitted after a switch (each in
+                // its own turn) cost about 100 ms in the CI traces. A stack
+                // keeps each row's measured size and measures only rows that
+                // changed.
+                VStack(spacing: 0) {
                     if revealMembers {
                     HStack {
                         ReferenceLabel(m.t("page.tree"), size: 12, color: RelicStyle.muted, lines: 0); Spacer()
