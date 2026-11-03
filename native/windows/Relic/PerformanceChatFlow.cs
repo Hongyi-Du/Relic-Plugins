@@ -299,6 +299,21 @@ public sealed partial class MainWindow
             ["original_source_id"] = args.OriginalSource is DependencyObject source ? AutomationProperties.GetAutomationId(source) : "" });
         PointerEventHandler pressed = (_, args) => RecordPointer("pressed", args);
         PointerEventHandler released = (_, args) => RecordPointer("released", args);
+        // Which element the press really reached, wherever it was. Every
+        // click on the large profile's half-hidden top row reached our window
+        // and none reached the row, while XAML's hit test found the row there.
+        var reached = new JsonArray();
+        void RecordReached(string kind, PointerRoutedEventArgs args)
+        {
+            var chain = new JsonArray();
+            for (var node = args.OriginalSource as DependencyObject; node != null && chain.Count < 10; node = VisualTreeHelper.GetParent(node))
+                chain.Add(node.GetType().Name + (AutomationProperties.GetAutomationId(node) is { Length: > 0 } automation ? "#" + automation
+                    : AutomationProperties.GetName(node) is { Length: > 0 } label ? "'" + (label.Length > 24 ? label[..24] : label) + "'" : ""));
+            var at = args.GetCurrentPoint(root).Position;
+            reached.Add(new JsonObject { ["kind"] = kind, ["handled"] = args.Handled, ["x"] = Math.Round(at.X, 1), ["y"] = Math.Round(at.Y, 1), ["chain"] = chain });
+        }
+        PointerEventHandler rootPressed = (_, args) => RecordReached("pressed", args);
+        PointerEventHandler rootReleased = (_, args) => RecordReached("released", args);
         var unloaded = 0; RoutedEventHandler rowUnloaded = (_, _) => unloaded++;
         ItemClickEventHandler clicked = (_, args) =>
         {
@@ -316,6 +331,8 @@ public sealed partial class MainWindow
         list.ItemClick += clicked; CompositionTarget.Rendering += rendered;
         row.AddHandler(UIElement.PointerPressedEvent, pressed, true);
         row.AddHandler(UIElement.PointerReleasedEvent, released, true); row.Unloaded += rowUnloaded;
+        root.AddHandler(UIElement.PointerPressedEvent, rootPressed, true);
+        root.AddHandler(UIElement.PointerReleasedEvent, rootReleased, true);
         var receipt = new JsonObject { ["target"] = id, ["expectation_source"] = fromFixture
             ? "Independent server-view fixture tail and latest numeric message identities" : "Independent real chat API limit=1 before pointer input" };
         try
@@ -354,6 +371,7 @@ public sealed partial class MainWindow
             receipt["observation"] = observation;
             receipt["pointer_events"] = capturePointerReceipts.DeepClone();
             receipt["routed_pointer_events"] = routed; receipt["target_unloads"] = unloaded;
+            receipt["window_pointer_events"] = reached;
             receipt["native_item_clicks"] = itemClicks;
             if (clicks == 0) { receipt["input_host_at_press"] = inputHost; receipt["input_host_after"] = ObserveSettingsInputHost(); }
             receipt["passed"] = clicks > 0 && receipt.Flag("latest_visible") && openMs <= 1000;
@@ -364,6 +382,8 @@ public sealed partial class MainWindow
             list.ItemClick -= clicked; CompositionTarget.Rendering -= rendered;
             row.RemoveHandler(UIElement.PointerPressedEvent, pressed);
             row.RemoveHandler(UIElement.PointerReleasedEvent, released); row.Unloaded -= rowUnloaded;
+            root.RemoveHandler(UIElement.PointerPressedEvent, rootPressed);
+            root.RemoveHandler(UIElement.PointerReleasedEvent, rootReleased);
         }
     }
 
