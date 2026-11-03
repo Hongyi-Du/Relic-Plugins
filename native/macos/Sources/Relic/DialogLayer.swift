@@ -23,6 +23,9 @@ struct DialogLayer: View {
     @State private var contentTitle = ""
     @State private var scrimIdentity = "relic-scrim/" + UUID().uuidString
     @State private var panelIdentity = "relic-dialog-panel/" + UUID().uuidString
+    /// A fixed-size dialog first shows its frame, then builds its content in
+    /// a later display turn; content-sized dialogs need their content at once.
+    @State private var contentAdmitted = false
     private var layout: DialogGeometry { DialogGeometry(kind: sheet.rawValue, window: m.windowSize) }
     private var title: String {
         switch sheet {
@@ -47,11 +50,17 @@ struct DialogLayer: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
             .background { if RenderReadiness.enabled { RenderReadiness(kind: "dialog") } }
             .onExitCommand { m.sheet = nil }
+            .task(id: sheet) {
+                guard layout.height != nil, !contentAdmitted else { return }
+                await DialogStages.admit(1, label: "dialog-" + sheet.rawValue) { _ in contentAdmitted = true }
+            }
     }
     private var panel: some View {
         Group {
             if let height = layout.height {
-                SheetContent(sheet: sheet).frame(width: layout.width, height: height)
+                Group {
+                    if contentAdmitted { SheetContent(sheet: sheet) } else { Color.clear.accessibilityHidden(true) }
+                }.frame(width: layout.width, height: height)
             } else {
                 FittingScroll(maxHeight: layout.maximumHeight, accessibilityOwner: panelIdentity, accessibilityTitle: title) {
                     // The reference card's 18px padding sits inside its 1px
