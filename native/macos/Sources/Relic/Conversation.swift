@@ -758,7 +758,7 @@ struct ThreadView: View {
                     ReferenceLabel(m.t(m.threadData["replies"].rows.isEmpty ? "thread.no_replies" : "thread.replies", ["n": String(m.threadData["replies"].rows.count)]), size: 12, color: RelicStyle.muted).padding(.horizontal, 16).padding(.top, 10)
                         .accessibilitySortPriority(Double(rows.count * 2 + 3))
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        ProgressiveRow(estimatedHeight: 100, workLabel: "thread-reply", weight: 2) {
+                        ProgressiveRow(estimatedHeight: 100, workLabel: "thread-reply", weight: RowMountQueue.budget) {
                             MessageView(item: row.item, inThread: true, continued: row.continued, preparedBody: row.preparedBody)
                                 .onAppear { PerformanceRendering.rowAppeared("thread") }
                                 .onDisappear { PerformanceRendering.rowDisappeared("thread") }

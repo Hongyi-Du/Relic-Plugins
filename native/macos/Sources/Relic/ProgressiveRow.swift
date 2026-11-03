@@ -8,12 +8,14 @@ import SwiftUI
 /// their combined weight fits in `budget`. In the CI traces each admitted row
 /// cost its list a full update whatever the row held: a one-line notice took
 /// as long to admit as a message (person-shape 56-90 ms per turn), because the
-/// conversation's table measured every visible row again and the sidebar's
-/// and inspector's lazy stacks estimated all their rows again. Rows admitted
-/// together share that update. Unweighted acquisitions keep a turn each.
+/// conversation's table measured every visible row again and the inspector's
+/// lazy stack estimated all its rows again. One-line rows admitted together
+/// share that update; any heavier row still keeps a turn of its own, since
+/// two messages or four cards in one turn made 250-280 ms flushes.
+/// Unweighted acquisitions keep a turn each.
 @MainActor final class RowMountQueue {
     static let shared = RowMountQueue()
-    /// Two messages, four notices or four sidebar rows; one long message.
+    /// Four one-line rows (notices, activity lines, overview headings).
     static let budget = 4
     private struct Waiting { let id: UUID, continuation: CheckedContinuation<Bool, Never>, label: String, priority: Int, group: String?, weight: Int }
     private var active: Set<UUID> = []

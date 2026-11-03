@@ -91,15 +91,13 @@ struct ConversationRowContent: View, Equatable {
         let length = (row.item["body"].text.isEmpty ? row.item["text"].text : row.item["body"].text).utf16.count
         return length > 2000 ? "row.conversation.long" : "row.conversation.message"
     }
-    /// What admitting this row costs, in RowMountQueue.budget units: a
-    /// notice or activity line 1, a message 2, a long message or one with
-    /// a table or code block the whole turn.
+    /// What admitting this row costs, in RowMountQueue.budget units. Only
+    /// one-line rows (notices, activity groups, receipts) share a turn; a
+    /// message keeps a turn of its own. Two messages admitted together
+    /// made one 252 ms flush in CI (run 41689887320, large switch-chats).
     static func mountWeight(_ row: ConversationRow) -> Int {
         let kind = row.item["type"].text
-        if kind == "notice" || kind == "acts" || kind == "receipt" { return 1 }
-        if let blocks = row.preparedBody?.blocks, blocks.contains(where: { $0.kind == "table" || $0.kind == "code" }) { return RowMountQueue.budget }
-        let length = (row.item["body"].text.isEmpty ? row.item["text"].text : row.item["body"].text).utf16.count
-        return length > 1500 ? RowMountQueue.budget : 2
+        return kind == "notice" || kind == "acts" || kind == "receipt" ? 1 : RowMountQueue.budget
     }
     var body: some View {
         ProgressiveRow(estimatedHeight: Self.estimatedHeight(row), workLabel: UIWorkTrace.enabled ? Self.workLabel(row) : nil,
