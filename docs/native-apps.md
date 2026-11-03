@@ -1,5 +1,13 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: integrated Mac594e0f0/e4aa723 timestamp and tooltip
+preparation, then7b1ad2f/a09cbeb native-list cold mount and redundant-seek fixes
+via2323989. REQUESTS retains every gate and asks for no shared API change.
+Windows idle41548945650 measures4.953%one-core over10.094s; only0.015625s is
+on the real UI thread, while one unnamed worker contributes0.28125s. External
+GetThreadDescription now records names once per owned TID; no attribution is
+guessed and the unchanged whole-process gate remains authoritative.
+
 Windows candidate prepares each mounted SidebarText's actual glyphs on the
 bounded DirectWrite worker before revealing its unchanged native TextBlock.
 It retains layout, locale, font/weight/size/scaling and selection; it never
