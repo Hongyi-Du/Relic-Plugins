@@ -1,5 +1,23 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: integrated Mac bounded date-formatter reuse through
+8735b16; REQUESTS adds no shared API changes. Windows menus now retain their
+native anchors/items through chat navigation. Enabled/check/secretary labels
+and actions read the current state; opening via pointer or keyboard refreshes
+the bindings. Language/theme changes still rebuild the presentation. This
+targets297 measured DrawMenu calls/8.162s in the86dfb81 switch run, including
+unnecessary construction of closed menus on each conversation selection.
+
+Windows86dfb81 full41550963937 person-shape idle passes (1.5455%one-core,
+44.767ms UI,233.688MiB/33threads). Its200-switch phase still fails opening
+15/269 warmup/measured actions and resource flatness. Earlier a4a7cc9 large
+kept3-12 realized rows but recorded26,923 pending finalizers and42.736MiB
+RSS-median range. The window now reuses its immutable palette brushes and
+Overview font family rather than recreating those COM-backed values per row;
+the brush cache is capped256. Recording opacity is a separate immutable entry.
+This removes identified repeated allocations; it does not assert a leak root
+or waive GC/resource gates. CI must quantify the effect across200 switches.
+
 Windows86dfb81 focused opening41550968094 passes large116/116 (max937.363ms,
 UI99.137ms,358.539MiB/37threads) and person-shape83/83 (max916.414ms,
 UI82.113ms,349.570MiB/37threads). Full acceptance remains outstanding.

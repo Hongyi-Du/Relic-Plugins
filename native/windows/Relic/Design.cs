@@ -25,10 +25,20 @@ public sealed partial class MainWindow
     }
     private readonly StackPanel sidebarFooter = new() { Spacing = 4, Padding = new Thickness(12, 8, 12, 12) };
     private bool Dark => preferences.Text("theme") == "dark" || preferences.Text("theme") is "" or "system" && root.ActualTheme == ElementTheme.Dark;
-    private SolidColorBrush Paint(string light, string dark = "")
+    // Palette brushes are immutable after creation and belong to this UI
+    // thread/window. Recycled rows share the same finite palette instead of
+    // allocating hundreds of COM-backed brushes on each chat switch.
+    private readonly Dictionary<(string Hex, double Opacity), SolidColorBrush> paletteBrushes = new();
+    private readonly FontFamily uiFontFamily = new(FontFamilies.UI);
+    private SolidColorBrush Paint(string light, string dark = "", double opacity = 1)
     {
         var hex = Dark && dark.Length > 0 ? dark : light;
-        return new(Windows.UI.Color.FromArgb(255, Convert.ToByte(hex.Substring(0, 2), 16), Convert.ToByte(hex.Substring(2, 2), 16), Convert.ToByte(hex.Substring(4, 2), 16)));
+        var key = (hex, opacity);
+        if (paletteBrushes.TryGetValue(key, out var existing)) return existing;
+        var brush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, Convert.ToByte(hex.Substring(0, 2), 16), Convert.ToByte(hex.Substring(2, 2), 16), Convert.ToByte(hex.Substring(4, 2), 16))) { Opacity = opacity };
+        // Keep custom or future palettes bounded without changing any colour.
+        if (paletteBrushes.Count < 256) paletteBrushes.Add(key, brush);
+        return brush;
     }
     private SolidColorBrush Ink => Paint("1B1B1A", "ECEAE5");
     private SolidColorBrush Muted => Paint("8F8C86", "8A877F");

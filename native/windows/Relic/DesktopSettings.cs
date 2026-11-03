@@ -585,7 +585,7 @@ public sealed partial class MainWindow
             });
             recognizer.RecognizeAsync(RecognizeMode.Multiple);
             button.Foreground = Paint("C2412D", "EE8A78");
-            var recording = Paint("C2412D", "EE8A78"); recording.Opacity = .14; button.Background = recording;
+            button.Background = Paint("C2412D", "EE8A78", opacity: .14);
             if (button.Content is ReferenceVectorIcon icon) icon.Foreground = button.Foreground;
         }
         catch (UnauthorizedAccessException) { await StopVoice(); Note(T("native.speech_unavailable")); }
