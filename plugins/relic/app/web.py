@@ -18,7 +18,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from relic_core import __version__, i18n, monitor, platform_support, runner, wake
+from relic_core import __version__, i18n, monitor, platform_support, runner, usage, wake
 from relic_core.sessions import actor_for, all_sessions
 from relic_core.store import OrgError, Store, data_home, person_language
 
@@ -626,6 +626,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
                     return self._error(403, "missing token")
                 return self._json(monitor.snapshot(self.app.store))
+            if api == ["usage"]:  # tokens per period and cumulative, by session, agent or organization
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                org = q.get("org")
+                return self._json(monitor.report(self.app.store, span=q.get("span") or "7d", group=q.get("group") or "agent",
+                                                 org=("" if org == "-" else org), agent=q.get("agent"),
+                                                 bucket=q.get("bucket")))
             if api == ["cc"]:  # what was copied to the person
                 return self._json(views.copies(self.app.store, self.app.lang()))
             if api == ["harnesses"]:
@@ -933,9 +940,21 @@ def serve(port=DEFAULT_PORT, store=None, write_info=True):
     return app, server
 
 
+def count_usage(app, every=60):
+    """Keep the token sums current while the App runs; the first read covers the last 30 days of transcripts."""
+    ledger = usage.Ledger.shared()
+    while not app.stopping.is_set():
+        try:
+            ledger.scan()
+        except Exception:  # a transcript being written or removed: the next pass reads it
+            pass
+        app.stopping.wait(every)
+
+
 def main(port=DEFAULT_PORT):
     with LifecycleLock("app-server.lock", timeout=0):
         app, server = serve(port)
+        threading.Thread(target=count_usage, args=(app,), name="relic-usage", daemon=True).start()
         previous = {}
         if threading.current_thread() is threading.main_thread():
             for sig in (signal.SIGTERM, signal.SIGINT):

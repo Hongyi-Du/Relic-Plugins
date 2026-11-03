@@ -17,7 +17,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "hooks"))
-from relic_core import monitor, runner, wake  # noqa: E402
+from relic_core import monitor, runner, usage, wake  # noqa: E402
 from relic_core.store import Store  # noqa: E402
 import relic_hook  # noqa: E402
 
@@ -66,8 +66,10 @@ class Base(unittest.TestCase):
         os.environ.pop("RELIC_HARNESS", None)
         self.addCleanup(self.env.stop)
         self.addCleanup(self.tmp.cleanup)
-        monitor._ledgers.clear()
-        monitor._codex_limits.update(at=0.0, value=None)
+        usage.Ledger._shared = None
+        fresh = mock.patch.object(monitor, "FRESH_FOR", 0)  # every view reads what the test just wrote
+        fresh.start()
+        self.addCleanup(fresh.stop)
         self.root = root
         self.now = time.time()
         self.store = Store()
@@ -160,6 +162,71 @@ class Usage(Base):
         self.assertEqual(agent["title"], "mod")
         self.assertEqual(snap["plans"]["codex"]["primary"]["used_percent"], 38.0)
         self.assertEqual(snap["totals"]["codex"]["hour"], 3070)
+
+
+class Statistics(Base):
+    OLD = "77777777-2222-4333-8444-555555555555"
+
+    def setUp(self):
+        super().setUp()
+        with self.store.change(self.org) as (org, db):  # the seat was carried by an earlier session before this one
+            org["members"]["head"].setdefault("past_carriers", []).append(self.OLD)
+        self.transcript(session=self.OLD, lines=[claude_usage("o1", self.now - 2 * 86400 - 60, fresh=1000, read=0, write=0, out=0)])
+        self.transcript(lines=[claude_usage("n1", self.now - 1800, fresh=200, read=0, write=0, out=0),
+                               claude_usage("n2", self.now - 300, fresh=20, read=0, write=0, out=0)])
+        self.transcript(session=OTHER, lines=[claude_usage("x1", self.now - 7200, fresh=5, read=0, write=0, out=0)])
+        (self.project / OTHER).mkdir(exist_ok=True)
+        (self.project / OTHER / "custom-title.json").write_text(json.dumps({"customTitle": "我自己的会话"}), encoding="utf-8")
+
+    def series(self, result):
+        return {s["key"]: (s["label"], s["total"]["total"]) for s in result["series"]}
+
+    def test_an_agent_counts_every_session_that_carried_its_seat_and_unseated_sessions_count_on_their_own(self):
+        week = monitor.report(self.store, span="7d", group="agent", now=self.now)
+        self.assertEqual(week["bucket"], "day")
+        self.assertEqual(self.series(week), {"%s/head" % self.org: ("研发部 · head", 1220), OTHER: ("我自己的会话", 5)})
+        self.assertEqual(week["total"], 1225)
+        self.assertEqual(week["cumulative"][-1], 1225)
+        self.assertEqual(sum(week["totals"]), 1225)
+        orgs = monitor.report(self.store, span="7d", group="org", now=self.now)
+        self.assertEqual(self.series(orgs), {self.org: ("研发部", 1220), "": (None, 5)})
+        sessions = monitor.report(self.store, span="7d", group="session", now=self.now)
+        self.assertEqual({k: v[1] for k, v in self.series(sessions).items()}, {self.OLD: 1000, SESSION: 220, OTHER: 5})
+        self.assertIn({"key": "%s/head" % self.org, "label": "研发部 · head", "org": self.org}, week["filters"]["agents"])
+
+    def test_filters_and_periods(self):
+        only_seated = monitor.report(self.store, span="7d", group="session", org=self.org, now=self.now)
+        self.assertEqual(set(self.series(only_seated)), {self.OLD, SESSION})
+        unseated = monitor.report(self.store, span="7d", group="session", org="", now=self.now)
+        self.assertEqual(set(self.series(unseated)), {OTHER})
+        agent = monitor.report(self.store, span="7d", group="session", agent="%s/head" % self.org, now=self.now)
+        self.assertEqual(set(self.series(agent)), {self.OLD, SESSION})
+        day = monitor.report(self.store, span="24h", group="agent", now=self.now)
+        self.assertEqual(day["bucket"], "hour")
+        self.assertEqual(self.series(day)["%s/head" % self.org][1], 220)  # the earlier session is two days back
+        head = next(s for s in day["series"] if s["key"] == "%s/head" % self.org)
+        self.assertEqual(head["values"][-1], 20)  # this hour
+        self.assertEqual(head["cumulative"], monitor._running(head["values"]))
+        self.assertEqual(len(day["starts"]), len(head["values"]))
+        for i, start in enumerate(day["starts"][1:], 1):
+            self.assertEqual(start - day["starts"][i - 1], 3600)
+
+    def test_days_start_at_local_midnight(self):
+        week = monitor.report(self.store, span="7d", group="agent", now=self.now)
+        for start in week["starts"]:
+            moment = datetime.fromtimestamp(start)
+            self.assertEqual((moment.hour, moment.minute), (0, 0))
+        head = next(s for s in week["series"] if s["key"] == "%s/head" % self.org)
+        older = datetime.fromtimestamp(self.now - 2 * 86400 - 60).replace(hour=0, minute=0, second=0, microsecond=0)
+        self.assertEqual(head["values"][week["starts"].index(int(older.timestamp()))], 1000)
+
+    def test_the_sums_survive_a_restart_and_are_not_read_twice(self):
+        monitor.report(self.store, span="7d", now=self.now)
+        usage.Ledger._shared = None  # the App restarted
+        again = monitor.report(self.store, span="7d", now=self.now)
+        self.assertEqual(again["total"], 1225)
+        size = usage.db_path().stat().st_size
+        self.assertLess(size, 512 * 1024)  # sums only
 
 
 class StopAndResume(Base):

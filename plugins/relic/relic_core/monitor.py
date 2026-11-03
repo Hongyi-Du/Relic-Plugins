@@ -1,251 +1,50 @@
 """Who is working, what it costs, and a brake the person can pull from the Relic window.
 
 Working: a seat's runner process is alive, or a session's transcript changed in the last ACTIVE seconds.
-Cost: tokens per session from the transcripts on this machine (Claude Code: assistant usage, once per message id,
-subagents counted with their session; Codex: token_count events), summed per minute for the last day, and the Codex
-plan's rate-limit percentages as Codex last reported them.
+Cost: tokens per session, counted by usage.py from the sessions' own transcripts (Claude Code and Codex), with the
+Codex plan's rate limits as Codex last reported them. report() turns them into per-period and cumulative series by
+session, by agent (a Relic seat, across the sessions that carried it) or by organization.
 Stop: ends Relic's own runner for the session, makes the Relic hook refuse the session's next tool calls so its turn
 ends, turns off automatic wake-ups for every seat it holds and pauses the Codex automations that would start it again.
 The person typing to that session releases the hook brake; Resume turns back on what Stop turned off.
 
-Light on disk: transcripts are read incrementally and summed in memory by the long-running App server. The only
-file written here is brakes.json in the Relic data folder (a few hundred bytes per stopped session); Stop and Resume
-also edit the status line of the Codex automation files they pause or resume.
+Light on disk: usage.sqlite3 keeps only sums; brakes.json holds a few hundred bytes per stopped session; Stop and
+Resume also edit the status line of the Codex automation files they pause or resume.
 """
-import collections
+import bisect
 import json
 import os
 import re
 import signal
 import subprocess
 import sys
-import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import process, runner
+from . import process, runner, usage
 from .store import data_home
 
 ACTIVE = 150            # seconds since a session's transcript changed for it to count as working
 DAY = 24 * 3600
 SPANS = {"hour": 3600, "five_hours": 5 * 3600, "day": DAY}
-RATE_SPAN = 600         # the per-minute rate looks at the last ten minutes
-CODEX_DAYS = 21         # a resumed Codex session keeps writing to the rollout file of the day it started
-CHUNK = 4 * 1024 * 1024
+RANGES = {"24h": DAY, "7d": 7 * DAY, "30d": 30 * DAY, "90d": 90 * DAY}  # and "today": since local midnight
+GROUPS = ("session", "agent", "org")
+TOP = 30                # series kept by name; the rest are summed into one
+FRESH_FOR = 3           # seconds a scan stays current for the views
 AUTOMATIC = ("[Relic auto-wake]", "[Relic GUI nonce:")
 MEASURED = ("claude-code", "codex")
-
-
-def claude_root():
-    return Path(os.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-
-
-def codex_root():
-    return Path(os.getenv("CODEX_HOME") or Path.home() / ".codex")
+claude_root = usage.claude_root
+codex_root = usage.codex_root
 
 
 def brakes_path():
     return data_home() / "brakes.json"
 
 
-# ---------------- token ledger (in memory, incremental) ----------------
-
-class _Ledger:
-    __slots__ = ("offset", "mtime", "buckets", "recent", "first")
-
-    def __init__(self):
-        self.offset = 0
-        self.mtime = 0.0
-        self.buckets = {}                            # minute -> [fresh input, cache read, cache write, output]
-        self.recent = collections.deque(maxlen=64)   # Claude logs a message once per content block: count it once
-        self.first = None                            # the first line's data (Codex: session_meta)
-
-
-_ledgers = {}
-_lock = threading.Lock()
-_codex_limits = {"at": 0.0, "value": None}
-
-
-def _epoch(text):
-    if not isinstance(text, str) or not text:
-        return None
-    try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return None
-
-
-def _add(ledger, at, fresh, read, write, out):
-    if at is None:
-        return
-    row = ledger.buckets.setdefault(int(at // 60), [0, 0, 0, 0])
-    row[0] += fresh
-    row[1] += read
-    row[2] += write
-    row[3] += out
-
-
-def _claude_line(ledger, record):
-    if record.get("type") != "assistant":
-        return
-    message = record.get("message") or {}
-    usage = message.get("usage")
-    if not isinstance(usage, dict):
-        return
-    key = message.get("id") or record.get("requestId")
-    if key:
-        if key in ledger.recent:
-            return
-        ledger.recent.append(key)
-    _add(ledger, _epoch(record.get("timestamp")), int(usage.get("input_tokens") or 0),
-         int(usage.get("cache_read_input_tokens") or 0), int(usage.get("cache_creation_input_tokens") or 0),
-         int(usage.get("output_tokens") or 0))
-
-
-def _codex_line(ledger, record):
-    payload = record.get("payload") or {}
-    if payload.get("type") != "token_count":
-        return
-    at = _epoch(record.get("timestamp"))
-    limits = payload.get("rate_limits")
-    if isinstance(limits, dict) and at and at >= _codex_limits["at"]:
-        _codex_limits.update(at=at, value=limits)
-    info = payload.get("info") or {}
-    last = info.get("last_token_usage") or {}
-    total = (info.get("total_token_usage") or {}).get("total_tokens")
-    if not last or (total is not None and total in ledger.recent):  # the same count reported again
-        return
-    if total is not None:
-        ledger.recent.append(total)
-    sent = int(last.get("input_tokens") or 0)
-    cached = int(last.get("cached_input_tokens") or 0)
-    _add(ledger, at, max(sent - cached, 0), cached, 0, int(last.get("output_tokens") or 0))
-
-
-def _read(path, kind, now):
-    """The file's ledger, brought up to date with the lines written since the last read."""
-    key = str(path)
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    with _lock:
-        ledger = _ledgers.get(key)
-        if ledger is None or stat.st_size < ledger.offset:
-            ledger = _ledgers[key] = _Ledger()
-        if stat.st_size == ledger.offset:
-            ledger.mtime = stat.st_mtime
-            return ledger
-        marker = b'"usage"' if kind == "claude" else b'"token_count"'
-        parse = _claude_line if kind == "claude" else _codex_line
-        start, read, rest = ledger.offset, 0, b""
-        try:
-            with open(path, "rb") as f:
-                f.seek(start)
-                while True:
-                    block = f.read(CHUNK)
-                    if not block:
-                        break
-                    read += len(block)
-                    data = rest + block
-                    end = data.rfind(b"\n")
-                    if end < 0:  # no complete line yet
-                        rest = data
-                        continue
-                    lines, rest = data[:end].split(b"\n"), data[end + 1:]
-                    if start == 0 and ledger.first is None and lines:
-                        try:
-                            ledger.first = json.loads(lines[0])
-                        except ValueError:
-                            ledger.first = {}
-                    for line in lines:
-                        if marker in line:
-                            try:
-                                parse(ledger, json.loads(line))
-                            except (ValueError, TypeError, AttributeError):
-                                continue
-        except OSError:
-            return ledger
-        ledger.offset = start + read - len(rest)  # an unfinished last line is read again next time
-        ledger.mtime = stat.st_mtime
-        floor = int((now - DAY) // 60) - 1
-        for minute in [m for m in ledger.buckets if m < floor]:
-            del ledger.buckets[minute]
-        return ledger
-
-
-def _sum(ledgers, now):
-    spans = {name: [0, 0, 0, 0] for name in SPANS}
-    rate = 0
-    for ledger in ledgers:
-        for minute, row in ledger.buckets.items():
-            age = now - minute * 60
-            for name, span in SPANS.items():
-                if age <= span:
-                    for i in range(4):
-                        spans[name][i] += row[i]
-            if age <= RATE_SPAN:
-                rate += sum(row)
-    return ({name: {"total": sum(row), "fresh": row[0], "cache_read": row[1], "cache_write": row[2], "output": row[3]}
-             for name, row in spans.items()}, round(rate * 60 / RATE_SPAN))
-
-
-# ---------------- sessions on this machine ----------------
-
-def _recent_files(paths, now):
-    found = []
-    for path in paths:
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        if mtime >= now - DAY:
-            found.append((path, mtime))
-    return found
-
-
-def _claude_sessions(now):
-    """{session id: {"files": [(path, mtime)], "title": str or None}} for Claude Code sessions active in the last day."""
-    root = claude_root() / "projects"
-    sessions = {}
-    if not root.is_dir():
-        return sessions
-    for project in root.iterdir():
-        if not project.is_dir():
-            continue
-        for path, mtime in _recent_files(project.glob("*.jsonl"), now):
-            sessions.setdefault(path.stem, {"files": [], "folder": project})["files"].append((path, mtime))
-        for path, mtime in _recent_files(project.glob("*/subagents/*.jsonl"), now):
-            sessions.setdefault(path.parent.parent.name, {"files": [], "folder": project})["files"].append((path, mtime))
-    for session, info in sessions.items():
-        try:
-            title = json.loads((info["folder"] / session / "custom-title.json").read_text(encoding="utf-8"))
-            info["title"] = title.get("customTitle") or None
-        except (OSError, ValueError, AttributeError):
-            info["title"] = None
-        info["subagents"] = sum(1 for path, mtime in info["files"]
-                                if path.parent.name == "subagents" and now - mtime <= ACTIVE)
-    return sessions
-
-
-_UUID = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$")
-
-
-def _codex_sessions(now):
-    """{thread id: {"files": [(path, mtime)]}} for Codex sessions active in the last day."""
-    root = codex_root() / "sessions"
-    sessions = {}
-    for back in range(CODEX_DAYS):
-        day = time.localtime(now - back * DAY)
-        folder = root / ("%04d" % day.tm_year) / ("%02d" % day.tm_mon) / ("%02d" % day.tm_mday)
-        if not folder.is_dir():
-            continue
-        for path, mtime in _recent_files(folder.glob("rollout-*.jsonl"), now):
-            found = _UUID.search(path.name)
-            if found:
-                sessions.setdefault(found.group(1), {"files": []})["files"].append((path, mtime))
-    return sessions
+def _counts(cell):
+    cell = cell or [0, 0, 0, 0]
+    return {"total": sum(cell), "fresh": cell[0], "cache_read": cell[1], "cache_write": cell[2], "output": cell[3]}
 
 
 # ---------------- scheduled starts ----------------
@@ -459,20 +258,46 @@ def resume_all(store):
     return {"orgs": record.get("orgs") or [], "resumed": list((record.get("paused") or {}))}
 
 
-# ---------------- the snapshot the Relic window shows ----------------
+# ---------------- the live view the Relic window shows ----------------
+
+def _active_orgs(store):
+    return [org for org in store.list_orgs() if org.get("status") in (None, "active")]
+
+
+def _carried(orgs):
+    """{session: [(org, member)]} of every seat a session carries now or carried before."""
+    places = {}
+    for org in orgs:
+        for member, seat in org["members"].items():
+            for carrier in [seat.get("carrier")] + list(seat.get("past_carriers") or []):
+                if carrier:
+                    places.setdefault(_base(carrier), []).append((org, member))
+    return places
+
+
+def _owner(store, session, places):
+    """(org, member) a session's tokens count for: its main seat while it holds it, else the first seat it held."""
+    try:
+        org, member = store.whoami(session)
+    except Exception:
+        org, member = None, None
+    for place, name in places:
+        if org and place["id"] == org["id"] and name == member:
+            return place, name
+    return places[0]
+
 
 def snapshot(store, now=None):
     now = time.time() if now is None else now
-    claude = _claude_sessions(now)
-    codex = _codex_sessions(now)
+    ledger = usage.Ledger.shared()
+    ledger.scan(now=now, blocking=False, fresh_for=FRESH_FOR)  # never waits for the first, long read
+    sessions = ledger.sessions(now, ACTIVE)
+    windows = ledger.windows(now, SPANS)
     brakes = _load_brakes()
     automations = codex_automations()
-    orgs = store.list_orgs()
-    names = {org["id"]: org["name"] for org in orgs}
-    seated = collections.OrderedDict()
+    orgs = _active_orgs(store)
+    seated = {}
     for org in orgs:
-        if org.get("status") not in (None, "active"):
-            continue
         for member, seat in org["members"].items():
             carrier = seat.get("carrier")
             if not carrier or seat.get("harness") not in MEASURED:
@@ -482,52 +307,152 @@ def snapshot(store, now=None):
                 "auto_wake": bool(seat.get("auto_wake", True)), "org_auto_wake": bool(org.get("auto_wake", True)),
                 "running": runner.is_running(org["id"], member, now)})
 
-    def entry(key, harness, files, title, seats, subagents=0):
-        kind = "codex" if harness == "codex" else "claude"
-        ledgers = [ledger for ledger in (_read(path, kind, now) for path, _ in files) if ledger]
-        tokens, rate = _sum(ledgers, now)
-        last = max([mtime for _, mtime in files] or [0]) or None
+    def entry(key, harness, seats):
+        info = sessions.get(key) or {}
+        window = windows.get(key) or {}
+        last = info.get("last_at") or None
         running = any(seat["running"] for seat in seats)
-        active = last is not None and now - last <= ACTIVE
+        active = bool(last) and now - last <= ACTIVE
         brake = (brakes.get("agents") or {}).get(key)
         thread = _thread(key)
-        cwd = None
-        if kind == "codex" and ledgers and isinstance(ledgers[0].first, dict):
-            cwd = (ledgers[0].first.get("payload") or {}).get("cwd")
-        return {"key": key, "harness": harness, "title": title or (seats and "%s · %s" % (seats[0]["org_name"], seats[0]["member"]))
-                or (Path(cwd).name if cwd else None) or key[-12:],
-                "seats": seats, "working": running or active, "reason": "runner" if running else ("active" if active else None),
-                "last_active": last, "tokens": tokens, "rate": rate, "subagents": subagents,
+        cwd = info.get("cwd")
+        title = (info.get("title") or (seats and "%s · %s" % (seats[0]["org_name"], seats[0]["member"]))
+                 or (Path(cwd).name if cwd else None) or key[-12:])
+        return {"key": key, "harness": harness, "title": title, "seats": seats,
+                "working": running or active, "reason": "runner" if running else ("active" if active else None),
+                "last_active": last, "rate": window.get("rate", 0), "subagents": info.get("subagents", 0),
+                "tokens": {name: _counts((window.get("spans") or {}).get(name)) for name in SPANS},
                 "stopped": {"at": brake["at"], "released": bool(brake.get("released_at"))} if brake else None,
                 "can_stop": True,
                 "can_interrupt": running or harness == "claude-code",  # Codex desktop turns need trusted Relic hooks
                 "automations": [a["id"] for a in automations if thread and a["target"] == thread]}
 
-    agents, others = [], []
-    for key, info in seated.items():
-        thread = _thread(key)
-        files = (codex.pop(thread, {}).get("files") if thread else (claude.get(key) or {}).get("files")) or []
-        meta = claude.pop(key, {}) if not thread else {}
-        agents.append(entry(key, info["harness"], files, meta.get("title"), info["seats"], meta.get("subagents", 0)))
-    for session, info in claude.items():
-        others.append(entry(session, "claude-code", info["files"], info.get("title"), [], info.get("subagents", 0)))
-    for thread, info in codex.items():
-        others.append(entry("codex:" + thread, "codex", info["files"], None, []))
-    others = [o for o in others if o["working"] or o["tokens"]["day"]["total"]]
-    order = lambda a: (not a["working"], -a["rate"], -a["tokens"]["hour"]["total"])
+    agents = [entry(key, info["harness"], info["seats"]) for key, info in seated.items()]
+    others = []
+    for key, info in sessions.items():
+        if key in seated:
+            continue
+        other = entry(key, "codex" if info["kind"] == "codex" else "claude-code", [])
+        if other["working"] or other["tokens"]["day"]["total"]:
+            others.append(other)
+    order = lambda a: (not a["working"], -a["rate"], -a["tokens"]["hour"]["total"], a["title"])
     agents.sort(key=order)
     others.sort(key=order)
     totals = {}
     for harness, kind in (("claude-code", "claude"), ("codex", "codex")):
         rows = [a for a in agents + others if a["harness"] == harness]
         totals[kind] = {name: sum(a["tokens"][name]["total"] for a in rows) for name in SPANS}
-        totals[kind]["rate"] = sum(a["rate"] for a in rows)
-        totals[kind]["working"] = sum(1 for a in rows if a["working"])
-    limits = _codex_limits["value"]
-    return {"at": now, "agents": agents, "others": others, "totals": totals,
-            "plans": {"codex": dict(limits, observed_at=_codex_limits["at"]) if limits else None},
+        totals[kind].update(rate=sum(a["rate"] for a in rows), working=sum(1 for a in rows if a["working"]))
+    limits = ledger.limits.get("value")
+    return {"at": now, "agents": agents, "others": others, "totals": totals, "scanning": ledger.scanning,
+            "plans": {"codex": dict(limits, observed_at=ledger.limits.get("at")) if limits else None},
             "automations": [{k: v for k, v in a.items() if k != "path"} for a in automations],
             "claude_tasks": claude_tasks(),
-            "orgs": [{"id": o["id"], "name": o["name"], "auto_wake": bool(o.get("auto_wake", True))}
-                     for o in orgs if o.get("status") in (None, "active")],
+            "orgs": [{"id": o["id"], "name": o["name"], "auto_wake": bool(o.get("auto_wake", True))} for o in orgs],
             "stopped_all": brakes.get("all")}
+
+
+# ---------------- the statistics: per period and cumulative, by session, agent or organization ----------------
+
+def _starts(since, now, bucket):
+    """Local-time bucket starts from the one holding `since` up to `now`."""
+    if bucket == "hour":
+        first = int(since // 3600) * 3600
+        return list(range(first, int(now) + 1, 3600))
+    day = datetime.fromtimestamp(since).replace(hour=0, minute=0, second=0, microsecond=0)
+    starts = []
+    while day.timestamp() <= now:
+        starts.append(int(day.timestamp()))
+        day = (day + timedelta(days=1, hours=2)).replace(hour=0)  # one local day on, across a clock change too
+    return starts
+
+
+def report(store, span="7d", group="agent", org=None, agent=None, bucket=None, now=None):
+    """Tokens per period and cumulative for every session, agent or organization in the span, largest first.
+
+    Agent: a Relic seat ("<org id>/<member>") across every session that carried it; a session holding several seats
+    counts for its main seat. Organization: the agent's organization. Sessions without a Relic seat count under
+    their own key and under the organization "" (none). org= and agent= filter before grouping."""
+    now = time.time() if now is None else now
+    group = group if group in GROUPS else "agent"
+    ledger = usage.Ledger.shared()
+    ledger.scan(now=now, blocking=False, fresh_for=FRESH_FOR)
+    if span == "today":
+        since = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    else:
+        span = span if span in RANGES else "7d"
+        since = now - RANGES[span]
+    bucket = bucket if bucket in ("hour", "day") else ("hour" if now - since <= 2 * DAY else "day")
+    starts = _starts(since, now, bucket)
+    orgs = _active_orgs(store)
+    places = _carried(store.list_orgs())
+    meta = ledger.sessions(now)
+    owners = {}
+
+    def owner(session):
+        if session not in owners:
+            if session in places:
+                place, member = _owner(store, session, places[session])
+                owners[session] = ("%s/%s" % (place["id"], member), "%s · %s" % (place["name"], member), place["id"], place["name"])
+            else:
+                info = meta.get(session) or {}
+                label = info.get("title") or (Path(info["cwd"]).name if info.get("cwd") else None) or session[-12:]
+                owners[session] = (session, label, "", None)
+        return owners[session]
+
+    groups = {}
+    for session, kind, hour, *counts in ledger.hours(starts[0], now + 3600):
+        index = bisect.bisect_right(starts, hour * 3600) - 1
+        if index < 0:
+            continue
+        agent_key, agent_label, org_id, org_label = owner(session)
+        if (org is not None and org_id != org) or (agent and agent not in (agent_key, session)):
+            continue
+        if group == "session":
+            info = meta.get(session) or {}
+            key, label = session, info.get("title") or (agent_label if agent_key != session else agent_label)
+        elif group == "agent":
+            key, label = agent_key, agent_label
+        else:
+            key, label = org_id, org_label
+        entry = groups.setdefault(key, {"key": key, "label": label, "org": org_id, "kinds": set(),
+                                        "values": [0] * len(starts), "cells": [0, 0, 0, 0]})
+        entry["kinds"].add(kind)
+        entry["values"][index] += sum(counts)
+        for i in range(4):
+            entry["cells"][i] += counts[i]
+    series = sorted(groups.values(), key=lambda g: (-sum(g["cells"]), str(g["label"])))
+    if len(series) > TOP:
+        rest = {"key": "*", "label": None, "org": None, "kinds": set(), "values": [0] * len(starts), "cells": [0, 0, 0, 0],
+                "count": len(series) - TOP + 1}
+        for g in series[TOP - 1:]:
+            rest["kinds"] |= g["kinds"]
+            rest["values"] = [a + b for a, b in zip(rest["values"], g["values"])]
+            rest["cells"] = [a + b for a, b in zip(rest["cells"], g["cells"])]
+        series = series[:TOP - 1] + [rest]
+    totals = [sum(g["values"][i] for g in series) for i in range(len(starts))]
+    for g in series:
+        g["kinds"] = sorted(g["kinds"])
+        g["total"] = _counts(g.pop("cells"))
+        g["cumulative"] = _running(g["values"])
+    agents = {}
+    for session, held in places.items():
+        place, member = held[0]
+        if place.get("status") in (None, "active"):
+            key = "%s/%s" % (place["id"], member)
+            agents.setdefault(key, {"key": key, "label": "%s · %s" % (place["name"], member), "org": place["id"]})
+    limits = ledger.limits.get("value")
+    return {"span": span, "bucket": bucket, "group": group, "from": starts[0], "to": now, "starts": starts,
+            "series": series, "totals": totals, "cumulative": _running(totals),
+            "total": sum(totals), "scanning": ledger.scanning,
+            "filters": {"orgs": [{"id": o["id"], "name": o["name"]} for o in orgs],
+                        "agents": sorted(agents.values(), key=lambda a: a["label"])},
+            "plans": {"codex": dict(limits, observed_at=ledger.limits.get("at")) if limits else None}}
+
+
+def _running(values):
+    out, total = [], 0
+    for value in values:
+        total += value
+        out.append(total)
+    return out
