@@ -191,8 +191,17 @@ public sealed partial class MainWindow
         void FollowLatestIntent(string source, bool explicitEnd = false)
         {
             if (latestIntentQueued || (!explicitEnd && keepLatest) || loadingOlder || closing || org.Length == 0) return;
-            var request = latestRequest; var selectedOrg = org; var selectedMember = member;
             latestIntentQueued = true;
+            if (explicitEnd)
+            {
+                // End / the scrollbar's last position supersedes the previous
+                // wheel or pan, including inertia still owned by native input.
+                // Cancel that interaction before queuing the new seek; keep
+                // observing all subsequent direct-manipulation/user input.
+                var cancelled = (chatScroll.Content as UIElement ?? chatScroll).CancelDirectManipulations();
+                PerformanceTrace.Count("conversation.latest.cancel_previous_manipulation", cancelled ? 1 : 0);
+            }
+            var request = latestRequest; var selectedOrg = org; var selectedMember = member;
             PerformanceTrace.Count("conversation.latest.intent." + source, 1);
             // Do not change the virtual anchor inside the native scroll event.
             // A later wheel/drag or navigation invalidates this intent before

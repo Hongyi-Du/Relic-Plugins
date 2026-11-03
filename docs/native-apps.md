@@ -1,5 +1,13 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Changes for the clients: integrated Mac779fd5d/68336f0 via292daa9, retaining
+standard native List recycling and partial real-input receipts. REQUESTS adds
+no shared API or gate changes. Windows explicit End now cancels the preceding
+native pan before queuing its new latest-row seek. Real subsequent wheel,
+pointer and direct-manipulation cancellation remains unchanged. The retained
+person-shape0142 trace showed an old DM notification canceling End94ms later;
+focused history CI must prove the fix without changing visible-row assertions.
+
 Windows1c2901a opening41549531409 passes every large-fixture click116/116,
 max856.129ms, worst UI118.658ms, peak386.496MiB/40threads. Person-shape still
 fails24/83 openings while row queues prepare; unchanged latest-content checks
