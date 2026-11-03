@@ -315,6 +315,20 @@ public sealed partial class MainWindow : Window
             // refresh in flight, but do not serialize its HTTP round trips.
             var organizationsRequest = api.Get("/api/orgs");
             var copiesRequest = api.Get("/api/cc");
+            // The selected chat's snapshot and messages do not depend on those
+            // two reads either. Start them together instead of a second round
+            // trip; only an organization that no longer exists asks again below.
+            string ChatPath() => PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit);
+            var requestedOrg = org; var requestedMember = member;
+            Task<JsonNode>? earlySnapshot = null, earlyChat = null;
+            if (org.Length > 0)
+            {
+                earlySnapshot = api.Get(PathFor()); earlyChat = api.Get(ChatPath());
+                // A discarded early read must not surface later as an unobserved fault.
+                foreach (var early in new[] { earlySnapshot, earlyChat })
+                    _ = early.ContinueWith(task => _ = task.Exception, CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
             try { await Task.WhenAll(organizationsRequest, copiesRequest); }
             catch (Exception ex)
             {
@@ -329,8 +343,9 @@ public sealed partial class MainWindow : Window
             if (org.Length == 0 && orgs.Count > 0) { org = orgs[0].Text("id"); selectedOrg = org; }
             if (org.Length > 0)
             {
-                var snapshotRequest = api.Get(PathFor());
-                var chatRequest = api.Get(PathFor("/chat?kind=" + (member.Length == 0 ? "group" : "private") + "&member=" + Client.Segment(member) + "&limit=" + chatLimit));
+                var reuse = earlySnapshot != null && org == requestedOrg && member == requestedMember;
+                var snapshotRequest = reuse ? earlySnapshot! : api.Get(PathFor());
+                var chatRequest = reuse ? earlyChat! : api.Get(ChatPath());
                 await Task.WhenAll(snapshotRequest, chatRequest);
                 var snapshot = await snapshotRequest;
                 var chat = await chatRequest;
