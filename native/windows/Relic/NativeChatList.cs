@@ -44,6 +44,9 @@ internal sealed class NativeChatList : Grid
         internal bool SeekedAbove, SeekedRow;
         internal int SeekIndex = -1, Walks, Reseeks;
         internal long SeekAt;
+        // The row the seek went to has been seen near the view: the seek's
+        // own view change has happened (see SeekLanded).
+        internal bool SeekLanded;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
 
@@ -248,6 +251,9 @@ internal sealed class NativeChatList : Grid
         if (pendingShift == 0 || Viewport is not { } viewport) return;
         var shift = pendingShift; pendingShift = 0;
         if (userPanning) return;
+        // A seek's own view change is still pending: a ChangeView now would
+        // replace it, and the seek repositions every row anyway.
+        if (position is { SeekedAbove: true, SeekLanded: false, SeekedRow: false }) return;
         PerformanceTrace.Count(TraceName + ".list.keep_rows_on_screen", shift);
         RequestOffset(viewport, RequestedOffset(viewport) + shift);
         // A correction still on its way moves with the rows too.
@@ -559,6 +565,17 @@ internal sealed class NativeChatList : Grid
         return seek;
     }
 
+    // Whether the row a seek went to is realized near the view, which means
+    // the seek's view change has happened. Once seen, it stays landed: walking
+    // down from there takes that row out of the view on purpose.
+    private bool SeekLanded(Position intent, ScrollViewer viewport)
+    {
+        if (intent.SeekLanded) return true;
+        if (TryGetRealizedRow(intent.SeekIndex) is not { IsLoaded: true } row) return false;
+        var bounds = Bounds(row, viewport);
+        return intent.SeekLanded = bounds.Bottom > -viewport.ViewportHeight && bounds.Top < viewport.ViewportHeight;
+    }
+
     // The top, on screen, of the first realized row at or above this one.
     private double FirstRealizedTop(ScrollViewer viewport, int index)
     {
@@ -606,7 +623,7 @@ internal sealed class NativeChatList : Grid
             if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
             intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
             intent.CorrectionPending = false; intent.CorrectionCompleted = false; intent.CorrectionTarget = null;
-            intent.SeekedAbove = false; intent.SeekedRow = false; intent.SeekIndex = -1; intent.Walks = 0;
+            intent.SeekedAbove = false; intent.SeekedRow = false; intent.SeekIndex = -1; intent.Walks = 0; intent.SeekLanded = false;
             // The platform realizes the target; this does not construct or
             // manually position an off-viewport item in an ItemsRepeater.
             var existing = TryGetRealizedRow(index);
@@ -643,6 +660,20 @@ internal sealed class NativeChatList : Grid
         using (PerformanceTrace.Measure(TraceName + ".list.layout_before_check")) list.UpdateLayout();
         if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
         var host = TryGetRealizedRow(index);
+        if (intent.SeekedAbove && !intent.SeekedRow && !SeekLanded(intent, viewport))
+        {
+            // ScrollIntoView places the row it went to (and the rows after it)
+            // at their new place at once, but the view moves there in a later
+            // pass: until then their bounds against the old view are thousands
+            // of pixels off, and every judgement from them (a walk down 8 ms
+            // after the seek, re-seeks, then absorbed upward corrections) was
+            // wrong. Wait for the move; seek the reading row itself only if it
+            // never comes.
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 1000) return;
+            intent.SeekedRow = true; TracePosition(intent, "seek_row.unlanded");
+            list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
+            return;
+        }
         if (host == null && intent.SeekedAbove && !intent.SeekedRow)
         {
             // The seek above lands over more than one layout pass: the row it
@@ -744,7 +775,7 @@ internal sealed class NativeChatList : Grid
         {
             intent.Reseeks++;
             var reseek = SeekIndex(intent, index, Math.Max(intent.Top, 0) + 240 * (intent.Reseeks + 1));
-            intent.SeekedAbove = reseek != index; intent.SeekIndex = reseek; intent.SeekedRow = false; intent.Walks = 0;
+            intent.SeekedAbove = reseek != index; intent.SeekIndex = reseek; intent.SeekedRow = false; intent.Walks = 0; intent.SeekLanded = false;
             intent.SeekAt = System.Diagnostics.Stopwatch.GetTimestamp(); intent.LastGeometry = null;
             TracePosition(intent, "reseek_above");
             list.ScrollIntoView(entries[reseek], ScrollIntoViewAlignment.Leading);
