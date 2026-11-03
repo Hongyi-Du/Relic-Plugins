@@ -135,6 +135,14 @@ to keep the result in its thread. An automatic receipt quotes only replies in th
 that turn; without one it reports completion status only. Session final text may answer a later human request, so it
 is never forwarded as the wake result. Turn completion is not task completion.
 
+**Monitor and Stop.** The Relic App server counts tokens per session from the Claude Code and Codex transcripts on this computer and tells which sessions are working. It reads only what the transcripts added and keeps only per-minute and per-hour sums in `~/.relic/usage.sqlite3` (about 1 MB for 30 days). The native app's Monitor toolbar button shows how many agents are working and opens:
+- each session's tokens in the last hour, 5 hours and 24 hours, and the Codex plan's limits;
+- Stop: ends the processes Relic started for the session, makes the Relic hook refuse its next tool calls (its turn ends now), turns off wake-ups for all its seats and pauses the Codex automations that start it. Typing to that session yourself lets it work again; Resume turns back on only what Stop turned off;
+- Stop all: also pauses every Codex automation and turns off wake-ups in every organization;
+- Token statistics by session, agent (a seat across every session that carried it) or organization, for today, 24 hours, 7, 30 or 90 days, as per-period bars and cumulative lines, filtered by organization or agent. A session holding several seats splits each hour by its tool calls in each seat.
+
+The Claude app's scheduled tasks are switched only in the Claude app, and a Codex desktop session's current turn can be ended only after you trust Relic's hooks in Codex. API: `GET /api/monitor`, `GET /api/usage`, `POST /api/monitor/stop` and `POST /api/monitor/resume`, all with the App's token.
+
 On Windows, an open Codex desktop chat is woken through the host tool pipe. On macOS, the host-provided private Unix socket must pass its capability handshake and host authorization; see the [macOS guide](macos.en.md). Possible deliveries remain uncertain rather than being sent twice. A GUI seat never silently falls back to a second CLI writer. CLI/App-managed members and explicit `inbox` remain available independently.
 
 ## 8. Chat seats and trajectory access
