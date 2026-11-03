@@ -27,6 +27,7 @@ public sealed partial class MainWindow
         System.IO.Directory.CreateDirectory(PerformanceOutput);
         performanceCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         var token = performanceCancellation.Token;
+        PerformanceStallCpu.CaptureUiThread();
         performanceProbe = Task.Run(async () =>
         {
             async Task Write(string name, object value, CancellationToken writeToken)
@@ -85,6 +86,8 @@ public sealed partial class MainWindow
                 {
                     var sent = Stopwatch.GetTimestamp();
                     pendingSince = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    // Not while idle is measured: three more system calls a ping.
+                    var cpuAtSend = Volatile.Read(ref performanceAction) == "idle-measure" ? default : PerformanceStallCpu.Read();
                     var completed = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
                     if (!DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Normal, () =>
                     {
@@ -108,7 +111,13 @@ public sealed partial class MainWindow
                         if (completed.Task.IsCompletedSuccessfully) pings++;
                         PerformanceTrace.RecordCollection();
                         await Publish(false, token);
-                        if (completed.Task.IsCompletedSuccessfully) break;
+                        if (completed.Task.IsCompletedSuccessfully)
+                        {
+                            var stall = ticks * 1000d / Stopwatch.Frequency;
+                            if (stall > 100 && cpuAtSend.At != 0)
+                                PerformanceStallCpu.Note(Volatile.Read(ref performanceAction), stall, cpuAtSend, PerformanceStallCpu.Read());
+                            break;
+                        }
                     }
                     // Only while switching chats: the census enumerates threads,
                     // and the idle phase measures the process's own CPU.

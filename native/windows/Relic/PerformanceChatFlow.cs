@@ -373,11 +373,18 @@ public sealed partial class MainWindow
     {
         await WaitForMarkdown();
         var settling = Stopwatch.StartNew();
-        while (!stream.IsLastPositionSettled)
+        // Settled includes the work the last draw deferred. The inspector is
+        // drawn once the chat has settled, as a command of its own
+        // (DrawDetailAfterChat). Starting on the chat alone put that draw and
+        // what followed it (layout, row builds, a gen2 collection) in the
+        // first measured second: 64% of the person profile's measured idle
+        // CPU in run 41662135525, which then stayed near 0.8% of one core.
+        while (!stream.IsLastPositionSettled || refreshing || Volatile.Read(ref performanceCommands) > 0)
         {
             if (settling.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("Conversation did not settle before idle CPU measurement");
             await Task.Delay(16);
         }
+        await PerformanceYield(); await WaitForMarkdown();
         // CI-only idle sampling enumerates modules and threads once to set up;
         // do that before the measured window, not in its first second.
         PerformanceThreadCensus.SampleCycles();
