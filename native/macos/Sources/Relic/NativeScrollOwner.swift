@@ -7,6 +7,14 @@ import SwiftUI
 struct NativeScrollOwner: NSViewRepresentable {
     let identifier: String
     let title: String
+    /// The scroll views named so far, so CI navigation finds one without
+    /// walking every view in the window on the main thread.
+    @MainActor private static let named = NSMapTable<NSString, NSScrollView>.strongToWeakObjects()
+    @MainActor static func scroll(_ identifier: String, in window: NSWindow) -> NSScrollView? {
+        guard let scroll = named.object(forKey: identifier as NSString), scroll.window === window,
+              scroll.accessibilityIdentifier() == identifier else { return nil }
+        return scroll
+    }
     func makeNSView(context: Context) -> Mount { Mount() }
     func updateNSView(_ view: Mount, context: Context) {
         view.update(identifier: identifier, title: title)
@@ -29,6 +37,7 @@ struct NativeScrollOwner: NSViewRepresentable {
             guard !ownerIdentifier.isEmpty, let scroll = enclosingScrollView else { owner = nil; return }
             binding = true; defer { binding = false }
             owner = scroll
+            NativeScrollOwner.named.setObject(scroll, forKey: ownerIdentifier as NSString)
             if scroll.accessibilityIdentifier() != ownerIdentifier { scroll.setAccessibilityIdentifier(ownerIdentifier) }
             if scroll.accessibilityLabel() != ownerTitle { scroll.setAccessibilityLabel(ownerTitle) }
             ScrollAppearance.apply(to: scroll)
