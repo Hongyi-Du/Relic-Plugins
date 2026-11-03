@@ -1,8 +1,43 @@
 import SwiftUI
 import RelicCore
 
+/// The contiguous slice of the prepared conversation that the native List
+/// holds. Loaded history can be thousands of rows; a chat switch, a history
+/// page or a jump to either end must only insert and remove a few dozen rows,
+/// never the whole loaded history in one AppKit table update.
+struct ConversationWindow: Equatable {
+    static let initial = 24, page = 16, maximum = 72
+    /// The chat this window belongs to. Another chat starts at its own tail.
+    var selection = ""
+    /// First shown row while reading history; `nil` keeps the newest rows.
+    var anchor: String?
+    var count = ConversationWindow.initial
+
+    func range(in rows: [ConversationRow], selection current: String) -> Range<Int> {
+        guard !rows.isEmpty else { return 0..<0 }
+        guard current == selection else { return max(0, rows.count - Self.initial)..<rows.count }
+        let size = min(max(1, count), Self.maximum)
+        if let anchor, let start = rows.firstIndex(where: { $0.id == anchor }) {
+            return start..<min(rows.count, start + size)
+        }
+        return max(0, rows.count - size)..<rows.count
+    }
+    /// Show exactly `range`; a range that ends at the newest row keeps following new rows.
+    static func showing(_ range: Range<Int>, in rows: [ConversationRow], selection: String) -> ConversationWindow {
+        guard !range.isEmpty else { return ConversationWindow(selection: selection) }
+        return ConversationWindow(selection: selection, anchor: range.upperBound == rows.count ? nil : rows[range.lowerBound].id,
+                                  count: range.count)
+    }
+    /// Keep the same rows even when newer rows arrive below them.
+    static func pinned(_ range: Range<Int>, in rows: [ConversationRow], selection: String) -> ConversationWindow {
+        guard !range.isEmpty else { return ConversationWindow(selection: selection) }
+        return ConversationWindow(selection: selection, anchor: rows[range.lowerBound].id, count: range.count)
+    }
+}
+
 /// AppKit-backed List owns row recycling and variable-height placement. The
-/// application supplies identities and reading intent, never virtual offsets.
+/// application supplies a bounded window of identities and reading intent,
+/// never virtual offsets.
 struct ConversationStream: View {
     @EnvironmentObject var m: Model
     @Environment(\.isEnabled) private var enabled
@@ -13,22 +48,34 @@ struct ConversationStream: View {
     @State private var mountedViewport = false
     @State private var mountedRows = false
     @State private var mountedComposer = false
-    @State private var olderAnchor: String?
+    @State private var window = ConversationWindow()
+    /// Where the viewport must be after the next window/content update.
+    @State private var reveal: Reveal?
+    @State private var revealRequest = 0
+    /// The oldest loaded row when an earlier server page was requested.
+    @State private var olderRequest: String?
+    private enum Reveal: Equatable { case top(String), bottom(String), start, latest }
+    private struct UpdateKey: Hashable {
+        let selection: String, version: Int, enabled: Bool, window: String, request: Int
+    }
     private var latestID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
+    private var shownRange: Range<Int> { window.range(in: m.streamRows, selection: m.selection.key) }
 
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
                 if mountedViewport {
+                    let all = m.streamRows
+                    let range = window.range(in: all, selection: m.selection.key)
                     List {
                         Color.clear.frame(height: 8).id("start").accessibilityHidden(true)
                             .background(mount)
                             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
-                        let rows = mountedRows ? m.streamRows : []
-                        let hasLive = mountedRows && !m.displayLiveItems.isEmpty
+                        let rows = mountedRows ? Array(all[range]) : []
+                        let hasLive = mountedRows && range.upperBound == all.count && !m.displayLiveItems.isEmpty
                         let compact = m.preferences["density"].text == "compact"
-                        let last = hasLive ? "live-end" : rows.last?.id
-                        if mountedRows && rows.isEmpty && !hasLive {
+                        let last = hasLive ? "live-end" : all.last?.id
+                        if mountedRows && all.isEmpty && !hasLive {
                             NoticeLayout {
                                 ReferenceLabel(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private"),
                                     size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
@@ -94,7 +141,8 @@ struct ConversationStream: View {
                     }.measuredRegion("composer")
                 } else { Color.clear.frame(height: 100).accessibilityHidden(true) }
             }
-            .task(id: "\(m.selection.key)/\(m.streamVersion)/\(enabled)") {
+            .task(id: UpdateKey(selection: m.selection.key, version: m.streamVersion, enabled: enabled,
+                                window: (window.anchor ?? "latest") + "/\(window.count)/" + window.selection, request: revealRequest)) {
                 guard enabled, !m.isPreparingConversation else { return }
                 let ticket = PerformanceRendering.beginSurface()
                 defer { PerformanceRendering.endSurface(ticket) }
@@ -116,13 +164,22 @@ struct ConversationStream: View {
                 // semantic request. It retains the same native viewport.
                 await Task.yield()
                 guard !Task.isCancelled else { return }
-                if let anchor = olderAnchor {
-                    proxy.scrollTo(anchor, anchor: .top); olderAnchor = nil
-                } else if followsLatest { seekLatest(proxy) }
+                // An earlier server page arrived above the oldest shown row:
+                // show one page of it while the same row stays at the top.
+                if revealRequestedOlderRows() { return }
+                let target = reveal; reveal = nil
+                switch target {
+                case .top(let id): proxy.scrollTo(id, anchor: .top)
+                case .bottom(let id): proxy.scrollTo(id, anchor: .bottom)
+                case .start: proxy.scrollTo("start", anchor: .top)
+                case .latest: seekLatest(proxy)
+                case nil: if followsLatest { seekLatest(proxy) }
+                }
             }
             .onChange(of: m.selection) {
                 keyboard.discardDisclosurePosition(); followsLatest = true
-                preservingDisclosure = false; olderAnchor = nil; keyboard.observedHeight = 0
+                preservingDisclosure = false; keyboard.observedHeight = 0
+                window = ConversationWindow(selection: m.selection.key); reveal = nil; olderRequest = nil
             }
             .onChange(of: m.streamVersion) {
                 PerformanceRendering.observed(streamVersion: m.streamVersion)
@@ -130,17 +187,36 @@ struct ConversationStream: View {
             }
             .onAppear {
                 PerformanceRendering.observed(streamVersion: m.streamVersion)
+                window = ConversationWindow(selection: m.selection.key)
                 keyboard.positionObservation = {
-                    ["last_row_id": latestID as Any? ?? NSNull(), "follows_latest": followsLatest,
-                     "initial": !mountedViewport, "enabled": enabled, "preparing": m.isPreparingConversation]
+                    let range = shownRange
+                    return ["last_row_id": latestID as Any? ?? NSNull(), "follows_latest": followsLatest,
+                            "initial": !mountedViewport, "enabled": enabled, "preparing": m.isPreparingConversation,
+                            "window_start": range.lowerBound, "window_end": range.upperBound, "loaded_rows": m.streamRows.count]
                 }
                 keyboard.didUserScroll = { nearBottom in
-                    followsLatest = nearBottom; preservingDisclosure = false; olderAnchor = nil
+                    let all = m.streamRows, range = window.range(in: all, selection: m.selection.key)
+                    followsLatest = nearBottom && range.upperBound == all.count
+                    preservingDisclosure = false
+                    if followsLatest, window.anchor != nil {
+                        window = .showing(range, in: all, selection: m.selection.key)
+                    } else if !followsLatest, window.anchor == nil, !range.isEmpty {
+                        // A person reading earlier rows keeps them in place;
+                        // arrivals below are shown when they reach the end.
+                        window = .pinned(range, in: all, selection: m.selection.key)
+                    }
                 }
                 keyboard.scrollToEdge = { top in
-                    followsLatest = !top; preservingDisclosure = false; olderAnchor = nil
-                    if top { proxy.scrollTo("start", anchor: .top) }
-                    else { seekLatest(proxy) }
+                    preservingDisclosure = false; olderRequest = nil
+                    let all = m.streamRows, key = m.selection.key
+                    if top {
+                        followsLatest = false
+                        let end = min(all.count, ConversationWindow.initial)
+                        request(.start, window: end < all.count ? ConversationWindow.pinned(0..<end, in: all, selection: key) : ConversationWindow.showing(0..<end, in: all, selection: key))
+                    } else {
+                        followsLatest = true
+                        request(.latest, window: ConversationWindow(selection: key))
+                    }
                 }
                 keyboard.geometryChanged = { geometry in
                     let changed = abs(keyboard.observedHeight - geometry.height) > 1
@@ -154,15 +230,15 @@ struct ConversationStream: View {
                     if changed, geometry.bottomGap > 1, followsLatest, !preservingDisclosure, !m.isPreparingConversation {
                         seekLatest(proxy)
                     }
-                    if !followsLatest, geometry.height > geometry.viewportHeight, geometry.topGap < 100,
-                       olderAnchor == nil, m.moreChat, !m.loadingOlder, let first = m.streamRows.first?.id {
-                        olderAnchor = first
-                        m.run {
-                            do {
-                                try await m.loadOlder()
-                                if !m.isPreparingConversation { olderAnchor = nil }
-                            } catch { olderAnchor = nil; throw error }
-                        }
+                    guard !followsLatest, reveal == nil, olderRequest == nil, !m.isPreparingConversation,
+                          geometry.height > geometry.viewportHeight else { return }
+                    let all = m.streamRows, range = window.range(in: all, selection: m.selection.key)
+                    guard !range.isEmpty else { return }
+                    if geometry.topGap < 100 {
+                        if range.lowerBound > 0 { showOlder(all, above: range) }
+                        else if m.moreChat, !m.loadingOlder { requestOlderPage(all[range.lowerBound].id) }
+                    } else if geometry.bottomGap < 100, range.upperBound < all.count {
+                        showNewer(all, below: range)
                     }
                 }
             }
@@ -175,7 +251,56 @@ struct ConversationStream: View {
     private var mount: some View {
         ConversationKeyboardMount(keyboard: keyboard, enabled: enabled, focused: viewportFocused)
     }
+    private func request(_ target: Reveal, window next: ConversationWindow) {
+        window = next; reveal = target; revealRequest &+= 1
+    }
+    /// Page one bounded step toward older loaded rows, keeping the current
+    /// first row at the top. Newer rows beyond the window size are released.
+    private func showOlder(_ all: [ConversationRow], above range: Range<Int>) {
+        let anchor = all[range.lowerBound].id
+        let start = max(0, range.lowerBound - ConversationWindow.page)
+        let end = min(range.upperBound, start + ConversationWindow.maximum)
+        request(.top(anchor), window: end < all.count ? ConversationWindow.pinned(start..<end, in: all, selection: m.selection.key)
+                                                      : ConversationWindow.showing(start..<end, in: all, selection: m.selection.key))
+    }
+    /// Page one bounded step toward the newest rows, keeping the current last
+    /// row at the bottom. Reaching the newest row follows new rows again.
+    private func showNewer(_ all: [ConversationRow], below range: Range<Int>) {
+        let anchor = all[range.upperBound - 1].id
+        let end = min(all.count, range.upperBound + ConversationWindow.page)
+        let start = max(range.lowerBound, end - ConversationWindow.maximum)
+        request(.bottom(anchor), window: end < all.count ? ConversationWindow.pinned(start..<end, in: all, selection: m.selection.key)
+                                                         : ConversationWindow.showing(start..<end, in: all, selection: m.selection.key))
+    }
+    private func requestOlderPage(_ anchor: String) {
+        olderRequest = anchor
+        m.run {
+            do {
+                try await m.loadOlder()
+                // Nothing was added above the anchor: allow the next request.
+                if olderRequest == anchor, !m.isPreparingConversation, m.streamRows.first?.id == anchor { olderRequest = nil }
+            } catch { if olderRequest == anchor { olderRequest = nil }; throw error }
+        }
+    }
+    private func revealRequestedOlderRows() -> Bool {
+        guard let anchor = olderRequest else { return false }
+        let all = m.streamRows, range = window.range(in: all, selection: m.selection.key)
+        guard !range.isEmpty, all[range.lowerBound].id == anchor else { olderRequest = nil; return false }
+        guard range.lowerBound > 0 else {
+            if !m.loadingOlder { olderRequest = nil }
+            return false
+        }
+        olderRequest = nil
+        showOlder(all, above: range)
+        return true
+    }
     private func seekLatest(_ proxy: ScrollViewProxy) {
+        let all = m.streamRows
+        if shownRange.upperBound < all.count {
+            // The newest rows are outside the window: show them first, then
+            // scroll after the List has received that bounded collection.
+            request(.latest, window: ConversationWindow(selection: m.selection.key)); return
+        }
         if let id = latestID { proxy.scrollTo(id, anchor: .bottom) }
     }
 }

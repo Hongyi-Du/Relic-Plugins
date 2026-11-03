@@ -34,11 +34,37 @@ struct Avatar: View {
             }
             .task(id: cacheKey) {
                 guard !member.isEmpty else { image = nil; return }
+                // Rows are recycled on every chat switch and history page. A
+                // remounted avatar reuses its known image (or known absence)
+                // instead of issuing another request and state update.
+                if let known = AvatarImageCache.lookup(cacheKey) { if image !== known { image = known }; return }
                 let path = member == "human" ? "/api/avatar" : "/api/avatar/" + Client.segment(m.organization) + "/" + Client.segment(member)
-                if let data = try? await m.bytes(path) { image = NSImage(data: data) } else { image = nil }
+                do {
+                    let data = try await m.bytes(path)
+                    guard !Task.isCancelled else { return }
+                    let loaded = NSImage(data: data)
+                    if !data.isEmpty { AvatarImageCache.store(cacheKey, loaded) }
+                    image = loaded
+                } catch is RelicError {
+                    // The server answered without an image for this key.
+                    guard !Task.isCancelled else { return }
+                    AvatarImageCache.store(cacheKey, nil); image = nil
+                } catch { if !Task.isCancelled { image = nil } }
             }.onAppear { imageVisibility?(image != nil) }
             .onChange(of: image != nil) { imageVisibility?(image != nil) }
             .accessibilityElement(children: .contain).accessibilityIdentifier(identity).accessibilityLabel("")
+    }
+}
+
+/// Bounded per-process avatar images keyed by organization, member and the
+/// server's avatar revision, including a known absence.
+@MainActor enum AvatarImageCache {
+    private static var values: [String: NSImage?] = [:]
+    private static var order: [String] = []
+    static func lookup(_ key: String) -> NSImage?? { values[key] }
+    static func store(_ key: String, _ image: NSImage?) {
+        if values.updateValue(image, forKey: key) == nil { order.append(key) }
+        while order.count > 256 { values.removeValue(forKey: order.removeFirst()) }
     }
 }
 
