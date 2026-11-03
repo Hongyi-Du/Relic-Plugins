@@ -50,6 +50,8 @@ public sealed partial class MainWindow : Window
     // Other organizations' changes only touch their sidebar rows: read the organization list at most this often.
     private readonly DispatcherTimer sidebarTimer = new() { Interval = TimeSpan.FromMilliseconds(1500) };
     private bool refreshing, pending, closing, ready, sending, sendingThread;
+    // An organization snapshot read by a refresh a click made stale (see Refresh).
+    private (string Org, Task<JsonNode>? Request, long At) handedSnapshot;
     private TaskCompletionSource? refreshCompletion;
     private string renderedView = "";
     private bool sidebarStructureChanged;
@@ -177,7 +179,11 @@ public sealed partial class MainWindow : Window
         AddShortcut(VirtualKey.N, VirtualKeyModifiers.Control, CreateOrg);
         AddShortcut((VirtualKey)188, VirtualKeyModifiers.Control, Settings);
         AddShortcut(VirtualKey.F, VirtualKeyModifiers.Control, () => { search.Focus(FocusState.Keyboard); return Task.CompletedTask; });
-        refreshTimer.Tick += async (_, _) => { refreshTimer.Stop(); await Run(Refresh); };
+        // A refresh that started after the request covered it (it clears
+        // pending). Refreshing again read the chat just opened a second time:
+        // a click made a refresh stale, it asked for this one, and that one
+        // was in flight at the next click, which made it stale in turn.
+        refreshTimer.Tick += async (_, _) => { refreshTimer.Stop(); if (!pending) return; await Run(Refresh); };
         sidebarTimer.Tick += async (_, _) => { sidebarTimer.Stop(); await Run(RefreshSidebar); };
         Closed += async (_, e) =>
         {
@@ -347,7 +353,15 @@ public sealed partial class MainWindow : Window
             }
             if (org.Length > 0)
             {
-                earlySnapshot = Timed("snapshot", api.Get(PathFor())); earlyChat = Timed("chat", api.Get(ChatPath()));
+                // A refresh that a click just made stale hands over its read of
+                // this organization's snapshot (see below): the same read, a
+                // moment old, that the server is already computing.
+                var handed = handedSnapshot; handedSnapshot = default;
+                var useHanded = handed.Request is { IsFaulted: false, IsCanceled: false } && handed.Org == org
+                    && System.Diagnostics.Stopwatch.GetElapsedTime(handed.At).TotalMilliseconds < 300;
+                if (useHanded && timed) PerformanceTrace.Count("refresh.snapshot.handed", 1);
+                earlySnapshot = useHanded ? handed.Request! : Timed("snapshot", api.Get(PathFor()));
+                earlyChat = Timed("chat", api.Get(ChatPath()));
                 Observe(earlySnapshot); Observe(earlyChat);
                 // A member's transcript and live state otherwise wait for the new
                 // snapshot to say they exist. The snapshot already loaded for this
@@ -378,7 +392,14 @@ public sealed partial class MainWindow : Window
             // snapshot (several hundred ms for a large one): the click's own
             // refresh is waiting for this one to finish.
             if (org != selectedOrg || member != selectedMember)
-            { if (timed) PerformanceTrace.Count("refresh.stale.after_orgs", 1); pending = true; return; }
+            {
+                if (timed) PerformanceTrace.Count("refresh.stale.after_orgs", 1);
+                // The click reads its organization next. When that is this one,
+                // its snapshot is the one already being computed: two at once
+                // made both twice as slow (over a second for the largest).
+                if (earlySnapshot != null) handedSnapshot = (requestedOrg, earlySnapshot, System.Diagnostics.Stopwatch.GetTimestamp());
+                pending = true; return;
+            }
             if (org.Length > 0)
             {
                 var reuse = earlySnapshot != null && org == requestedOrg && member == requestedMember;
@@ -387,7 +408,12 @@ public sealed partial class MainWindow : Window
                 await Task.WhenAll(snapshotRequest, chatRequest);
                 var snapshot = await snapshotRequest;
                 var chat = await chatRequest;
-                if (org != selectedOrg || member != selectedMember) { pending = true; return; }
+                if (org != selectedOrg || member != selectedMember)
+                {
+                    // The click waited for this read; hand the snapshot over (see above).
+                    handedSnapshot = (selectedOrg, snapshotRequest, System.Diagnostics.Stopwatch.GetTimestamp());
+                    pending = true; return;
+                }
                 snap = snapshot; snapOrg = org;
                 var loadedMessages = messages;
                 // While the person reads (not following the latest message) or an

@@ -418,7 +418,12 @@ internal sealed class NativeChatList : Grid
         VirtualRows.ReadingAnchor? first = null;
         foreach (var (host, binding) in mounted)
         {
-            if (binding.Entry.Row.Key is not { } key || !ReadyHost(host)) continue;
+            // A realized row still waiting to be built already holds its place.
+            // After a jump to the top every row there was unbuilt: no anchor was
+            // read, and the older page then opened at its first row instead of
+            // keeping the message in view. A container just placed for another
+            // row may not have moved there yet.
+            if (binding.Entry.Row.Key is not { } key || !(ReadyHost(host) || PlacedHost(host))) continue;
             // Paging controls and date separators may disappear when older
             // data arrives. Preserve a real timeline item the person reads.
             if (!key.StartsWith("message:", StringComparison.Ordinal)
@@ -441,6 +446,7 @@ internal sealed class NativeChatList : Grid
     }
 
     private static bool ReadyHost(Border host) => host is { IsLoaded: true, Child: not null, ActualHeight: > 0, ActualWidth: > 0 };
+    private bool PlacedHost(Border host) => host is { IsLoaded: true, ActualHeight: > 0, ActualWidth: > 0 } && !placing.Contains(host);
     private static Windows.Foundation.Rect Bounds(FrameworkElement host, ScrollViewer viewport) =>
         host.TransformToVisual(viewport).TransformBounds(new(0, 0, host.ActualWidth, host.ActualHeight));
 

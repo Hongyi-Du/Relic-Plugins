@@ -195,6 +195,42 @@ public sealed partial class MainWindow
         });
         await Settled();
         PerformanceTrace.Note("leak.survivors", DescribeSurvivors());
+        // The sidebar's organization rows outlived full collections after
+        // being replaced. Mount and remove one part of such a row at a time
+        // and count which of them survive.
+        async Task Parts(string name, Func<FrameworkElement> make)
+        {
+            var made = new List<WeakReference>();
+            for (var index = 0; index < 12; index++)
+            {
+                var element = make(); made.Add(new WeakReference(element));
+                inspector.Children.Add(element); await PerformanceYield();
+                inspector.Children.Remove(element); await PerformanceYield();
+            }
+            await Settled();
+            PerformanceTrace.Note("leak.parts", new { name, made = made.Count, alive = made.Count(entry => entry.IsAlive) });
+        }
+        ListView SidebarList(UIElement content, Action<NativeSidebarRow>? decorate = null)
+        {
+            var list = new ListView { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, Padding = new Thickness(0),
+                BorderThickness = new Thickness(0), Template = sidebarListTemplate!, ItemsPanel = sidebarItemsPanel! };
+            var row = new NativeSidebarRow { Content = content, Template = sidebarItemTemplate! };
+            decorate?.Invoke(row); list.Items.Add(row);
+            return list;
+        }
+        var probeOrg = orgs.FirstOrDefault() ?? new JsonObject { ["id"] = "probe", ["name"] = "Probe" };
+        await Parts("text", () => SidebarText("Probe"));
+        await Parts("avatar", () => SidebarPicture("Probe", new Border { Width = 22, Height = 22 }, 22));
+        await Parts("org_face", () => SidebarOrgFace(probeOrg!));
+        await Parts("list_row", () => SidebarList(SidebarText("Probe")));
+        await Parts("list_row_name", () => SidebarList(SidebarText("Probe"), row => BindSidebarRowName(row, (UIElement)row.Content)));
+        await Parts("list_row_flyout", () =>
+        {
+            var content = SidebarText("Probe"); var menu = new MenuFlyout(); menu.Items.Add(new MenuFlyoutItem { Text = "Probe" });
+            content.ContextFlyout = menu; return SidebarList(content);
+        });
+        await Parts("list_row_tooltip", () => { var content = SidebarText("Probe"); SidebarToolTip(content, "Probe"); return SidebarList(content); });
+        await Parts("list_row_avatar", () => SidebarList(SidebarOrgFace(probeOrg!)));
     }
 
     // CI-only: the tracked rows that outlived full collections while out of
