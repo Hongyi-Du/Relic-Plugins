@@ -22,6 +22,7 @@ import Observation
     @ObservationIgnored private var reading = false
     @ObservationIgnored private var readAgain = false
     @ObservationIgnored private var usageRequest = 0
+    @ObservationIgnored private var reads = 0
     @ObservationIgnored private var disarmTask: Task<Void, Never>?
 
     /// The toolbar count follows the refreshes that already run while members work, at most every 15 s. An idle
@@ -37,6 +38,9 @@ import Observation
         Task { [weak self] in
             let result = try? await client.monitorSnapshot()
             guard let self else { return }
+            // CI evidence of what the count costs the main actor: how often it is read and how long applying takes.
+            let trace = UIWorkTrace.begin("monitor.apply"); defer { UIWorkTrace.end(trace) }
+            self.reads += 1; UIWorkTrace.gauge("monitor_reads", self.reads)
             self.reading = false
             if let result {
                 if self.working != result.working { self.working = result.working }
