@@ -29,6 +29,8 @@ public sealed partial class MainWindow
     private const int chatLimit = 1000;
     private bool chatMore, olderHistory;
     private bool loadingOlder, keepLatest = true;
+    private readonly ScrollInputIntent conversationScrollInput = new();
+    private NativeTouchpadInput? conversationTouchpadInput;
     private int chatPages = 1;
     private int latestRequest;
     private readonly Dictionary<string, FrameworkElement> plainTargets = new();
@@ -178,12 +180,42 @@ public sealed partial class MainWindow
     }
     private void WireConversationScroll()
     {
+        var manipulationOrg = ""; var manipulationMember = ""; var manipulationRequest = -1;
+        var manipulationStartOffset = 0d;
+        var panRequest = -1; var panStartOffset = 0d;
+        var panOrg = ""; var panMember = "";
         void LeaveLatest(string source)
         {
             keepLatest = false; chatScroll.VerticalAnchorRatio = 0; latestRequest++;
             PerformanceTrace.Count("conversation.leave_latest." + source, latestRequest);
+            conversationScrollInput.CompleteDirectManipulation();
             stream.StopFollowingLast();
         }
+        void BeginUserPan(string source, double offset)
+        {
+            LeaveLatest(source); panRequest = latestRequest; panStartOffset = offset;
+            panOrg = org; panMember = member;
+        }
+        stream.CaptureSeekInputGeneration = conversationScrollInput.BeginSeek;
+        conversationTouchpadInput?.Dispose();
+        conversationTouchpadInput = new(WinRT.Interop.WindowNative.GetWindowHandle(this), () =>
+        {
+            // Touchpad gestures target the content under the cursor. Scrolling
+            // the sidebar or inspector must not disturb the chat's position.
+            if (conversationTouchpadInput?.PointerClientPosition() is { } point && root.XamlRoot is { } xamlRoot)
+            {
+                var bounds = chatScroll.TransformToVisual(root).TransformBounds(new(0, 0, chatScroll.ActualWidth, chatScroll.ActualHeight));
+                if (!bounds.Contains(new(point.X / xamlRoot.RasterizationScale, point.Y / xamlRoot.RasterizationScale))) return;
+            }
+            var nativePan = conversationScrollInput.RecordInput();
+            if (nativePan && manipulationOrg == org && manipulationMember == member && manipulationRequest == latestRequest)
+                BeginUserPan("touchpad_pan", manipulationStartOffset);
+        }, () =>
+        {
+            if (stream.PendingSeekInputGeneration != null) LeaveLatest("input_observation_lost");
+        });
+        Closed += (_, _) =>
+        { conversationScrollInput.CompleteDirectManipulation(); conversationTouchpadInput?.Dispose(); };
         var latestIntentQueued = false;
         var downwardRequest = -1;
         var downwardOrg = ""; var downwardMember = "";
@@ -217,6 +249,7 @@ public sealed partial class MainWindow
         void VerticalBarScrolled(object sender, ScrollEventArgs args)
         {
             if (verticalBar is not { Maximum: > 0 } bar) return;
+            conversationScrollInput.RecordInput();
             if (args.ScrollEventType is ScrollEventType.First or ScrollEventType.SmallDecrement or ScrollEventType.LargeDecrement
                 || (args.ScrollEventType is ScrollEventType.ThumbTrack or ScrollEventType.ThumbPosition
                     && args.NewValue < bar.Maximum - 1))
@@ -242,6 +275,7 @@ public sealed partial class MainWindow
         {
             var pointer = e.GetCurrentPoint(chatScroll).Properties;
             if (pointer.IsHorizontalMouseWheel) return;
+            conversationScrollInput.RecordInput();
             if (pointer.MouseWheelDelta > 0)
             {
                 LeaveLatest("wheel_up");
@@ -252,19 +286,26 @@ public sealed partial class MainWindow
             }
             else if (pointer.MouseWheelDelta < 0)
             {
-                if (stream.ReadingAnchorRestorePending) LeaveLatest("wheel_down_reading");
+                if (stream.PendingSeekInputGeneration != null) LeaveLatest("wheel_down_seek");
                 downwardRequest = latestRequest; downwardOrg = org; downwardMember = member;
                 if (chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1)
                     FollowLatestIntent("wheel_end");
             }
         }), true);
-        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => LeaveLatest("pointer_pressed")), true);
+        chatScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) =>
+        { conversationScrollInput.RecordInput(); LeaveLatest("pointer_pressed"); }), true);
         chatScroll.PreviewKeyDown += (_, e) =>
         {
             // Handle the focused viewport's End before the native class
             // handler submits a competing numeric scroll/inertia command.
             // Text descendants retain their own caret navigation.
-            if (!ReferenceEquals(e.OriginalSource, chatScroll) || e.Key != VirtualKey.End) return;
+            if (!ReferenceEquals(e.OriginalSource, chatScroll)) return;
+            conversationScrollInput.RecordInput();
+            if (e.Key != VirtualKey.End)
+            {
+                if (stream.PendingSeekInputGeneration != null) LeaveLatest("key_during_seek");
+                return;
+            }
             e.Handled = true; FollowLatestIntent("end_key", explicitEnd: true);
         };
         chatScroll.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
@@ -274,15 +315,24 @@ public sealed partial class MainWindow
             if (e.Key is VirtualKey.Home or VirtualKey.Up or VirtualKey.PageUp) LeaveLatest("key_" + e.Key);
         }), true);
         // Touchpad/touch panning is direct manipulation, not a wheel event.
-        var panRequest = -1; var panStartOffset = 0d;
-        var panOrg = ""; var panMember = "";
         chatScroll.DirectManipulationStarted += (_, _) =>
         {
-            LeaveLatest("direct_manipulation"); panRequest = latestRequest; panStartOffset = chatScroll.VerticalOffset;
-            panOrg = org; panMember = member;
+            // Only a live seek with verified Raw Input observation and no new
+            // input may own this notification. Pair raw input with a native
+            // DM start in either delivery order, never with pointer motion alone.
+            manipulationOrg = org; manipulationMember = member; manipulationRequest = latestRequest;
+            manipulationStartOffset = chatScroll.VerticalOffset;
+            if (!conversationScrollInput.BeginDirectManipulation(stream.PendingSeekInputGeneration,
+                conversationTouchpadInput?.IsAvailable == true))
+            {
+                PerformanceTrace.Count("conversation.programmatic_direct_manipulation", latestRequest);
+                return;
+            }
+            BeginUserPan("direct_manipulation", manipulationStartOffset);
         };
         chatScroll.DirectManipulationCompleted += (_, _) =>
         {
+            conversationScrollInput.CompleteDirectManipulation(); manipulationRequest = -1;
             if (panRequest == latestRequest && panOrg == org && panMember == member
                 && chatScroll.VerticalOffset > panStartOffset + 1
                 && chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1)

@@ -19,13 +19,14 @@ internal sealed class NativeChatList : Grid
     private sealed record BuildWork(Border Host, Entry Entry, int Version);
     private enum PositionKind { Latest, Reading, First }
     private sealed class Position(PositionKind kind, string? key, double top,
-        Func<bool> isCurrent, Func<bool> isReady, string view)
+        Func<bool> isCurrent, Func<bool> isReady, string view, long inputGeneration)
     {
         internal readonly PositionKind Kind = kind;
         internal readonly string? Key = key;
         internal readonly double Top = top;
         internal readonly Func<bool> IsCurrent = isCurrent, IsReady = isReady;
         internal readonly string View = view;
+        internal readonly long InputGeneration = inputGeneration;
         internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal Entry? RequestedEntry;
         internal int Corrections;
@@ -68,6 +69,10 @@ internal sealed class NativeChatList : Grid
     internal int Realized => mounted.Count;
     internal static int PendingBuilds => Volatile.Read(ref pendingBuilds);
     internal bool ReadingAnchorRestorePending => position is { Kind: PositionKind.Reading or PositionKind.First };
+    internal Func<long> CaptureSeekInputGeneration { get; set; } = static () => 0;
+    internal long? PendingSeekInputGeneration => position is { } intent && intent.IsCurrent()
+        && intent.View == ViewIdentity && !(intent.Kind == PositionKind.Latest && IsLastPositionSettled)
+        ? intent.InputGeneration : null;
     internal Thickness ContentPadding
     {
         get => contentPadding;
@@ -325,7 +330,7 @@ internal sealed class NativeChatList : Grid
     {
         Commit(); StopFollowingLast();
         if (entries.Count == 0 || !isCurrent()) return Task.FromResult(false);
-        position = new(kind, key, top, isCurrent, isReady, ViewIdentity);
+        position = new(kind, key, top, isCurrent, isReady, ViewIdentity, CaptureSeekInputGeneration());
         if (list.ItemsPanelRoot is ItemsStackPanel panel)
             panel.ItemsUpdatingScrollMode = kind == PositionKind.Latest ? ItemsUpdatingScrollMode.KeepLastItemInView : ItemsUpdatingScrollMode.KeepItemsInView;
         QueuePositionCheck();

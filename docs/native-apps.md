@@ -1,5 +1,18 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Windows5039a85 history0142 and monkey39 prove native DM notifications canceled
+actual automatic latest/reading seeks without a new scenario input, leaving
+137.5DIP bottom gap or moving the reading message81.839DIP. The product now
+pairs a pending native seek with input generations. A small Raw Input observer
+for Precision Touchpad usage0x0D/0x05 fills the routed-input gap; a DM notification
+with no new input does not cancel a still-active programmatic seek. Raw input
+alone does not cancel; either event delivery order is handled, with completion,
+navigation and input-loss cleanup. Existing registrations are never displaced,
+and unavailable observation retains ordinary native cancellation. Nine pure
+state tests cover ordering, stale/settled intents and failure fallback. The
+actual touchpad hardware remains a required human test; CI does not prove it.
+The history/visible-row assertions, input watchdog and tolerances are unchanged.
+
 Changes for the clients: Mac7808e68 restores bounded List row admission after
 292daa9's first-paint regression and waits for actual onAppear before releasing
 the next32ms render turn. REQUESTS keeps every original native/history gate.
