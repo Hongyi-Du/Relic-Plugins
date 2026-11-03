@@ -274,7 +274,10 @@ struct ConversationStream: View {
                 case .latest: seekLatest(proxy)
                 // Earlier rows admitted above keep the latest row in place; a
                 // scroll request there only costs the List another update.
-                case nil: if followsLatest, !keyboard.showsEnd { seekLatest(proxy) }
+                case nil:
+                    // The rows admitted above have been received; end their hold.
+                    _ = keyboard.releaseHold()
+                    if followsLatest, !keyboard.showsEnd { seekLatest(proxy) }
                 }
                 await admitWindowRows()
             }
@@ -385,8 +388,22 @@ struct ConversationStream: View {
         guard !Task.isCancelled, await RowMountQueue.shared.acquire(turn, label: "conversation-earlier", priority: 15) else { return }
         let above = growsAbove
         guard !Task.isCancelled, window.count < ConversationWindow.initial, above || growsBelow else { RowMountQueue.shared.release(turn); return }
-        if above, let latest = latestID { ReadingPositionTrace.before("earlier-rows", row: latest, top: false, scroll: keyboard.scroll) }
-        window.count = min(ConversationWindow.initial, window.count + ConversationWindow.step)
+        let next = min(ConversationWindow.initial, window.count + ConversationWindow.step)
+        if above {
+            if let latest = latestID { ReadingPositionTrace.before("earlier-rows", row: latest, top: false, scroll: keyboard.scroll) }
+            // Hold the last table row (the latest message or the live turn)
+            // where it is while the rows go in above it. AppKit's update
+            // moved the content for them, but the frame it committed showed
+            // the latest row pushed down by their whole height (64-2,900 pt in
+            // CI) until this stream's next update scrolled it back. A hold,
+            // as for an older page, is applied inside that update instead.
+            let all = presented, size = min(max(1, next), ConversationWindow.maximum)
+            let inserted = max(0, shownRange.lowerBound - max(0, all.count - size))
+            if inserted > 0, let rows = (keyboard.scroll?.documentView as? NSTableView)?.numberOfRows, rows > 1 {
+                keyboard.hold(row: rows - 1 + inserted, currentIndex: rows - 1, rows: rows + inserted)
+            }
+        }
+        window.count = next
         // Changing the window restarts this task; that cancellation ends the
         // turn once the List has received the rows.
         do { try await Task.sleep(for: .milliseconds(32)) } catch { RowMountQueue.shared.release(turn); return }
