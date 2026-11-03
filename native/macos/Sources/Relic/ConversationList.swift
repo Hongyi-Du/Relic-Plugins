@@ -14,8 +14,15 @@ struct ConversationWindow: Equatable {
     /// and an automatic height each) in the switch's own transaction stalled it.
     static let tail = 8, step = 8
     static func tailCount(of rows: [ConversationRow], filling height: CGFloat) -> Int {
+        fillCount(rows.reversed(), height: height)
+    }
+    /// The same for a jump to the first loaded rows (Home).
+    static func headCount(of rows: [ConversationRow], filling height: CGFloat) -> Int {
+        fillCount(rows, height: height)
+    }
+    private static func fillCount<S: Sequence>(_ rows: S, height: CGFloat) -> Int where S.Element == ConversationRow {
         var count = 0, total: CGFloat = 0
-        for row in rows.reversed() where count < initial {
+        for row in rows where count < initial {
             if count >= tail && total >= height { break }
             count += 1; total += ConversationRowContent.estimatedHeight(row)
         }
@@ -249,7 +256,7 @@ struct ConversationStream: View {
                 // scroll request there only costs the List another update.
                 case nil: if followsLatest, !keyboard.showsEnd { seekLatest(proxy) }
                 }
-                await admitEarlierRows()
+                await admitWindowRows()
             }
             .onChange(of: m.selection) {
                 _ = keyboard.releaseHold()
@@ -288,11 +295,13 @@ struct ConversationStream: View {
                     _ = keyboard.releaseHold()
                     if top {
                         followsLatest = false; pinsTop = true
-                        let end = min(all.count, ConversationWindow.initial)
+                        // The first rows that fill the window now, the rest of
+                        // the window below them in later turns (admitWindowRows).
+                        let end = min(all.count, ConversationWindow.headCount(of: all, filling: m.windowSize.height))
                         request(.start, window: end < all.count ? ConversationWindow.pinned(0..<end, in: all, selection: key) : ConversationWindow.showing(0..<end, in: all, selection: key))
                     } else {
                         followsLatest = true; pinsTop = false
-                        request(.latest, window: ConversationWindow(selection: key))
+                        request(.latest, window: ConversationWindow(selection: key, count: ConversationWindow.tailCount(of: all, filling: m.windowSize.height)))
                     }
                 }
                 keyboard.geometryChanged = { geometry in
@@ -332,22 +341,31 @@ struct ConversationStream: View {
     private func request(_ target: Reveal, window next: ConversationWindow) {
         window = next; reveal = target; revealRequest &+= 1
     }
-    /// The rest of a newly opened chat's window arrives `step` rows at a time,
-    /// one bounded table insertion per display turn, above the rows already
-    /// shown; this task restarts after each and keeps the latest row at the
-    /// bottom. It stops once the person scrolls (the window is then pinned)
-    /// or another chat opens.
-    private func admitEarlierRows() async {
-        guard followsLatest, window.anchor == nil, window.selection == m.selection.key,
-              window.count < ConversationWindow.initial, shownRange.lowerBound > 0 else { return }
+    /// A window following the latest message (a newly opened chat, End) that
+    /// does not yet hold `initial` rows grows above the rows shown.
+    private var growsAbove: Bool {
+        followsLatest && window.anchor == nil && window.selection == m.selection.key && shownRange.lowerBound > 0
+    }
+    /// A window that jumped to the first loaded rows (Home) grows below them
+    /// while those rows stay pinned at the top.
+    private var growsBelow: Bool {
+        pinsTop && !followsLatest && window.selection == m.selection.key && window.anchor != nil
+            && window.anchor == presented.first?.id && shownRange.upperBound < presented.count
+    }
+    /// The rest of such a window arrives `step` rows at a time, one bounded
+    /// table insertion per display turn, away from the rows being read; this
+    /// task restarts after each. It stops once the person scrolls (the window
+    /// is then pinned elsewhere), a page arrives or another chat opens.
+    private func admitWindowRows() async {
+        guard window.count < ConversationWindow.initial, growsAbove || growsBelow else { return }
         // Let the rows this update shows ask for their turns first, so the
         // latest row (priority 20) is built before these offscreen rows.
         try? await Task.sleep(for: .milliseconds(16))
         let turn = UUID()
         guard !Task.isCancelled, await RowMountQueue.shared.acquire(turn, label: "conversation-earlier", priority: 15) else { return }
-        guard !Task.isCancelled, followsLatest, window.anchor == nil, window.selection == m.selection.key,
-              window.count < ConversationWindow.initial else { RowMountQueue.shared.release(turn); return }
-        if let latest = latestID { ReadingPositionTrace.before("earlier-rows", row: latest, top: false, scroll: keyboard.scroll) }
+        let above = growsAbove
+        guard !Task.isCancelled, window.count < ConversationWindow.initial, above || growsBelow else { RowMountQueue.shared.release(turn); return }
+        if above, let latest = latestID { ReadingPositionTrace.before("earlier-rows", row: latest, top: false, scroll: keyboard.scroll) }
         window.count = min(ConversationWindow.initial, window.count + ConversationWindow.step)
         // Changing the window restarts this task; that cancellation ends the
         // turn once the List has received the rows.
@@ -410,7 +428,7 @@ struct ConversationStream: View {
             // The newest rows are outside the window: show them first, then
             // scroll after the List has received that bounded collection.
             pinsTop = false
-            request(.latest, window: ConversationWindow(selection: m.selection.key)); return
+            request(.latest, window: ConversationWindow(selection: m.selection.key, count: ConversationWindow.tailCount(of: all, filling: m.windowSize.height))); return
         }
         if let id = latestID { proxy.scrollTo(id, anchor: .bottom) }
     }
