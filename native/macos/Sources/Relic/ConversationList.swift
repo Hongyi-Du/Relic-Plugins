@@ -7,6 +7,20 @@ import RelicCore
 /// never the whole loaded history in one AppKit table update.
 struct ConversationWindow: Equatable {
     static let initial = 24, page = 16, maximum = 72
+    /// A newly opened chat's List first receives only its latest rows, at
+    /// least `tail` and enough by their placeholder heights to fill the
+    /// window; the rest of `initial` arrive `step` rows at a time in later
+    /// turns. Building two dozen table rows (a hosting view, pointer regions
+    /// and an automatic height each) in the switch's own transaction stalled it.
+    static let tail = 8, step = 8
+    static func tailCount(of rows: [ConversationRow], filling height: CGFloat) -> Int {
+        var count = 0, total: CGFloat = 0
+        for row in rows.reversed() where count < initial {
+            if count >= tail && total >= height { break }
+            count += 1; total += ConversationRowContent.estimatedHeight(row)
+        }
+        return max(tail, count)
+    }
     /// The chat this window belongs to. Another chat starts at its own tail.
     var selection = ""
     /// First shown row while reading history; `nil` keeps the newest rows.
@@ -39,9 +53,11 @@ struct ConversationWindow: Equatable {
 /// the reading window, an opened dialog) must not rebuild and measure every
 /// visible message again: a row updates when its own presentation changes.
 /// The message still observes the model fields it reads itself.
-private struct ConversationRowContent: View, Equatable {
+struct ConversationRowContent: View, Equatable {
     let row: ConversationRow
     let compact: Bool
+    /// The placeholder height a row has until its own turn builds it.
+    static func estimatedHeight(_ row: ConversationRow) -> CGFloat { row.item["type"].text == "notice" ? 32 : 100 }
     static func == (a: Self, b: Self) -> Bool {
         a.compact == b.compact && a.row.id == b.row.id && a.row.continued == b.row.continued
             && a.row.separator == b.row.separator && a.row.clockLabel == b.row.clockLabel
@@ -54,7 +70,7 @@ private struct ConversationRowContent: View, Equatable {
         return left === right || (left as? NSObject)?.isEqual(right) == true
     }
     var body: some View {
-        ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
+        ProgressiveRow(estimatedHeight: Self.estimatedHeight(row)) {
             VStack(alignment: .leading, spacing: 0) {
                 if let separator = row.separator {
                     PlainLabel(separator, size: 11.5, color: RelicStyle.muted).lineLimit(1)
@@ -196,9 +212,21 @@ struct ConversationStream: View {
                 // List receive the changed collection before its one semantic
                 // request. It retains the same native viewport.
                 let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
-                if presentedKey != key { presented = m.streamRows; presentedKey = key; await Task.yield() }
+                if presentedKey != key {
+                    // Another chat's rows start from the latest few; the rest
+                    // of its window is admitted above them in later turns.
+                    let anotherChat = !presentedKey.hasPrefix(m.selection.key + "#")
+                    presented = m.streamRows; presentedKey = key
+                    let tail = ConversationWindow.tailCount(of: presented, filling: m.windowSize.height)
+                    if anotherChat, window.anchor == nil, window.selection == m.selection.key, window.count > tail {
+                        window.count = tail
+                    }
+                    await Task.yield()
+                }
                 await Task.yield()
                 guard !Task.isCancelled else { return }
+                // CI only: where the row being read is now, before any scroll.
+                ReadingPositionTrace.after(scroll: keyboard.scroll)
                 // An earlier server page arrived above the oldest shown row:
                 // show one page of it while the same row stays at the top.
                 if revealRequestedOlderRows() { return }
@@ -210,6 +238,7 @@ struct ConversationStream: View {
                 case .latest: seekLatest(proxy)
                 case nil: if followsLatest { seekLatest(proxy) }
                 }
+                await admitEarlierRows()
             }
             .onChange(of: m.selection) {
                 keyboard.discardDisclosurePosition(); followsLatest = true
@@ -290,11 +319,34 @@ struct ConversationStream: View {
     private func request(_ target: Reveal, window next: ConversationWindow) {
         window = next; reveal = target; revealRequest &+= 1
     }
+    /// The rest of a newly opened chat's window arrives `step` rows at a time,
+    /// one bounded table insertion per display turn, above the rows already
+    /// shown; this task restarts after each and keeps the latest row at the
+    /// bottom. It stops once the person scrolls (the window is then pinned)
+    /// or another chat opens.
+    private func admitEarlierRows() async {
+        guard followsLatest, window.anchor == nil, window.selection == m.selection.key,
+              window.count < ConversationWindow.initial, shownRange.lowerBound > 0 else { return }
+        // Let the rows this update shows ask for their turns first, so the
+        // latest row (priority 20) is built before these offscreen rows.
+        try? await Task.sleep(for: .milliseconds(16))
+        let turn = UUID()
+        guard !Task.isCancelled, await RowMountQueue.shared.acquire(turn, label: "conversation-earlier", priority: 15) else { return }
+        guard !Task.isCancelled, followsLatest, window.anchor == nil, window.selection == m.selection.key,
+              window.count < ConversationWindow.initial else { RowMountQueue.shared.release(turn); return }
+        if let latest = latestID { ReadingPositionTrace.before("earlier-rows", row: latest, top: false, scroll: keyboard.scroll) }
+        window.count = min(ConversationWindow.initial, window.count + ConversationWindow.step)
+        // Changing the window restarts this task; that cancellation ends the
+        // turn once the List has received the rows.
+        do { try await Task.sleep(for: .milliseconds(32)) } catch { RowMountQueue.shared.release(turn); return }
+        RowMountQueue.shared.release(turn)
+    }
     /// Page one bounded step toward older loaded rows, keeping the current
     /// first row at the top. Newer rows beyond the window size are released.
     private func showOlder(_ all: [ConversationRow], above range: Range<Int>) {
         pinsTop = false
         let anchor = all[range.lowerBound].id
+        ReadingPositionTrace.before("older-page", row: anchor, top: true, scroll: keyboard.scroll)
         let start = max(0, range.lowerBound - ConversationWindow.page)
         let end = min(range.upperBound, start + ConversationWindow.maximum)
         request(.top(anchor), window: end < all.count ? ConversationWindow.pinned(start..<end, in: all, selection: m.selection.key)
@@ -305,6 +357,7 @@ struct ConversationStream: View {
     private func showNewer(_ all: [ConversationRow], below range: Range<Int>) {
         pinsTop = false
         let anchor = all[range.upperBound - 1].id
+        ReadingPositionTrace.before("newer-page", row: anchor, top: false, scroll: keyboard.scroll)
         let end = min(all.count, range.upperBound + ConversationWindow.page)
         let start = max(range.lowerBound, end - ConversationWindow.maximum)
         request(.bottom(anchor), window: end < all.count ? ConversationWindow.pinned(start..<end, in: all, selection: m.selection.key)
