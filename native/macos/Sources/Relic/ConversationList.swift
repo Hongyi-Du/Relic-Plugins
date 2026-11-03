@@ -11,6 +11,7 @@ struct ConversationStream: View {
     @State private var followsLatest = true
     @State private var preservingDisclosure = false
     @State private var mountedViewport = false
+    @State private var mountedRows = false
     @State private var mountedComposer = false
     @State private var olderAnchor: String?
     private var latestID: String? { m.displayLiveItems.isEmpty ? m.streamRows.last?.id : "live-end" }
@@ -23,11 +24,11 @@ struct ConversationStream: View {
                         Color.clear.frame(height: 8).id("start").accessibilityHidden(true)
                             .background(mount)
                             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
-                        let rows = m.streamRows
-                        let hasLive = !m.displayLiveItems.isEmpty
+                        let rows = mountedRows ? m.streamRows : []
+                        let hasLive = mountedRows && !m.displayLiveItems.isEmpty
                         let compact = m.preferences["density"].text == "compact"
                         let last = hasLive ? "live-end" : rows.last?.id
-                        if rows.isEmpty && !hasLive {
+                        if mountedRows && rows.isEmpty && !hasLive {
                             NoticeLayout {
                                 ReferenceLabel(m.t(m.member.isEmpty ? "chat.empty_group" : "chat.empty_private"),
                                     size: 12, color: RelicStyle.muted, lines: 0, alignment: .center)
@@ -97,12 +98,16 @@ struct ConversationStream: View {
                 guard enabled, !m.isPreparingConversation else { return }
                 let ticket = PerformanceRendering.beginSurface()
                 defer { PerformanceRendering.endSurface(ticket) }
-                for stage in 0..<2 {
-                    if stage == 0 ? mountedViewport : mountedComposer { continue }
+                // Create the native table in its own turn before adopting the
+                // first page. Cold AppKit list setup and the initial collection
+                // diff otherwise share one uninterruptible display transaction.
+                // Later chat switches retain both the table and row collection.
+                for stage in 0..<3 {
+                    if stage == 0 ? mountedViewport : stage == 1 ? mountedRows : mountedComposer { continue }
                     let turn = UUID()
-                    guard await RowMountQueue.shared.acquire(turn, label: stage == 0 ? "conversation-viewport" : "composer") else { return }
+                    guard await RowMountQueue.shared.acquire(turn, label: stage == 0 ? "conversation-viewport" : stage == 1 ? "conversation-rows" : "composer") else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                    if stage == 0 { mountedViewport = true } else { mountedComposer = true }
+                    if stage == 0 { mountedViewport = true } else if stage == 1 { mountedRows = true } else { mountedComposer = true }
                     do { try await Task.sleep(for: .milliseconds(32)) }
                     catch { RowMountQueue.shared.release(turn); return }
                     RowMountQueue.shared.release(turn)
