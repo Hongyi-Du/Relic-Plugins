@@ -129,22 +129,50 @@ private struct SidebarOutlineRow: View, Equatable {
     }
 }
 
+/// Reads one organization row's state from the model. An organization
+/// switch evaluates every built entry again, which is cheap; the row below
+/// is rebuilt only when its own state changed (the organization left and
+/// the one opened), not all of them as when each row read the model itself.
 private struct OrgTree: View {
+    @EnvironmentObject var m: Model
+    let node: Node
+    let depth: Int
+    let hasChildren: Bool
+    var body: some View {
+        let _ = UIWorkTrace.count("body.org-entry")
+        let id = node["id"].text, active = m.organization == id
+        let folded = m.search.isEmpty && m.folded.contains(id)
+        OrgTreeRow(node: node, depth: depth, hasChildren: hasChildren, active: active,
+                   expanded: (active || hasChildren) && !folded,
+                   lastAt: active ? "" : m.shortWhen(node["last_at"]), chartTitle: m.t("appmenu.org_chart")).equatable()
+    }
+}
+
+private struct OrgTreeRow: View, Equatable {
+    /// Actions only: the body reads nothing from the model.
     @EnvironmentObject var m: Model
     @Environment(\.colorScheme) private var scheme
     let node: Node
     let depth: Int
     let hasChildren: Bool
+    let active: Bool
+    let expanded: Bool
+    let lastAt: String
+    let chartTitle: String
+    static func == (a: Self, b: Self) -> Bool {
+        guard a.depth == b.depth, a.hasChildren == b.hasChildren, a.active == b.active, a.expanded == b.expanded,
+              a.lastAt == b.lastAt, a.chartTitle == b.chartTitle else { return false }
+        let left = a.node.raw as AnyObject, right = b.node.raw as AnyObject
+        return left === right || (left as? NSObject)?.isEqual(right) == true
+    }
     private var id: String { node["id"].text }
-    private var active: Bool { m.organization == id }
     private var owner: String { "relic-org/" + id }
-    private var folded: Bool { m.search.isEmpty && m.folded.contains(id) }
-    private var expanded: Bool { (active || hasChildren) && !folded }
     private var accessibilityName: String {
-        [OrganizationAvatar.initial(for: node), node["name"].text, active ? "" : m.shortWhen(node["last_at"])].filter { !$0.isEmpty }.joined(separator: " ")
+        [OrganizationAvatar.initial(for: node), node["name"].text, lastAt].filter { !$0.isEmpty }.joined(separator: " ")
     }
     var body: some View {
                 let _ = UIWorkTrace.count("body.org-tree")
+                let id = self.id, active = self.active, hasChildren = self.hasChildren
                 Button {
                     PerformancePointer.observed(PerformancePointer.organization(id))
                     if active { m.toggleFold(id) } else { m.run { try await m.select(id) } }
@@ -155,14 +183,14 @@ private struct OrgTree: View {
                             .highPriorityGesture(TapGesture().onEnded { if active || hasChildren { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
                         OrganizationAvatar(node: node)
                         PlainLabel(node["name"].text, size: 13.44, weight: 600, lineHeight: 18.144).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                        if !active { PlainLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted).fixedSize() }
+                        if !active { PlainLabel(lastAt, size: 11.5, color: RelicStyle.muted).fixedSize() }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                         .accessibilityElement(children: .contain)
                         .environment(\.nativeElementParent, owner)
                 }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: expanded)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .modifier(PerformancePointerTarget(identity: PerformancePointer.organization(id)))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
-                    .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
+                    .contextMenu { Button(chartTitle) { m.sheet = .chart } }
     }
 }
 
