@@ -655,12 +655,19 @@ internal sealed class NativeChatList : Grid
     {
         if (XamlRoot is not { } root || Viewport is not { } viewport) return;
         if (Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(root) is not DependencyObject focused) return;
-        for (var node = focused; node != null && !ReferenceEquals(node, list); node = VisualTreeHelper.GetParent(node))
+        // Only a row of this list: a sidebar row the person just clicked is a
+        // ListViewItem too and keeps its focus.
+        var inRow = false;
+        for (var node = focused; node != null; node = VisualTreeHelper.GetParent(node))
         {
-            if (node is not ListViewItem) continue;
-            PerformanceTrace.Note("conversation.list.row_focus_released", new { focused = focused.GetType().Name });
-            viewport.Focus(FocusState.Programmatic);
-            return;
+            if (ReferenceEquals(node, list))
+            {
+                if (!inRow) return;
+                PerformanceTrace.Note("conversation.list.row_focus_released", new { focused = focused.GetType().Name });
+                viewport.Focus(FocusState.Programmatic);
+                return;
+            }
+            inRow |= node is ListViewItem;
         }
     }
 
