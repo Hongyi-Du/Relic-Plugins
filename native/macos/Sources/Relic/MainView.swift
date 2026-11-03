@@ -26,18 +26,30 @@ struct MainView: View {
     var body: some View {
         let _ = UIWorkTrace.count("body.main")
         GeometryReader { geometry in
+        // Below the fixed toolbar row the sidebar and the chat get exact
+        // frames. A stack that probes how far a child can shrink or grow asks
+        // its frame; with a definite width and height the frame answers that
+        // size itself instead of measuring the chat or sidebar at zero and at
+        // infinite width or height on every pass over the window.
+        let sidebarWidth = InspectorGeometry.sidebarWidth(window: geometry.size.width)
+        let reservedPanel = m.panelOpen && !floatingPanel ? min(panelWidth, m.windowSize.width - 48) : 0
+        let chatWidth = max(0, geometry.size.width - (m.sidebarOpen ? sidebarWidth : 0) - reservedPanel)
+        let regionHeight: CGFloat? = !m.ready && !m.error.isEmpty ? nil : max(0, geometry.size.height - WindowChrome.rowHeight)
         // Overlays (dialogs, the inspector, toasts, a loading cover) align to
         // these regions; each boundary answers that alignment without
         // measuring the region's whole subtree again. See AlignmentBoundary.
+        // Each sits inside its region's frame: a stack probing how far the
+        // region can grow asks the frame, which answers from its own width,
+        // instead of a custom layout that must measure the whole region.
         AlignmentBoundary { VStack(spacing: 0) {
             AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready && !m.error.isEmpty { Button(m.t("appmenu.reload")) { Task { await m.start() } } }
             AlignmentBoundary { HStack(spacing: 0) {
-                if m.sidebarOpen { AlignmentBoundary { Sidebar(revealMembers: revealPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)) }.measuredRegion("sidebar", createsAccessibilityContainer: false) }
+                if m.sidebarOpen { AlignmentBoundary { Sidebar(revealMembers: revealPhase >= 1) }.frame(width: sidebarWidth, height: regionHeight).measuredRegion("sidebar", createsAccessibilityContainer: false) }
                 if revealPhase < 2 { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else {
-                    AlignmentBoundary { ChatView().frame(minWidth: 0, maxWidth: .infinity) }.measuredRegion("conversation", createsAccessibilityContainer: false)
+                    AlignmentBoundary { ChatView() }.frame(width: chatWidth, height: regionHeight).measuredRegion("conversation", createsAccessibilityContainer: false)
                         .disabled(loadingOrganization)
                         .overlay {
                             if loadingOrganization {
@@ -50,14 +62,14 @@ struct MainView: View {
                     // one structural location across responsive breakpoints.
                     // Moving it between HStack and overlay destroys its native
                     // controls and rebuilds them inside the resize transaction.
-                    Color.clear.frame(width: min(panelWidth, m.windowSize.width - 48))
+                    Color.clear.frame(width: reservedPanel)
                 }
-            }.frame(maxHeight: .infinity) }.overlay(alignment: .trailing) {
+            } }.frame(maxHeight: .infinity).overlay(alignment: .trailing) {
                 if revealPhase >= 3 && m.panelOpen {
                     AlignmentBoundary { inspector }.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
                 }
             }
-        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading) }
+        } }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
         .background(alignment: .topLeading) { if !m.ready { NativeWarmup() } }
         .modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }
