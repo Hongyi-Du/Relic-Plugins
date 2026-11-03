@@ -205,8 +205,11 @@ class Statistics(Base):
         self.assertEqual(day["bucket"], "hour")
         self.assertEqual(self.series(day)["%s/head" % self.org][1], 220)  # the earlier session is two days back
         head = next(s for s in day["series"] if s["key"] == "%s/head" % self.org)
-        same_hour = int((self.now - 1800) // 3600) == int((self.now - 300) // 3600)
-        self.assertEqual(head["values"][-1], 220 if same_hour else 20)  # this hour: n2, and n1 when it fell in it too
+        # The last bucket is the current hour: n1 (30 min ago) and n2 (5 min ago) count there only if they fell in
+        # it. Within five minutes after the hour even n2 belongs to the previous one.
+        last = day["starts"][-1]
+        expected = sum(tokens for at, tokens in ((self.now - 1800, 200), (self.now - 300, 20)) if last <= at < last + 3600)
+        self.assertEqual(head["values"][-1], expected)
         self.assertEqual(head["cumulative"], monitor._running(head["values"]))
         self.assertEqual(len(day["starts"]), len(head["values"]))
         for i, start in enumerate(day["starts"][1:], 1):
@@ -325,6 +328,24 @@ class StopAndResume(Base):
         state = runner.run_state(self.org, "head")
         self.assertEqual(state["status"], "stopped")
         self.assertIn("stopped by the person", state["error"])
+
+    def test_stop_cancels_a_turn_the_app_runs_instead_of_ending_the_app(self):
+        # The App's hub records its own process for the turns it runs; ending that pid ended the App.
+        runner.runs_dir().mkdir(parents=True, exist_ok=True)
+        state = {"status": "running", "pid": os.getpid(), "started": time.time(), "via": "relic-app"}
+        runner.write_state(self.org, "head", state)
+        cancelled = []
+        with mock.patch.object(monitor, "_kill_tree", return_value=True) as kill:
+            done = monitor.stop(self.store, SESSION, cancel_turn=lambda org, member: cancelled.append((org, member)))
+        kill.assert_not_called()
+        self.assertEqual(cancelled, [(self.org, "head")])
+        self.assertEqual(done["cancelled"], [[self.org, "head"]])
+        self.assertEqual(done["killed"], [])
+        self.assertEqual(runner.run_state(self.org, "head")["status"], "running")  # the App ends its own turn
+        # Without a way to cancel, an App turn is still never ended by its process.
+        with mock.patch.object(monitor, "_kill_tree", return_value=True) as kill:
+            monitor.stop(self.store, SESSION)
+        kill.assert_not_called()
 
     def test_stop_all_turns_off_every_organization_and_automation_and_resume_all_restores_them(self):
         path = self.automation()
