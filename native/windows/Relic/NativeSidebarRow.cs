@@ -28,8 +28,13 @@ internal sealed class NativeSidebarRow : ListViewItem
 
     internal NativeSidebarRow()
     {
-        Loaded += (_, _) => { WatchBadge(); NotifyItemStatus(); };
-        Unloaded += (_, _) => StopWatching();
+        // WinUI delivers Loaded and Unloaded asynchronously and not always in
+        // order: a row added and removed again quickly can get its Loaded
+        // after it left the tree, and a re-added row an old Unloaded. Watch
+        // only while really loaded; otherwise the callbacks (and the row they
+        // capture) stayed registered for good.
+        Loaded += (_, _) => { if (!IsLoaded) return; WatchBadge(); NotifyItemStatus(); };
+        Unloaded += (_, _) => { if (!IsLoaded) StopWatching(); };
     }
 
     internal void BindOrganization(NativeSidebarOrganization source)

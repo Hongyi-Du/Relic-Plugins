@@ -141,8 +141,9 @@ public sealed partial class MainWindow
         }
         var canObserveMotion = Windows.Foundation.Metadata.ApiInformation.IsEventPresent("Windows.UI.ViewManagement.UISettings", "AnimationsEnabledChanged");
         void MotionChanged(UISettings sender, UISettingsAnimationsEnabledChangedEventArgs args) => dots.DispatcherQueue.TryEnqueue(UpdateMotion);
-        dots.Loaded += (_, _) => { liveTypingAnimations.Add((dots, animation)); if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && canObserveMotion) settings.AnimationsEnabledChanged += MotionChanged; UpdateMotion(); };
-        dots.Unloaded += (_, _) => { liveTypingAnimations.Remove((dots, animation)); if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && canObserveMotion) settings.AnimationsEnabledChanged -= MotionChanged; animation.Stop(); };
+        // Only while really loaded (see NativeSidebarRow).
+        dots.Loaded += (_, _) => { if (!dots.IsLoaded || liveTypingAnimations.Contains((dots, animation))) return; liveTypingAnimations.Add((dots, animation)); if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && canObserveMotion) settings.AnimationsEnabledChanged += MotionChanged; UpdateMotion(); };
+        dots.Unloaded += (_, _) => { if (dots.IsLoaded) return; liveTypingAnimations.Remove((dots, animation)); if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && canObserveMotion) settings.AnimationsEnabledChanged -= MotionChanged; animation.Stop(); };
         return dots;
     }
 }

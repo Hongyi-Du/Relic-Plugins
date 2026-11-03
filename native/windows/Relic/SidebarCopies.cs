@@ -34,7 +34,7 @@ public sealed partial class MainWindow
     {
         // Only mounted rows register here. A chat switch does not need new
         // avatars, text shaping, templates or a new virtual realization range.
-        foreach (var update in sidebarSelectionUpdates.ToArray()) update();
+        foreach (var update in sidebarSelectionUpdates.ToArray()) update();  // rows no longer loaded remove themselves
     }
     private void DrawToolbar()
     {
@@ -254,7 +254,9 @@ public sealed partial class MainWindow
             void PaintSelection() => row.Background = SelectedNow() ? selectedBackground : hovering ? hoverBackground : normalBackground;
             void UpdateSelection()
             {
-                if (!row.IsLoaded) return;
+                // A row whose Unloaded came before its Loaded (see
+                // NativeSidebarRow) stayed registered with everything it holds.
+                if (!row.IsLoaded) { sidebarSelectionUpdates.Remove(UpdateSelection); return; }
                 var selectedNow = SelectedNow();
                 if (row.IsSelected != selectedNow) row.IsSelected = selectedNow;
                 if (selectedNow && !ReferenceEquals(list.SelectedItem, row)) list.SelectedItem = row;
@@ -263,8 +265,8 @@ public sealed partial class MainWindow
             }
             row.PointerEntered += (_, _) => { hovering = true; PaintSelection(); };
             row.PointerExited += (_, _) => { hovering = false; PaintSelection(); };
-            row.Loaded += (_, _) => { sidebarSelectionUpdates.Add(UpdateSelection); UpdateSelection(); };
-            row.Unloaded += (_, _) => { sidebarSelectionUpdates.Remove(UpdateSelection); hovering = false; };
+            row.Loaded += (_, _) => { if (!row.IsLoaded) return; sidebarSelectionUpdates.Add(UpdateSelection); UpdateSelection(); };
+            row.Unloaded += (_, _) => { if (row.IsLoaded) return; sidebarSelectionUpdates.Remove(UpdateSelection); hovering = false; };
             BindSidebarRowName(row, content);
             list.Items.Add(row); if (SelectedNow()) list.SelectedItem = row;
         }
@@ -454,8 +456,10 @@ public sealed partial class MainWindow
             if (node is UIElement) { Property(UIElement.VisibilityProperty); Property(UIElement.OpacityProperty); }
             for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++) Watch(VisualTreeHelper.GetChild(node, i));
         }
-        row.Loaded += (_, _) => { Clear(); Watch(content); Update(); };
-        row.Unloaded += (_, _) => Clear();
+        // Only while really loaded (see NativeSidebarRow): these callbacks on
+        // the row's own elements capture the row, and missed clearing kept it.
+        row.Loaded += (_, _) => { if (!row.IsLoaded) return; Clear(); Watch(content); Update(); };
+        row.Unloaded += (_, _) => { if (!row.IsLoaded) Clear(); };
     }
     private OverviewBadgeView SidebarTag(string text, bool secretary)
     {

@@ -32,14 +32,18 @@ internal sealed class NativeListMarker : Panel
         Disc = new Ellipse { Fill = foreground, Stroke = null, StrokeThickness = 0,
             Stretch = Stretch.Fill, UseLayoutRounding = false, IsHitTestVisible = false };
         AutomationProperties.SetAccessibilityView(Disc, AccessibilityView.Raw); Children.Add(Disc);
+        // Only while really loaded (see NativeSidebarRow): a XamlRoot
+        // subscription that is never removed keeps the marker for good.
         Loaded += (_, _) =>
         {
+            if (!IsLoaded) return;
             if (observedRoot != null) observedRoot.Changed -= RootChanged;
             observedRoot = XamlRoot; if (observedRoot != null) observedRoot.Changed += RootChanged;
             snappedAt = null; InvalidateArrange();
         };
         Unloaded += (_, _) =>
         {
+            if (IsLoaded) return;
             if (observedRoot != null) observedRoot.Changed -= RootChanged;
             observedRoot = null; snappedAt = null;
         };

@@ -888,8 +888,15 @@ public sealed partial class MainWindow
         Grid.SetColumnSpan(actionSurface, 2); outer.Children.Add(actionSurface);
         outer.PointerEntered += (_, _) => actionSurface.Visibility = Visibility.Visible; outer.PointerExited += (_, _) => actionSurface.Visibility = Visibility.Collapsed;
         var interaction = new MessageInteraction(item.Text("id"), body, outer, actionSurface, copy);
-        outer.Loaded += (_, _) => { if (!messageInteractions.Contains(interaction)) messageInteractions.Add(interaction); };
-        outer.Unloaded += (_, _) => messageInteractions.Remove(interaction);
+        // Registered only while really loaded; Loaded can arrive after a fast
+        // removal (see NativeSidebarRow), and a stale entry kept the whole row.
+        outer.Loaded += (_, _) =>
+        {
+            if (!outer.IsLoaded) return;
+            messageInteractions.RemoveAll(entry => !entry.Row.IsLoaded);
+            if (!messageInteractions.Contains(interaction)) messageInteractions.Add(interaction);
+        };
+        outer.Unloaded += (_, _) => { if (!outer.IsLoaded) messageInteractions.Remove(interaction); };
         return outer;
     }
     private Microsoft.UI.Xaml.Media.SolidColorBrush MessageTint()

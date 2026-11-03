@@ -125,8 +125,9 @@ public sealed partial class MainWindow
         }
         void RootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => Paint();
         surface.SizeChanged += (_, _) => Paint();
-        surface.Loaded += (_, _) => { owner = surface.XamlRoot; if (owner != null) owner.Changed += RootChanged; Paint(); };
-        surface.Unloaded += (_, _) => { if (owner != null) owner.Changed -= RootChanged; owner = null; };
+        // Only while really loaded (see NativeSidebarRow).
+        surface.Loaded += (_, _) => { if (!surface.IsLoaded) return; if (owner != null) owner.Changed -= RootChanged; owner = surface.XamlRoot; if (owner != null) owner.Changed += RootChanged; Paint(); };
+        surface.Unloaded += (_, _) => { if (surface.IsLoaded) return; if (owner != null) owner.Changed -= RootChanged; owner = null; };
     }
 
     private Border WorkspaceFileHeader(string name)

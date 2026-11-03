@@ -72,7 +72,8 @@ internal static class NativeGlyphWarmup
 
         private void Loaded(object sender, RoutedEventArgs args)
         {
-            if (mounted) return;
+            // Only while really loaded (see NativeSidebarRow).
+            if (mounted || !label.IsLoaded) return;
             mounted = true; suspended = false; root = label.XamlRoot;
             if (root != null) root.Changed += RootChanged;
             // One shared settings object, weakly (see TextScale).
@@ -82,6 +83,7 @@ internal static class NativeGlyphWarmup
 
         private void Unloaded(object sender, RoutedEventArgs args)
         {
+            if (label.IsLoaded) return;
             mounted = false; suspended = true;
             if (root != null) root.Changed -= RootChanged;
             root = null;
