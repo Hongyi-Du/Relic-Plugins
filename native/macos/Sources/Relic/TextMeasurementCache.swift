@@ -34,6 +34,15 @@ final class TextMeasurementCache {
         }
         let key = Key(width: width, lines: lines, mode: UInt(mode.rawValue), minimum: minimum, paths: pathBreaks.enabled)
         if let cached = results[key] { return cached }
+        let result = SharedLabelSizes.shared.size(value, width: width, lines: lines, mode: UInt(mode.rawValue),
+                                                  minimum: minimum, paths: pathBreaks.enabled) {
+            Self.measure(value, width: width, lines: lines, mode: mode, minimum: minimum, pathBreaks: pathBreaks)
+        }
+        if results.count >= 16 { results.removeAll(keepingCapacity: true) }
+        results[key] = result; return result
+    }
+    private static func measure(_ value: NSAttributedString, width: CGFloat, lines: Int, mode: NSLineBreakMode,
+                                minimum: CGFloat, pathBreaks: PathLineBreaks) -> CGSize {
         // Reusing a layout manager across different truncated line limits can
         // keep stale glyph widths even after invalidateLayout. Retain measured
         // proposals, but make each new proposal an independent TextKit layout.
@@ -45,9 +54,43 @@ final class TextMeasurementCache {
         storage.addLayoutManager(layout); layout.addTextContainer(container)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        let result = CGSize(width: min(width, ceil(used.width)), height: max(minimum, used.height))
-        if results.count >= 16 { results.removeAll(keepingCapacity: true) }
-        results[key] = result; return result
+        return CGSize(width: min(width, ceil(used.width)), height: max(minimum, used.height))
+    }
+}
+
+/// Rows, sidebar entries and dialogs are created again on every chat switch
+/// and opening, with the same labels probed at the same widths by SwiftUI's
+/// stack layout. Reuse those TextKit layouts across label views. The size
+/// depends only on the attributed text and these parameters; path breaking is
+/// a deterministic function of the text. Bounded by count and source size.
+final class SharedLabelSizes {
+    static let shared = SharedLabelSizes()
+    private final class Key: NSObject {
+        let text: NSAttributedString, width: CGFloat, lines: Int, mode: UInt, minimum: CGFloat, paths: Bool
+        init(_ text: NSAttributedString, width: CGFloat, lines: Int, mode: UInt, minimum: CGFloat, paths: Bool) {
+            self.text = text; self.width = width; self.lines = lines; self.mode = mode; self.minimum = minimum; self.paths = paths
+        }
+        override var hash: Int { (text.string as NSString).hash ^ width.hashValue &* 31 ^ lines &* 17 ^ Int(mode) &* 7 ^ (paths ? 1 : 0) }
+        override func isEqual(_ object: Any?) -> Bool {
+            guard let other = object as? Key else { return false }
+            return width == other.width && lines == other.lines && mode == other.mode && minimum == other.minimum
+                && paths == other.paths && text.isEqual(to: other.text)
+        }
+    }
+    private let values = NSCache<Key, NSValue>()
+    init() { values.countLimit = 4096; values.totalCostLimit = 8 * 1024 * 1024 }
+    func size(_ text: NSAttributedString, width: CGFloat, lines: Int, mode: UInt, minimum: CGFloat, paths: Bool,
+              measure: () -> CGSize) -> CGSize {
+        if let cached = values.object(forKey: Key(text, width: width, lines: lines, mode: mode, minimum: minimum, paths: paths)) {
+            return cached.sizeValue
+        }
+        let result = measure()
+        let cost = text.length * 8
+        if cost <= values.totalCostLimit {
+            values.setObject(NSValue(size: result), forKey: Key(NSAttributedString(attributedString: text), width: width, lines: lines,
+                                                                 mode: mode, minimum: minimum, paths: paths), cost: cost)
+        }
+        return result
     }
 }
 
