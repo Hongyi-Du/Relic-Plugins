@@ -158,7 +158,8 @@ def capture(event, output, store, actor):
 
     Every event is matched by nonce: a router prompt binds the request it carries and no other, a Relic message or a
     public final reply that quotes a nonce binds that request, and a human prompt invalidates every earlier binding.
-    A late Stop for an older request answers that request, never a newer one.
+    A late Stop for an older request answers that request, never a newer one: a quoted nonce outranks the router
+    prompt of a request whose nonce the reply leaves out.
     """
     observe_desktop_stop(event, output, store, actor)
     if event.get("agent_id") or event.get("session_id") != actor:
@@ -204,12 +205,18 @@ def capture(event, output, store, actor):
         text = event.get("last_assistant_message")
         if not isinstance(text, str) or not text.strip():
             return
+        quoted = {request["nonce"] for request, _ in requests if marker(request) in text}
         for request, folder in requests:
             binding_path = folder / "binding.json"
             observed = _read(binding_path)
             binding = observed.get("matched_by")
             if marker(request) in text and not observed.get("human_prompt"):
                 binding = "public"
+            elif binding == "prompt" and quoted - {request["nonce"]}:
+                # The reply quotes another request's nonce and not this one's: it is that request's (late) reply, and
+                # this request's router prompt does not claim it too. This request is still owed its Stop; its binding
+                # stays, and a Relic message that quotes its nonce (binding "relic") is evidence of its own.
+                continue
             if binding not in ("prompt", "relic", "public"):
                 continue
             receipt = {k: request[k] for k in ("org_id", "member", "carrier", "nonce")}

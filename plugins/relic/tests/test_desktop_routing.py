@@ -175,6 +175,62 @@ class OneSessionManySeats(Base):
         self.handle("Stop", last_assistant_message="mentions " + gui.marker(old))
         self.assertFalse((self.folder(old) / "receipt.json").exists())
 
+    def prompt_bound_after_an_expired_request(self):
+        """An old request expired unanswered, a newer one of another seat was sent, and its router prompt arrived."""
+        with self.assertRaises(gui.TransportError):
+            self.run_turn(self.cabinet, "relic-head", self.queued, prompt="the old task")
+        old = self.age(gui._read(gui.request_path(self.cabinet, "relic-head")), gui.PENDING_EXPIRY + 3600)
+        sent = []
+
+        def route(request, config, folder):
+            sent.append(request)
+            return self.queued(request, config, folder)
+
+        with self.assertRaises(gui.TransportError):
+            self.run_turn(self.dept, "relic-head", route, prompt="a newer task")
+        new = sent[0]
+        self.handle("UserPromptSubmit", prompt="Message from a peer session:\n" + gui.payload(new))
+        self.assertEqual(gui._read(self.folder(new) / "binding.json"), {"matched_by": "prompt"})
+        self.assertEqual(gui._read(self.folder(old) / "binding.json"), {"matched_by": None})
+        return old, new
+
+    def answered(self, *requests):
+        return [gui._read(self.folder(r) / "receipt.json").get("matched_by") for r in requests]
+
+    def test_a_late_stop_that_quotes_only_the_old_nonce_never_answers_the_prompt_bound_newer_request(self):
+        # The secretariat's reproduction: the reply quotes only the old nonce, so it is the old request's reply.
+        old, new = self.prompt_bound_after_an_expired_request()
+        self.handle("Stop", last_assistant_message="old finished " + gui.marker(old))
+        self.assertEqual(self.answered(old, new), ["public", None])
+        self.assertTrue(gui.receipt_matches(gui._read(self.folder(old) / "receipt.json"), old))
+        self.assertEqual([r["nonce"] for r, _ in gui_receipt.unresolved(self.store, SID)], [new["nonce"]])
+        self.assertGreater(gui.hold(self.store, SID), 0)  # the newer request still holds the session
+        self.handle("Stop", last_assistant_message="newer done " + gui.marker(new))
+        receipt = gui._read(self.folder(new) / "receipt.json")
+        self.assertTrue(gui.receipt_matches(receipt, new))
+        self.assertEqual((receipt["matched_by"], receipt["last_assistant_message"]), ("public", "newer done " + gui.marker(new)))
+        self.assertEqual(gui.hold(self.store, SID), 0)
+
+    def test_without_a_conflicting_nonce_the_prompt_binding_still_answers(self):
+        old, new = self.prompt_bound_after_an_expired_request()
+        self.handle("Stop", last_assistant_message="plain final words")
+        self.assertEqual(self.answered(old, new), [None, "prompt"])
+        self.assertTrue(gui.receipt_matches(gui._read(self.folder(new) / "receipt.json"), new))
+
+    def test_a_reply_that_quotes_both_nonces_answers_both(self):
+        old, new = self.prompt_bound_after_an_expired_request()
+        self.handle("Stop", last_assistant_message="both done %s %s" % (gui.marker(old), gui.marker(new)))
+        self.assertEqual(self.answered(old, new), ["public", "public"])
+        self.assertEqual(gui.hold(self.store, SID), 0)
+
+    def test_a_relic_message_that_quotes_the_new_nonce_still_answers_it_beside_an_old_quote(self):
+        old, new = self.prompt_bound_after_an_expired_request()
+        self.handle("PostToolUse", tool_name="mcp__plugin_relic_org__message",
+                    tool_input={"to": ["chief"], "body": "done " + gui.marker(new)})
+        self.handle("Stop", last_assistant_message="old finished " + gui.marker(old))
+        self.assertEqual(self.answered(old, new), ["public", "relic"])
+        self.assertEqual(gui.hold(self.store, SID), 0)
+
     def test_wake_keeps_the_message_organization_and_waits_while_the_session_owes_a_stop(self):
         later = time.time() + 3600  # past SETTLE and GAP
         self.store.send("chief", ["relic-head"], "please check the build")  # in the cabinet: not the main seat
