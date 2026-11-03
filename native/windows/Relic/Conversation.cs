@@ -711,13 +711,13 @@ public sealed partial class MainWindow
         readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         olderHistory = true; messages = prepared.Messages; messagePresentationIdentities = prepared.Identities;
         chatMore = page.Flag("more"); chatPages++;
-        // Native containers can finish arranging while the surrounding header
-        // is updated. Read the anchor again at the final commit boundary,
-        // before the prepended page can displace it: the one read above can be
-        // stale by then. A row above it finished building in between once, so
-        // the restore put the anchor back 72 px above where it had just been
-        // and the message the person was reading jumped.
-        void CaptureReadingAnchor() => readingAnchor = stream.ReadVisibleAnchor(chatScroll) ?? readingAnchor;
+        // Keep the message the person was reading when the page was asked
+        // for, where it was then. Reading the anchor again at the commit took
+        // whichever row was first by then: once a row above the first one was
+        // still unbuilt at the start and grew 70 px before the commit, and the
+        // message that had been in view moved. The anchor is read again here
+        // only if none could be read before.
+        void CaptureReadingAnchor() => readingAnchor ??= stream.ReadVisibleAnchor(chatScroll);
         stream.ItemsReplacing += CaptureReadingAnchor;
         try { if (!await DrawConversationAsync()) return; }
         finally { stream.ItemsReplacing -= CaptureReadingAnchor; }

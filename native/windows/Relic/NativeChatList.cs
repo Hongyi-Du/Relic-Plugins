@@ -51,6 +51,8 @@ internal sealed class NativeChatList : Grid
         internal string? Waiting;
         // Since when the reading row has been missing from the realized rows.
         internal long UnrealizedAt;
+        // Downward steps of a row taller than the view (see CheckPosition).
+        internal int Steps;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
 
@@ -418,16 +420,14 @@ internal sealed class NativeChatList : Grid
         return (list.ContainerFromIndex(index) as ListViewItem)?.ContentTemplateRoot as Border;
     }
 
-    // The message to keep in place while an older page goes in above. Rows
-    // that are built first: right after a jump to the top an unbuilt row can
-    // still sit where the panel's estimate put it (one was read 12 px above the
-    // view and could not be put back there). Only when no built row is in view
-    // (every row there unbuilt, so no anchor at all, and the page then opened at
-    // its first row) a realized row waiting to be built, which holds its place.
-    internal VirtualRows.ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport) =>
-        ReadVisibleAnchor(viewport, built: true) ?? ReadVisibleAnchor(viewport, built: false);
-
-    private VirtualRows.ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport, bool built)
+    // The message to keep in place while an older page goes in above. A row
+    // waiting to be built counts as well: it holds its place, and its own top
+    // does not move when it is built (the rows below it do). Preferring built
+    // rows read the first built one further down while the row above it was
+    // still unbuilt; that row then grew 70 px and moved it. Without them, a
+    // view of unbuilt rows had no anchor at all and the page opened at its
+    // first row.
+    internal VirtualRows.ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport)
     {
         // Everything inserted goes above every row in view, so keeping any one
         // of them in place keeps them all. Take the first row that starts in
@@ -439,7 +439,7 @@ internal sealed class NativeChatList : Grid
         foreach (var (host, binding) in mounted)
         {
             // A container just placed for another row may not have moved there yet.
-            if (binding.Entry.Row.Key is not { } key || !(built ? ReadyHost(host) : PlacedHost(host))) continue;
+            if (binding.Entry.Row.Key is not { } key || !(ReadyHost(host) || PlacedHost(host))) continue;
             // Paging controls and date separators may disappear when older
             // data arrives. Preserve a real timeline item the person reads.
             if (!key.StartsWith("message:", StringComparison.Ordinal)
@@ -690,7 +690,7 @@ internal sealed class NativeChatList : Grid
             if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
             intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
             intent.CorrectionPending = false; intent.CorrectionCompleted = false; intent.CorrectionTarget = null;
-            intent.SeekedAbove = false; intent.SeekedRow = false; intent.SeekIndex = -1; intent.Walks = 0; intent.SeekLanded = false;
+            intent.SeekedAbove = false; intent.SeekedRow = false; intent.SeekIndex = -1; intent.Walks = 0; intent.SeekLanded = false; intent.Steps = 0;
             // The platform realizes the target; this does not construct or
             // manually position an off-viewport item in an ItemsRepeater.
             var existing = TryGetRealizedRow(index);
@@ -884,11 +884,13 @@ internal sealed class NativeChatList : Grid
         // it timed out. Move such a row at most most of a view at a time; each
         // step is a correction of its own, and the next check goes on from
         // where the step left it (not a correction that failed to land).
-        if (intent.Kind == PositionKind.Reading && bounds.Height > viewport.ViewportHeight
+        // Steps do not count as corrections: a 2031 px row needed six of them
+        // and ran out of the five corrections before its last one.
+        if (intent.Kind == PositionKind.Reading && bounds.Height > viewport.ViewportHeight && intent.Steps < 12
             && offset - viewport.VerticalOffset > viewport.ViewportHeight * .9)
         {
             offset = viewport.VerticalOffset + viewport.ViewportHeight * .9;
-            intent.LastGeometry = null;
+            intent.LastGeometry = null; intent.Steps++; intent.Corrections--;
         }
         var clamped = Math.Clamp(offset, 0, viewport.ScrollableHeight);
         if (intent.Kind == PositionKind.Reading && Math.Abs(offset - clamped) > 1)
