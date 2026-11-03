@@ -68,6 +68,20 @@ internal static class PerformanceTrace
     // only a quarter of that. Split the rest: the process heaps (native
     // allocations by XAML, DirectWrite, COM...) against other committed
     // private memory (GC regions, graphics surfaces, stacks) and mappings.
+    // Bytes the process heaps hold for live allocations (CI-only probes).
+    internal static long HeapAllocated()
+    {
+        var count = GetProcessHeaps(0, null);
+        var heaps = new IntPtr[count + 8];
+        count = Math.Min(GetProcessHeaps((uint)heaps.Length, heaps), (uint)heaps.Length);
+        long allocated = 0;
+        for (var index = 0; index < count; index++)
+        {
+            var summary = new HeapSummaryInfo { Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<HeapSummaryInfo>() };
+            if (HeapSummary(heaps[index], 0, ref summary)) allocated += (long)(ulong)summary.Allocated;
+        }
+        return allocated;
+    }
     private static object NativeMemory()
     {
         try

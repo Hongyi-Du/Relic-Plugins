@@ -132,6 +132,47 @@ public sealed partial class MainWindow
             CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
     }
 
+    // CI-only, after the measured switches: which redraw leaves native memory
+    // behind. Private bytes grew about 0.27 MB per switch, most of it live
+    // allocations in the process heaps, while live labels and chat rows stayed
+    // flat. Each experiment repeats one production redraw and reads the heaps'
+    // live bytes after full collections. Those run off the UI thread, so the
+    // finalizers that release UI objects back on the UI thread can run.
+    private async Task ProbeNativeLeaks()
+    {
+        Volatile.Write(ref performanceAction, "leak-probe");
+        async Task<long> Settled()
+        {
+            for (var pass = 0; pass < 3; pass++)
+            {
+                await Task.Run(() => { GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); });
+                await PerformanceYield();
+            }
+            return PerformanceTrace.HeapAllocated();
+        }
+        async Task Measure(string name, int count, Func<int, Task> step)
+        {
+            var before = await Settled(); var managedBefore = GC.GetTotalMemory(false);
+            var clock = Stopwatch.StartNew();
+            for (var index = 0; index < count; index++) { await step(index); await PerformanceYield(); }
+            var after = await Settled(); var managedAfter = GC.GetTotalMemory(false);
+            PerformanceTrace.Note("leak.probe", new { name, count, heap_before = before, heap_after = after,
+                heap_per_step = (after - before) / (double)count, managed_per_step = (managedAfter - managedBefore) / (double)count,
+                ms = Math.Round(clock.Elapsed.TotalMilliseconds) });
+        }
+        await Measure("baseline", 12, _ => Task.CompletedTask);
+        await Measure("toolbar", 12, _ => { DrawToolbar(); return Task.CompletedTask; });
+        await Measure("sidebar", 12, _ => { DrawSide(); return Task.CompletedTask; });
+        await Measure("detail", 12, _ => { DrawDetail(); return Task.CompletedTask; });
+        var homeOrg = org; var homeMember = member;
+        var otherOrg = orgs.Select(item => item.Text("id")).FirstOrDefault(id => id.Length > 0 && id != homeOrg) ?? homeOrg;
+        await Measure("switch", 12, async index =>
+        {
+            if (index % 2 == 0) await Select(otherOrg); else await Select(homeOrg, homeMember);
+            await WaitForMarkdown();
+        });
+    }
+
     private async Task PerformanceYield()
     {
         var tick = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -649,6 +690,13 @@ public sealed partial class MainWindow
                     // chat opening, retain every reachable click's result too.
                     if (!MeasuresChatOpening) throw;
                 }
+            }
+            // After the measured switches only; its samples carry their own
+            // action name, so no switch block includes them.
+            if (phase == "switch-chats")
+            {
+                try { await ProbeNativeLeaks(); }
+                catch (Exception failure) { PerformanceTrace.Note("leak.probe.error", failure.ToString()); }
             }
             if (phase.Length == 0 || phase == "monkey")
             {
