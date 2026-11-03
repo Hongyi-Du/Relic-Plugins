@@ -26,15 +26,18 @@ struct MainView: View {
     var body: some View {
         let _ = UIWorkTrace.count("body.main")
         GeometryReader { geometry in
-        VStack(spacing: 0) {
+        // Overlays (dialogs, the inspector, toasts, a loading cover) align to
+        // these regions; each boundary answers that alignment without
+        // measuring the region's whole subtree again. See AlignmentBoundary.
+        AlignmentBoundary { VStack(spacing: 0) {
             AppToolbar().measuredRegion("header", createsAccessibilityContainer: false).zIndex(50)
             if !m.error.isEmpty && !m.ready { HStack { Text(m.error).textSelection(.enabled); Spacer(); Button(m.t("common.close")) { m.error = "" } }.padding(8).background(.red.opacity(0.12)) }
             if !m.ready && !m.error.isEmpty { Button(m.t("appmenu.reload")) { Task { await m.start() } } }
-            HStack(spacing: 0) {
-                if m.sidebarOpen { Sidebar(revealMembers: revealPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)).measuredRegion("sidebar", createsAccessibilityContainer: false) }
+            AlignmentBoundary { HStack(spacing: 0) {
+                if m.sidebarOpen { AlignmentBoundary { Sidebar(revealMembers: revealPhase >= 1).frame(width: InspectorGeometry.sidebarWidth(window: geometry.size.width)) }.measuredRegion("sidebar", createsAccessibilityContainer: false) }
                 if revealPhase < 2 { ProgressView(m.t("common.loading")).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else {
-                    ChatView().frame(minWidth: 0, maxWidth: .infinity).measuredRegion("conversation", createsAccessibilityContainer: false)
+                    AlignmentBoundary { ChatView().frame(minWidth: 0, maxWidth: .infinity) }.measuredRegion("conversation", createsAccessibilityContainer: false)
                         .disabled(loadingOrganization)
                         .overlay {
                             if loadingOrganization {
@@ -49,12 +52,12 @@ struct MainView: View {
                     // controls and rebuilds them inside the resize transaction.
                     Color.clear.frame(width: min(panelWidth, m.windowSize.width - 48))
                 }
-            }.frame(maxHeight: .infinity).overlay(alignment: .trailing) {
+            }.frame(maxHeight: .infinity) }.overlay(alignment: .trailing) {
                 if revealPhase >= 3 && m.panelOpen {
-                    inspector.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
+                    AlignmentBoundary { inspector }.opacity(loadingOrganization ? 0 : 1).disabled(loadingOrganization).accessibilityHidden(loadingOrganization)
                 }
             }
-        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading) }
         .background(alignment: .topLeading) { if !m.ready { NativeWarmup() } }
         .modifier(RecordedSurface(background: RelicStyle.background, kind: "region", owner: InitialWindowFocus.surfaceIdentity)).foregroundStyle(RelicStyle.ink)
         .onAppear { m.windowSize = geometry.size }.onChange(of: geometry.size) { m.updateWindowGeometry(geometry.size) }

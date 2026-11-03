@@ -44,7 +44,8 @@ struct DialogLayer: View {
                 .modifier(RecordedSurface(background: sheet == .card ? .clear : Color(red: 15/255, green: 14/255, blue: 12/255).opacity(0.32), kind: "region", owner: scrimIdentity))
                 .accessibilityElement(children: .contain).accessibilityIdentifier(scrimIdentity).accessibilityLabel("")
                 .onTapGesture { m.sheet = nil }
-            panel
+            // The ZStack centers the panel without measuring its content again.
+            AlignmentBoundary { panel }
                 .offset(x: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).x : 0,
                         y: sheet == .card ? layout.cardOrigin(anchor: m.cardAnchor).y : 0)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
