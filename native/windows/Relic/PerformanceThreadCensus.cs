@@ -34,7 +34,11 @@ internal static class PerformanceThreadCensus
                 if (appeared.Length > 0 || gone.Length > 0)
                     PerformanceTrace.Note("threads.census", new { count = current.Count, appeared, gone });
             }
-            else PerformanceTrace.Note("threads.census", new { count = current.Count, all = current.Values.ToArray() });
+            // Software rendering (no GPU on CI) runs its rasterizer on Windows thread-pool workers.
+            else PerformanceTrace.Note("threads.census", new { count = current.Count, all = current.Values.ToArray(),
+                rendering = modules.Select(entry => entry.Name).Where(name => name.Contains("warp", StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith("d3d", StringComparison.OrdinalIgnoreCase) || name.StartsWith("dxgi", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("dwrite", StringComparison.OrdinalIgnoreCase)).ToArray() });
             previous = current;
         }
         catch (Exception error) { PerformanceTrace.Note("threads.census.error", error.Message); }

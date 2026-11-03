@@ -23,7 +23,6 @@ public sealed partial class MainWindow
     private void StartPerformanceProbe()
     {
         if (!PerformanceEnabled) return;
-        PerformanceGcEvents.Start();
         performanceManifest = JsonNode.Parse(System.IO.File.ReadAllText(Environment.GetEnvironmentVariable("RELIC_PERF_MANIFEST")!))!;
         System.IO.Directory.CreateDirectory(PerformanceOutput);
         performanceCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -52,10 +51,6 @@ public sealed partial class MainWindow
             string? publishedAction = null;
             var publishedPending = false;
             Task<long>? activeProbe = null;
-            // JIT compilation done on the UI thread so far, read inside each
-            // ping's UI callback. A stall's share is the growth since the
-            // previous ping; it explains first-use stalls without a profiler.
-            long uiJitTicks = 0, uiJitMethods = 0, lastJitTicks = 0, lastJitMethods = 0;
             async Task Publish(bool force, CancellationToken writeToken)
             {
                 var worst = Interlocked.Read(ref performanceWorstTicks);
@@ -91,10 +86,7 @@ public sealed partial class MainWindow
                     var completed = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
                     if (!DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Normal, () =>
                     {
-                        var stamp = Stopwatch.GetTimestamp();
-                        Interlocked.Exchange(ref uiJitTicks, System.Runtime.JitInfo.GetCompilationTime(true).Ticks);
-                        Interlocked.Exchange(ref uiJitMethods, System.Runtime.JitInfo.GetCompiledMethodCount(true));
-                        completed.TrySetResult(stamp);
+                        completed.TrySetResult(Stopwatch.GetTimestamp());
                     })) break;
                     activeProbe = completed.Task;
                     while (!token.IsCancellationRequested)
@@ -103,20 +95,8 @@ public sealed partial class MainWindow
                         var ticks = (completed.Task.IsCompletedSuccessfully ? completed.Task.Result : Stopwatch.GetTimestamp()) - sent;
                         var old = Interlocked.Read(ref performanceWorstTicks);
                         if (ticks > old) Interlocked.Exchange(ref performanceWorstTicks, ticks);
-                        if (completed.Task.IsCompletedSuccessfully)
-                        {
-                            var jitTicks = Interlocked.Read(ref uiJitTicks); var jitMethods = Interlocked.Read(ref uiJitMethods);
-                            if (ticks * 1000d / Stopwatch.Frequency > 5)
-                            {
-                                PerformanceTrace.Count("ui.dispatch", ticks * 1000d / Stopwatch.Frequency);
-                                if (jitTicks > lastJitTicks)
-                                {
-                                    PerformanceTrace.Count("ui.dispatch.jit_ms", (jitTicks - lastJitTicks) / (double)TimeSpan.TicksPerMillisecond);
-                                    PerformanceTrace.Count("ui.dispatch.jit_methods", jitMethods - lastJitMethods);
-                                }
-                            }
-                            lastJitTicks = jitTicks; lastJitMethods = jitMethods;
-                        }
+                        if (completed.Task.IsCompletedSuccessfully && ticks * 1000d / Stopwatch.Frequency > 5)
+                            PerformanceTrace.Count("ui.dispatch", ticks * 1000d / Stopwatch.Frequency);
                         if (completed.Task.IsCompletedSuccessfully) pings++;
                         PerformanceTrace.RecordCollection();
                         await Publish(false, token);

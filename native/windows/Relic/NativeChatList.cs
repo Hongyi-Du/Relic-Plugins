@@ -114,7 +114,7 @@ internal sealed class NativeChatList : Grid
             {
                 old.SizeChanged -= HeaderSizeChanged;
                 // Removing it moves the rows below it up by its whole slot.
-                if (old.IsLoaded) KeepRowsOnScreen(old, -(old.ActualHeight + old.Margin.Top + old.Margin.Bottom), changed: false);
+                if (old.IsLoaded) KeepRowsOnScreen(old, -(old.ActualHeight + old.Margin.Top + old.Margin.Bottom));
             }
             if (value != null) value.SizeChanged += HeaderSizeChanged;
             list.Header = value;
@@ -220,21 +220,19 @@ internal sealed class NativeChatList : Grid
     private double pendingShift;
 
     // ItemsStackPanel's KeepItemsInView did this itself (and failed fast, see
-    // the panel template): a row that lies entirely above the viewport and is
-    // built or changes height moves every row on screen by the same amount.
-    // Move the view with it, in the same layout, so what the person reads stays
-    // put. Not while following the latest message (the bottom edge is anchored
-    // then), and not during a touch or touchpad pan, where a ChangeView would
-    // end the person's own gesture.
-    // changed: the element's current bounds already include the change (a size
-    // change after layout); otherwise they are from before it (a removal).
-    private void KeepRowsOnScreen(FrameworkElement element, double delta, bool changed)
+    // the panel template): a row that starts above the viewport and is built or
+    // changes height moves every row below it by the same amount. That includes
+    // a row cut by the top edge: its own top stays put, so the message under it,
+    // the one being read, moved (a restored position slid up 72 px when the row
+    // above it finished building). Move the view with it, in the same layout,
+    // so what the person reads stays put. Not while following the latest
+    // message (the bottom edge is anchored then), and not during a touch or
+    // touchpad pan, where a ChangeView would end the person's own gesture.
+    private void KeepRowsOnScreen(FrameworkElement element, double delta)
     {
         if (Math.Abs(delta) < .25 || userPanning || Viewport is not { } viewport || !element.IsLoaded
             || position is { Kind: PositionKind.Latest }) return;
-        var bounds = Bounds(element, viewport);
-        var bottomBefore = changed ? bounds.Bottom - delta : bounds.Bottom;
-        if (bounds.Top < 0 && bottomBefore <= .5) pendingShift += delta;
+        if (Bounds(element, viewport).Top < 0) pendingShift += delta;
     }
 
     private void ApplyPendingShift()
@@ -448,7 +446,7 @@ internal sealed class NativeChatList : Grid
         var placed = sender is Border placedHost && placing.Remove(placedHost);
         if (position is { Kind: PositionKind.Latest } follow) { follow.Corrections = 0; follow.LastGeometry = null; }
         else if (!placed && sender is Border host && args.PreviousSize.Height > 0)
-            KeepRowsOnScreen(host, args.NewSize.Height - args.PreviousSize.Height, changed: true);
+            KeepRowsOnScreen(host, args.NewSize.Height - args.PreviousSize.Height);
         QueuePositionCheck();
     }
     private void HeaderSizeChanged(object sender, SizeChangedEventArgs args)
@@ -459,7 +457,7 @@ internal sealed class NativeChatList : Grid
         if (sender is not FrameworkElement header) return;
         var delta = args.NewSize.Height - args.PreviousSize.Height;
         if (args.PreviousSize.Height == 0) delta += header.Margin.Top + header.Margin.Bottom;
-        KeepRowsOnScreen(header, delta, changed: true);
+        KeepRowsOnScreen(header, delta);
     }
     private void ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
     {
@@ -629,6 +627,10 @@ internal sealed class NativeChatList : Grid
         }
         intent.CorrectionPending = true; intent.CorrectionCompleted = false; intent.CorrectionTarget = clamped;
         TracePosition(intent, "correct");
+        if (intent.Kind == PositionKind.Reading)
+            PerformanceTrace.Note(TraceName + ".position.reading.detail", new { corrections = intent.Corrections,
+                offset = viewport.VerticalOffset, target = clamped, maximum = viewport.ScrollableHeight,
+                top = bounds.Top, height = bounds.Height, want = intent.Top, realized = mounted.Count, pending = PendingBuilds });
         if (!viewport.ChangeView(null, clamped, null, true))
         {
             intent.CorrectionPending = false; intent.CorrectionCompleted = true;

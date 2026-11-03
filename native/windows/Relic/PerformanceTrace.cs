@@ -25,9 +25,14 @@ internal static class PerformanceTrace
         return batch.ToArray();
     }
     private static long lastCollection;
+    private static int lastCount = -1;
     internal static void RecordCollection()
     {
         if (!Enabled) return;
+        // GetGCMemoryInfo allocates; only read it after a collection happened.
+        var count = GC.CollectionCount(0);
+        if (count == lastCount) return;
+        lastCount = count;
         var info = GC.GetGCMemoryInfo();
         if (info.Index == lastCollection) return;
         lastCollection = info.Index;

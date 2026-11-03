@@ -21,6 +21,13 @@
     <ProjectReference Include="../Relic.Core/Relic.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Pool workers are not retired after 20 s idle (the .NET 8 default). Each
+         burst of chat work otherwise created workers that exited a little
+         later, so the process kept growing and shrinking by a few threads and
+         the next burst paid for creating them again. -->
+    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.ThreadsToKeepAlive" Value="-1" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="../../../plugins/relic/app/static/icon.svg" Link="Assets/Relic.svg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
