@@ -1,5 +1,13 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Windows1c2901a history41549527674 large stays below250ms (worst169.232ms),
+and DrawChat is now17ms at startup after worker model preparation. History0172
+still fails: the actual target item:e451/index255 was never realized, all
+queues were empty, and offset remained0. The product now calls the documented
+native UpdateLayout once before each new ScrollIntoView target after collection
+changes. This fixes the identified ordering defect without a scroll retry loop,
+manual container realization or relaxed assertion; CI must verify the result.
+
 Changes for the clients: integrated Mac594e0f0/e4aa723 timestamp and tooltip
 preparation, then7b1ad2f/a09cbeb native-list cold mount and redundant-seek fixes
 via2323989. REQUESTS retains every gate and asks for no shared API change.
