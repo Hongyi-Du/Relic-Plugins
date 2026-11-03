@@ -184,6 +184,7 @@ public sealed partial class MainWindow
             // handling cannot reach the next row; continue through the same
             // repeater so keyboard focus also realizes offscreen neighbors.
             side.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(SidebarArrowKeyDown), true);
+            side.Recycling = ReleaseSidebarRow;
             sidebarKeyboardBound = true;
         }
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(sidebarSurface, T("page.side"));
@@ -405,6 +406,15 @@ public sealed partial class MainWindow
     {
         var text = OverviewText(value, size, muted, weight, lineHeight); text.UseLayoutRounding = false;
         return text;
+    }
+    // A replaced sidebar row whose list still had it selected outlived its
+    // removal (the opened organization's row, one more at every redraw:
+    // 143 after 200 switches), while unselected rows were collected. Leave
+    // the list without a selection as the row goes.
+    private static void ReleaseSidebarRow(UIElement row)
+    {
+        if (row is ListView { SelectedItem: not null } list) list.SelectedItem = null;
+        else if (row is Border { Child: ListView { SelectedItem: not null } wrapped }) wrapped.SelectedItem = null;
     }
     // A sidebar row's tooltip opens to its right, over the chat. Above the
     // pointer (the default) it covered the row above, and a click there went

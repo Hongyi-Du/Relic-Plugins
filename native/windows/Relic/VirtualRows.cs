@@ -21,6 +21,8 @@ internal sealed class VirtualRows : Grid
     private readonly ItemsRepeater repeater = new() { Layout = new StackLayout(), VerticalCacheLength = .5 };
     internal double Spacing { get => ((StackLayout)repeater.Layout).Spacing; set => ((StackLayout)repeater.Layout).Spacing = value; }
     internal int Realized => factory.Realized;
+    // Called with a built row just before it leaves the list.
+    internal Action<UIElement>? Recycling { get => factory.Recycling; set => factory.Recycling = value; }
     internal static int PendingBuilds => RowFactory.PendingBuilds;
     private readonly RowFactory factory = new();
     private string traceName = "rows";
@@ -598,6 +600,7 @@ internal sealed class VirtualRows : Grid
         internal static int PendingBuilds;
         internal int Realized { get; private set; }
         internal string TrackKind = "VirtualRow.rows";
+        internal Action<UIElement>? Recycling;
         public UIElement GetElement(ElementFactoryGetArgs args)
         {
             var host = empty.Count > 0 ? empty.Pop() : new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -650,6 +653,7 @@ internal sealed class VirtualRows : Grid
         {
             using var timing = PerformanceTrace.Measure("row.recycle");
             var host = (Border)args.Element;
+            if (host.Child is { } child) Recycling?.Invoke(child);
             host.Tag = null; host.Child = null; Realized--;
             if (empty.Count < 32) empty.Push(host);
         }

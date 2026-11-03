@@ -269,6 +269,14 @@ public sealed partial class MainWindow
             await CaptureHover(element); CapturePointerButton(true);
             try { await Task.Delay(40); } finally { CapturePointerButton(false); }
         });
+        // Selected only before mounting, none survived; the sidebar selects
+        // its row once the row is loaded.
+        await Parts("list_row_selected_live", ProbeList, element => { ((ListView)element).SelectedItem = FirstItem(element); return Task.CompletedTask; });
+        await Parts("list_row_selected_live_released", ProbeList, async element =>
+        {
+            ((ListView)element).SelectedItem = FirstItem(element); await PerformanceYield();
+            ReleaseSidebarRow(element);
+        });
         await CaptureHover(chatScroll); await PerformanceYield();
     }
 
