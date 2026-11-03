@@ -610,6 +610,15 @@ internal sealed class NativeChatList : Grid
         return first is { IsLoaded: true } ? Bounds(first, viewport).Top : double.NegativeInfinity;
     }
 
+    // CI evidence: where the panel stands relative to a row being restored.
+    private object PanelState(ScrollViewer viewport, int index)
+    {
+        var panel = list.ItemsPanelRoot as ItemsStackPanel;
+        return new { index, count = entries.Count, offset = viewport.VerticalOffset, maximum = viewport.ScrollableHeight,
+            height = viewport.ViewportHeight, first_cache = panel?.FirstCacheIndex, last_cache = panel?.LastCacheIndex,
+            first_visible = panel?.FirstVisibleIndex, last_visible = panel?.LastVisibleIndex, realized = mounted.Count };
+    }
+
     // Seek the reading row itself. Its view change lands in a later pass (see
     // SeekLanded), and nothing may move the view before (ApplyPendingShift).
     private void SeekRow(Position intent, Entry entry, int index, string step)
@@ -776,14 +785,24 @@ internal sealed class NativeChatList : Grid
             // leaves the realized range (a 1356 px row did after a walk, and
             // again after it was sought). Seek it again rather than wait for
             // it until the restore times out.
-            if (intent.Waiting != "row_unrealized") intent.UnrealizedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (intent.Waiting != "row_unrealized")
+            {
+                intent.UnrealizedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (intent.Kind != PositionKind.Latest) PerformanceTrace.Note(TraceName + ".position.unrealized", PanelState(viewport, index));
+            }
             TraceWait(intent, "row_unrealized");
             if (intent.Kind == PositionKind.Reading && intent.Reseeks < 2 && !intent.CorrectionPending
                 && System.Diagnostics.Stopwatch.GetElapsedTime(intent.UnrealizedAt).TotalMilliseconds > 500)
             { intent.Reseeks++; SeekRow(intent, entry, index, "reseek_row"); }
             return;
         }
-        if (!ReadyHost(host)) { TraceWait(intent, host.Child == null ? "row_unbuilt" : "row_unmeasured"); return; }
+        if (!ReadyHost(host))
+        {
+            if (intent.Kind != PositionKind.Latest && intent.Waiting is not ("row_unbuilt" or "row_unmeasured"))
+                PerformanceTrace.Note(TraceName + ".position.unbuilt", new { panel = PanelState(viewport, index),
+                    top = host.IsLoaded ? Bounds(host, viewport).Top : (double?)null, loaded = host.IsLoaded });
+            TraceWait(intent, host.Child == null ? "row_unbuilt" : "row_unmeasured"); return;
+        }
         if (!intent.IsReady()) { TraceWait(intent, ContentWait()); return; }
         // Rows between the seek and the reading row that are still unbuilt will
         // change height and move it: correct only from built rows.
