@@ -116,8 +116,21 @@ public sealed partial class MainWindow
             if (item.Content is Button button) Include(button);
         var next = rects.ToArray();
         titlebarLayoutDirty = pendingButtons;
-        if (titlebarInteractiveRects.SequenceEqual(next)) return;
+        // Compare with what Windows holds too, not only with what was set
+        // last: right after a dialog closed, the next click on a menu or
+        // toolbar button in the title bar was lost twice (runs 41668161153
+        // and 41695428000) while the cached rects still matched.
+        if (titlebarInteractiveRects.SequenceEqual(next)
+            && titlebarInput.GetRegionRects(NonClientRegionKind.Passthrough).SequenceEqual(next)) return;
         titlebarInput.SetRegionRects(NonClientRegionKind.Passthrough, next);
         titlebarInteractiveRects = next;
+    }
+
+    // A modal dialog covers the title bar while it is open; once it closes,
+    // the title bar's buttons get their passthrough rects back at once.
+    private void TitleBarAfterDialog()
+    {
+        titlebarLayoutDirty = true;
+        UpdateNativeTitleBarLayout();
     }
 }

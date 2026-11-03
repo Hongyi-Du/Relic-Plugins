@@ -53,7 +53,7 @@ public sealed partial class MainWindow
         dialog.Resources["ContentDialogSmokeFill"] = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 15, 14, 12)) { Opacity = .32 };
         dialog.Loaded += (_, _) => PerformanceTrace.Count("dialog.loaded", 1);
         dialog.Opened += (_, _) => { using var timing = PerformanceTrace.Measure("dialog.opened.style"); PerformanceTrace.Count("dialog.opened", 1); openedDialog = dialog; StyleDialogParts(dialog); };
-        dialog.Closed += (_, _) => { PerformanceTrace.Count("dialog.closed", 1); if (openedDialog == dialog) openedDialog = null; };
+        dialog.Closed += (_, _) => { PerformanceTrace.Count("dialog.closed", 1); if (openedDialog == dialog) openedDialog = null; TitleBarAfterDialog(); };
         configuration.Dispose();
         Windows.Foundation.IAsyncOperation<ContentDialogResult> opening;
         using (PerformanceTrace.Measure("dialog.show.start")) opening = dialog.ShowAsync();

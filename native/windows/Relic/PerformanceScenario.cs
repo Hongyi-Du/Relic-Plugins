@@ -838,7 +838,18 @@ public sealed partial class MainWindow
                 {
                     await CaptureClick(button); await PerformanceYield();
                     while (Volatile.Read(ref performanceCommands) > 0) await Task.Delay(20);
-                    if (clicks == 0) throw new InvalidOperationException("Real random click was not handled: " + targetName);
+                    if (clicks == 0)
+                    {
+                        // Which title-bar rects Windows let through, against the
+                        // button's own bounds (physical pixels).
+                        var bounds = button.TransformToVisual(root).TransformBounds(new(0, 0, button.ActualWidth, button.ActualHeight));
+                        var scale = root.XamlRoot.RasterizationScale;
+                        var actual = titlebarInput?.GetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough) ?? [];
+                        record["titlebar_passthrough"] = new JsonArray(actual.Select(rect => (JsonNode)$"{rect.X},{rect.Y},{rect.Width},{rect.Height}").ToArray());
+                        record["titlebar_cached"] = new JsonArray(titlebarInteractiveRects.Select(rect => (JsonNode)$"{rect.X},{rect.Y},{rect.Width},{rect.Height}").ToArray());
+                        record["button_px"] = $"{bounds.X * scale:F0},{bounds.Y * scale:F0},{bounds.Width * scale:F0},{bounds.Height * scale:F0}";
+                        throw new InvalidOperationException("Real random click was not handled: " + targetName);
+                    }
                     if (targetIndex >= 4)
                     {
                         if (!nativeMenus[targetIndex - 4].Flyout.IsOpen) throw new InvalidOperationException("Real random menu did not open");
