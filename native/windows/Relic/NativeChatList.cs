@@ -217,6 +217,18 @@ internal sealed class NativeChatList : Grid
         var wanted = next.ToHashSet();
         for (var index = entries.Count - 1; index >= 0; index--)
             if (!wanted.Contains(entries[index])) entries.RemoveAt(index);
+        // Reading from the top, the "load older" control is the first visible row,
+        // and KeepItemsInView holds the first visible row: an older page inserted
+        // below it pushed the message being read hundreds of rows down, and a far
+        // ScrollIntoView had to bring it back (the call ModernCollectionBasePanel
+        // failed fast in). Take the control out while the page goes in above the
+        // message, then put it back on top, out of view.
+        Entry? top = null;
+        if (sameView && entries.Count > 1 && entries[0].Row.Key == "older" && next.Count > 1
+            && ReferenceEquals(next[0], entries[0]) && !ReferenceEquals(next[1], entries[1]))
+        {
+            top = entries[0]; entries.RemoveAt(0); next.RemoveAt(0);
+        }
         var existing = entries.ToHashSet();
         for (var index = 0; index < next.Count; index++)
         {
@@ -225,6 +237,7 @@ internal sealed class NativeChatList : Grid
             if (existing.Contains(entry)) entries.Move(entries.IndexOf(entry), index);
             else { entries.Insert(index, entry); existing.Add(entry); }
         }
+        if (top != null) entries.Insert(0, top);
         foreach (var (host, binding) in mounted.ToArray())
         {
             if (!wanted.Contains(binding.Entry)) { Release(host); continue; }
