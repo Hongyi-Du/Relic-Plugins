@@ -62,8 +62,10 @@ public sealed partial class MainWindow
                 // writes out of the measured idle CPU. A pending probe, its
                 // recovery, a new maximum or an action change is still
                 // published on the very next observation.
-                if (!force && pending == 0 && !publishedPending && worst <= publishedWorst
-                    && action == publishedAction && Stopwatch.GetElapsedTime(lastPublished).TotalMilliseconds < 500) return;
+                // While idle is measured, every second is still half the
+                // staleness limit, and the write is the probe's largest cost.
+                if (!force && pending == 0 && !publishedPending && worst <= publishedWorst && action == publishedAction
+                    && Stopwatch.GetElapsedTime(lastPublished).TotalMilliseconds < (action == "idle-measure" ? 1000 : 500)) return;
                 await Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
                     max_ui_stall_ms = worst * 1000d / Stopwatch.Frequency,
                     pending_since_unix_ms = pending,
@@ -91,7 +93,13 @@ public sealed partial class MainWindow
                     activeProbe = completed.Task;
                     while (!token.IsCancellationRequested)
                     {
-                        await Task.WhenAny(completed.Task, Task.Delay(40, token));
+                        // One timer per wait. A ping usually completes within a
+                        // millisecond; racing it against a fresh 40 ms delay
+                        // left that timer to fire for nothing, and a second
+                        // delay followed, so the probe woke twice as often as it
+                        // measured (idle too). The latency is the ping's own
+                        // completion time either way.
+                        await Task.Delay(40, token);
                         var ticks = (completed.Task.IsCompletedSuccessfully ? completed.Task.Result : Stopwatch.GetTimestamp()) - sent;
                         var old = Interlocked.Read(ref performanceWorstTicks);
                         if (ticks > old) Interlocked.Exchange(ref performanceWorstTicks, ticks);
@@ -115,7 +123,6 @@ public sealed partial class MainWindow
                     PerformanceTrace.RecordAll = idleNow;
                     if (idleNow && Stopwatch.GetElapsedTime(lastIdleSample).TotalMilliseconds >= 1000)
                     { lastIdleSample = Stopwatch.GetTimestamp(); PerformanceThreadCensus.SampleCycles(); }
-                    await Task.Delay(40, token);
                 }
             }
             finally { await Publish(true, CancellationToken.None); }

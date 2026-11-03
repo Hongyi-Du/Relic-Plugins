@@ -378,6 +378,9 @@ public sealed partial class MainWindow
             if (settling.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("Conversation did not settle before idle CPU measurement");
             await Task.Delay(16);
         }
+        // CI-only idle sampling enumerates modules and threads once to set up;
+        // do that before the measured window, not in its first second.
+        PerformanceThreadCensus.SampleCycles();
         Volatile.Write(ref performanceAction, "idle-measure");
         record["idle_started_unix_ms"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var idle = Stopwatch.StartNew();
