@@ -43,9 +43,20 @@ public sealed partial class MainWindow
         performanceCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         var token = performanceCancellation.Token;
         PerformanceStallCpu.CaptureUiThread();
-        performanceProbe = Task.Run(async () =>
+        var probeDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        performanceProbe = probeDone.Task;
+        // A thread of its own that sleeps between pings. On the thread pool
+        // each 40 ms ping woke the timer thread, a pool worker and the UI
+        // thread, and the probe alone used about 1% of a core while the app
+        // sat idle. The cadence and what each ping measures are unchanged.
+        new Thread(() =>
         {
-            async Task Write(string name, object value, CancellationToken writeToken)
+            try { Probe(); probeDone.TrySetResult(); }
+            catch (Exception error) { probeDone.TrySetException(error); }
+        }) { IsBackground = true, Name = "Relic CI UI probe" }.Start();
+        void Probe()
+        {
+            void Write(string name, object value)
             {
                 var path = System.IO.Path.Combine(PerformanceOutput, name);
                 System.IO.File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(value));
@@ -57,17 +68,17 @@ public sealed partial class MainWindow
                         // The external reader may momentarily hold the old
                         // Windows file without FILE_SHARE_DELETE. Retry this
                         // atomic replacement, never discard the measured max.
-                        await Task.Delay(2, writeToken);
+                        Thread.Sleep(2);
                     }
                 }
             }
-            await Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), phases_version = 2 }, token);
+            Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), phases_version = 2 });
             long sequence = 0, pings = 0, lastCensus = 0, lastIdleSample = 0;
             long lastPublished = 0, publishedWorst = -1, pendingSince = 0;
             string? publishedAction = null;
             var publishedPending = false;
             Task<long>? activeProbe = null;
-            async Task Publish(bool force, CancellationToken writeToken)
+            void Publish(bool force)
             {
                 var worst = Interlocked.Read(ref performanceWorstTicks);
                 var action = Volatile.Read(ref performanceAction);
@@ -82,12 +93,12 @@ public sealed partial class MainWindow
                 // staleness limit, and the write is the probe's largest cost.
                 if (!force && pending == 0 && !publishedPending && worst <= publishedWorst && action == publishedAction
                     && Stopwatch.GetElapsedTime(lastPublished).TotalMilliseconds < (action == "idle-measure" ? 1000 : 500)) return;
-                await Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
+                Write("heartbeat.json", new { unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), sequence = ++sequence, pings,
                     max_ui_stall_ms = worst * 1000d / Stopwatch.Frequency,
                     pending_since_unix_ms = pending,
                     titlebar_layout_notifications = Interlocked.Read(ref titlebarLayoutNotifications),
                     titlebar_layout_measurements = Interlocked.Read(ref titlebarLayoutMeasurements),
-                    action }, writeToken);
+                    action });
                 FlushPerformanceTrace();
                 lastPublished = Stopwatch.GetTimestamp(); publishedWorst = worst;
                 publishedAction = action; publishedPending = pending != 0;
@@ -115,7 +126,7 @@ public sealed partial class MainWindow
                         // delay followed, so the probe woke twice as often as it
                         // measured (idle too). The latency is the ping's own
                         // completion time either way.
-                        await Task.Delay(40, token);
+                        if (token.WaitHandle.WaitOne(40)) break;
                         var ticks = (completed.Task.IsCompletedSuccessfully ? completed.Task.Result : Stopwatch.GetTimestamp()) - sent;
                         if (!completed.Task.IsCompletedSuccessfully && cpuAtSend.At != 0 && ticks * 1000d / Stopwatch.Frequency >= 80)
                             (waits ??= new()).Sample();
@@ -125,7 +136,7 @@ public sealed partial class MainWindow
                             PerformanceTrace.Count("ui.dispatch", ticks * 1000d / Stopwatch.Frequency);
                         if (completed.Task.IsCompletedSuccessfully) pings++;
                         PerformanceTrace.RecordCollection();
-                        await Publish(false, token);
+                        Publish(false);
                         if (completed.Task.IsCompletedSuccessfully)
                         {
                             var stall = ticks * 1000d / Stopwatch.Frequency;
@@ -149,8 +160,8 @@ public sealed partial class MainWindow
                     { lastIdleSample = Stopwatch.GetTimestamp(); PerformanceThreadCensus.SampleCycles(); }
                 }
             }
-            finally { await Publish(true, CancellationToken.None); }
-        }, token);
+            finally { Publish(true); }
+        }
         _ = performanceProbe.ContinueWith(task => System.IO.File.WriteAllText(
             System.IO.Path.Combine(PerformanceOutput, "probe-error.txt"), task.Exception!.ToString()),
             CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
