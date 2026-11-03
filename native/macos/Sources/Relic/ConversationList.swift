@@ -39,11 +39,12 @@ struct ConversationStream: View {
                                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
                         }
                         ForEach(rows) { row in
-                            // List owns admission and recycling. Replacing a
-                            // second staged 100pt placeholder inside each cell
-                            // repeatedly invalidates AppKit's automatic heights.
-                            // One explicit container always means one row.
+                            // List can discover all IDs without evaluating the
+                            // conditional admission content for every message.
+                            // One explicit container always means one row;
+                            // ForEach already supplies its scroll identity.
                             VStack(alignment: .leading, spacing: 0) {
+                            ProgressiveRow(estimatedHeight: row.item["type"].text == "notice" ? 32 : 100) {
                                 VStack(alignment: .leading, spacing: 0) {
                                     if let separator = row.separator {
                                         ReferenceLabel(separator, size: 11.5, color: RelicStyle.muted, alignment: .center)
@@ -57,6 +58,7 @@ struct ConversationStream: View {
                                 .background { if RenderReadiness.enabled { RenderReadiness(kind: "conversation-row", identity: row.id) } }
                                 .onAppear { PerformanceRendering.rowAppeared() }
                                 .onDisappear { PerformanceRendering.rowDisappeared() }
+                            }
                             }
                             .padding(.bottom, row.id == last ? 24 : 0)
                             .frame(maxWidth: 880).frame(maxWidth: .infinity)
