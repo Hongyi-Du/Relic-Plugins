@@ -177,10 +177,11 @@ private struct MonitorLive: View {
         let snapshot = monitor.snapshot
         VStack(alignment: .leading, spacing: 10) {
             MonitorQuiet(m.t("mon.intro"), size: 12.5)
+            // Two equal-height cards, like the Windows grid row.
             HStack(alignment: .top, spacing: 12) {
                 MonitorTotalCard(name: "Claude", totals: snapshot.claude, plan: nil, claude: true)
                 MonitorTotalCard(name: "Codex", totals: snapshot.codex, plan: snapshot.codexPlan, claude: false)
-            }
+            }.fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 ReferenceActionButton(m.t(monitor.stopAllArmed ? "mon.stop_all_sure" : "mon.stop_all"), small: true) { monitor.stopAll(model: m) }
                 if snapshot.anyStopped {
@@ -226,7 +227,7 @@ private struct MonitorTotalCard: View {
                 MonitorQuiet(m.t("mon.claude_plan_hint"))
             }
         }
-        .padding(12).frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 10).fill(RelicStyle.card))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(RelicStyle.line, lineWidth: 1))
     }
