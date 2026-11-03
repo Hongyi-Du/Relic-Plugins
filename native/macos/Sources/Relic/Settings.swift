@@ -6,6 +6,8 @@ struct SettingsView: View {
     @EnvironmentObject var m: Model
     @State private var name = ""
     @State private var voiceTest = ""
+    /// 0: the dialog's frame and title, 1: its navigation, 2: the open page.
+    @State private var stage = 0
     private let sections = [("profile", "settings.profile"), ("appearance", "settings.appearance"), ("language", "settings.language.title"), ("voice", "common.voice_input"), ("notify", "settings.notify"), ("harness", "common.harness"), ("about", "settings.about")]
     var body: some View {
         let _ = UIWorkTrace.count("body.settings")
@@ -13,13 +15,16 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 ReferenceLabel(m.t("common.settings"), size: 16, weight: 650)
                     .padding(.top, 4).padding(.horizontal, 10).padding(.bottom, 12)
-                ForEach(sections, id: \.0) { key, title in
-                    SettingsNavigationButton(key: key, title: m.t(title), icon: sectionIcon(key), selected: m.settingsSection == key) { m.settingsSection = key }
+                if stage >= 1 {
+                    ForEach(sections, id: \.0) { key, title in
+                        SettingsNavigationButton(key: key, title: m.t(title), icon: sectionIcon(key), selected: m.settingsSection == key) { m.settingsSection = key }
+                    }
                 }
                 Spacer(minLength: 0)
             }.padding(.vertical, 14).padding(.horizontal, 10).frame(width: 220)
                 .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 1), kind: "card"))
             ScrollView {
+                if stage >= 2 {
                 VStack(alignment: .leading, spacing: 0) {
                     ReferenceLabel(m.t(sections.first { $0.0 == m.settingsSection }?.1 ?? "settings.about"), size: 18, weight: 650).padding(.bottom, 14)
                     switch m.settingsSection {
@@ -33,8 +38,10 @@ struct SettingsView: View {
                     }
                 }.padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 28).frame(maxWidth: .infinity, alignment: .topLeading)
                     .background(ScrollAppearance())
+                }
             }.frame(maxWidth: .infinity, maxHeight: .infinity).background(SettingsContentProbe())
         }.onAppear { name = m.preferences["name"].text }
+        .task { await DialogStages.admit(2, label: "settings") { stage = $0 } }
     }
     private func sectionIcon(_ key: String) -> String { ["profile": "user", "appearance": "palette", "language": "globe", "voice": "mic", "notify": "bell", "harness": "plug", "about": "info"][key] ?? "gear" }
     func preference(_ key: String) -> Binding<String> { Binding(get: { m.preferences[key].text }, set: { value in m.run { try await m.savePreferences([key: value]) } }) }
