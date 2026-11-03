@@ -143,7 +143,10 @@ struct ConversationStream: View {
                     keyboard.observedHeight = geometry.height
                     keyboard.observedViewportHeight = geometry.viewportHeight
                     keyboard.finishDisclosureLayout()
-                    if changed, followsLatest, !preservingDisclosure, !m.isPreparingConversation {
+                    // List can preserve the actual bottom itself while a row
+                    // replaces its placeholder or changes height. Reissuing a
+                    // semantic seek there starts another row/layout update.
+                    if changed, geometry.bottomGap > 1, followsLatest, !preservingDisclosure, !m.isPreparingConversation {
                         seekLatest(proxy)
                     }
                     if !followsLatest, geometry.height > geometry.viewportHeight, geometry.topGap < 100,

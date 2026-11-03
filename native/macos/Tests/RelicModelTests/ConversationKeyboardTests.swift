@@ -152,11 +152,66 @@ import RelicCore
             try await settled("height-only resize while reading history")
             XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2)
             XCTAssertTrue(visibleText("Message 1", in: host), "Resizing while reading history must not jump to latest")
+            window.setContentSize(NSSize(width: 760, height: 360))
+            try await settled("wider List while reading history")
+            XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 2)
+            XCTAssertTrue(visibleText("Message 1", in: host), "Width reflow must preserve the actual history row")
+            XCTAssertEqual(keyboard.handle(.end, modifiers: []), .handled)
+            try await settled("explicit End after history reflow")
+            XCTAssertEqual(ConversationKeyboardMount.bottomGap(in: window) ?? -1, 0, accuracy: 2)
+            XCTAssertTrue(visibleText("Arrived while reading history", in: host))
+            window.setContentSize(NSSize(width: 520, height: 360))
+            try await settled("narrower List while following latest")
+            XCTAssertEqual(ConversationKeyboardMount.bottomGap(in: window) ?? -1, 0, accuracy: 2)
+            XCTAssertTrue(visibleText("Arrived while reading history", in: host), "Height changes from wrapping must still finish at the real latest content")
+            XCTAssertTrue(find(host) === scroll, "Reflow must retain the native viewport")
+            XCTAssertTrue(scroll.documentView is NSTableView, "AppKit List must continue owning row virtualization")
         }
     }
     private final class Document: NSView {
         var documentCoordinatesFlipped = true
         override var isFlipped: Bool { documentCoordinatesFlipped }
+    }
+
+    func testObservedNativeGeometryDistinguishesBottomFromUnfinishedHeightChange() async throws {
+        _ = NSApplication.shared
+        for flipped in [true, false] {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+            let document = Document(frame: NSRect(x: 0, y: 0, width: 200, height: 900))
+            document.documentCoordinatesFlipped = flipped
+            scroll.documentView = document; window.contentView = scroll; scroll.tile()
+            let keyboard = ConversationKeyboard(), owner = NSView()
+            document.addSubview(owner)
+            var last: ConversationKeyboard.Geometry?
+            keyboard.geometryChanged = { last = $0 }
+            keyboard.attach(scroll, owner: owner)
+            defer { keyboard.detach(owner); window.contentView = nil; window.close() }
+            func flush() async {
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.main.async { continuation.resume() }
+                }
+            }
+            await flush(); await flush()
+            func place(_ bottomGap: CGFloat) {
+                let y = flipped ? document.bounds.maxY - scroll.contentView.bounds.height - bottomGap
+                    : document.bounds.minY + bottomGap
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+            }
+            place(0); await flush()
+            XCTAssertEqual(try XCTUnwrap(last).bottomGap, 0, accuracy: 0.01)
+            document.setFrameSize(NSSize(width: 200, height: 973))
+            place(73); await flush()
+            XCTAssertEqual(try XCTUnwrap(last).bottomGap, 73, accuracy: 0.01,
+                "A real unfinished 73pt height change must still request latest positioning")
+            place(0); await flush()
+            XCTAssertEqual(try XCTUnwrap(last).bottomGap, 0, accuracy: 0.01,
+                "An already settled native bottom must not request another semantic seek")
+        }
     }
 
     func testEndCompletionUsesTheNativeRangeOnlyAfterTheActualTargetIsVisible() throws {
