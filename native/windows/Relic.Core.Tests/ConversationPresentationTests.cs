@@ -40,7 +40,7 @@ public sealed class ConversationPresentationTests
         Assert.Equal("Yesterday 12:00", rows[3].Separator);
         Assert.Equal("cached body/True/True/True/plain text/False", rows[1].Identity);
         Assert.Same(second, rows[1].Item);
-        Assert.Equal(64 + 4d / 70 * 23, rows[0].Estimate);
+        Assert.Equal(64 + 23, rows[0].Estimate);
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public sealed class ConversationPresentationTests
         var input = Input(messages); var before = messages.ToJsonString();
         var rows = ConversationPresentation.Prepare(input);
         Assert.Equal(5500, rows.Count); Assert.Equal("message:5499", rows[^1].Key);
-        Assert.Equal(2100, rows[^1].Estimate); Assert.Equal(before, messages.ToJsonString());
+        Assert.Equal(64 + 103 * 23, rows[^1].Estimate); Assert.Equal(before, messages.ToJsonString());
     }
 
     [Fact]

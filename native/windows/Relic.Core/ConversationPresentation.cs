@@ -43,8 +43,8 @@ public static class ConversationPresentation
                 && parsed - prior > TimeSpan.FromMinutes(20))
             { separator = parsed.ToLocalTime().ToString("HH:mm"); previous = null; }
             var continued = Transcript.SameMessageGroup(previous, item!);
-            var bodyLength = Math.Max(item.Text("body").Length, item.Text("text").Length);
-            var estimate = type == "message" ? Math.Clamp(64 + bodyLength / 70d * 23, 64, 2100) : 40;
+            var estimateText = item.Text("body").Length >= item.Text("text").Length ? item.Text("body") : item.Text("text");
+            var estimate = type == "message" ? EstimateMessageHeight(estimateText) : 40;
             var plainKey = input.Organization + "/" + id;
             var identity = (input.MessageIdentities.GetValueOrDefault(id) ?? item!.ToJsonString())
                 + "/" + continued + "/" + input.PlainMode + "/" + input.PlainOne.Contains(plainKey)
@@ -55,6 +55,35 @@ public static class ConversationPresentation
         cancellation.ThrowIfCancellationRequested();
         return rows.AsReadOnly();
     }
+
+    // The height a message row is laid out at until it is built; the list
+    // places unbuilt rows by it and estimates the rest from what it has placed.
+    // Counting characters only put a six-line message at 101 px for its 171 px,
+    // and two hundred such rows a page left the list thousands of pixels off.
+    // Lines as rendered at the chat's usual width: a wide (CJK) character
+    // takes about two narrow ones, about 110 narrow ones fit a line, every
+    // non-empty source line starts a new one and a blank one is a paragraph
+    // gap; a table row or code line is one line. (171 px and 2010 px rows of
+    // the synthetic CI data come out at 172 and 2047.)
+    public static double EstimateMessageHeight(string body)
+    {
+        double height = 64; var fenced = false;
+        foreach (var raw in body.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r'); var trimmed = line.Trim();
+            if (trimmed.StartsWith("```", StringComparison.Ordinal)) { fenced = !fenced; height += 12; continue; }
+            if (fenced) { height += 20; continue; }
+            if (trimmed.Length == 0) { height += 8; continue; }
+            if (trimmed.StartsWith('|')) { height += 30; continue; }
+            var width = 0;
+            foreach (var rune in line.EnumerateRunes()) width += Wide(rune.Value) ? 2 : 1;
+            height += Math.Max(1, Math.Ceiling(width / 110d)) * 23;
+        }
+        return Math.Clamp(height, 64, 4000);
+    }
+    private static bool Wide(int value) => value is (>= 0x1100 and <= 0x115F) or (>= 0x2E80 and <= 0xA4CF)
+        or (>= 0xAC00 and <= 0xD7A3) or (>= 0xF900 and <= 0xFAFF) or (>= 0xFE30 and <= 0xFE4F)
+        or (>= 0xFF00 and <= 0xFF60) or (>= 0xFFE0 and <= 0xFFE6) or (>= 0x1F300 and <= 0x1F64F) or (>= 0x20000 and <= 0x3FFFD);
 
     private static string When(DateTimeOffset date, ConversationPresentationWords words, DateTime today)
     {
