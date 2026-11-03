@@ -18,7 +18,7 @@ namespace Relic;
 // Selectable production text. The original path constructor keeps its existing
 // inline/strut layout. Notices opt into normal whitespace and centered lines;
 // their original source is retained separately from the mapped paint string.
-public sealed partial class NativePathText : UserControl
+public sealed partial class NativePathText : UserControl, ITextScaleListener
 {
     internal sealed record PaintedLine(int Start, int End, int PaintStart, int PaintEnd,
         bool Emergency, NativeLabel Label, double Y, double Height)
@@ -27,7 +27,7 @@ public sealed partial class NativePathText : UserControl
     private readonly string locale;
     private readonly NativeSelectableTextStyle baseTextStyle;
     private NativeSelectableTextStyle textStyle;
-    private readonly Windows.UI.ViewManagement.UISettings textSettings = new();
+    private bool listeningToTextScale;
     private double textScale = 1;
     private readonly NativeTextSourceMap sourceMap;
     private readonly MenuFlyout selectionMenu;
@@ -209,16 +209,22 @@ public sealed partial class NativePathText : UserControl
         menu.Opening += (_, _) => copy.IsEnabled = SelectionEnd > SelectionStart;
         menu.Items.Add(copy); menu.Items.Add(all); ContextFlyout = menu;
         RefreshTextScale();
-        Loaded += (_, _) => { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); PrepareBoundaries(); lineGeometryDirty = true; body.InvalidateMeasure(); };
-        Unloaded += (_, _) => { textSettings.TextScaleFactorChanged -= TextScaleChanged; boundaryPreparation?.Cancel(); };
+        PerformanceTrace.Track("NativePathText", this);
+        Loaded += (_, _) =>
+        {
+            // One shared settings object, weakly (see TextScale).
+            if (!listeningToTextScale) { listeningToTextScale = true; TextScale.Listen(this); }
+            RefreshTextScale(); PrepareBoundaries(); lineGeometryDirty = true; body.InvalidateMeasure();
+        };
+        Unloaded += (_, _) => boundaryPreparation?.Cancel();
         PrepareBoundaries();
     }
 
-    private void TextScaleChanged(Windows.UI.ViewManagement.UISettings sender, object args) =>
-        DispatcherQueue.TryEnqueue(RefreshTextScale);
+    void ITextScaleListener.TextScaleChanged() =>
+        DispatcherQueue.TryEnqueue(() => { if (IsLoaded) RefreshTextScale(); });
     private void RefreshTextScale()
     {
-        var value = textSettings.TextScaleFactor;
+        var value = TextScale.Factor;
         if (textScale == value) return;
         textScale = value;
         textStyle = baseTextStyle with { Size = baseTextStyle.Size * value, LineHeight = baseTextStyle.LineHeight * value,

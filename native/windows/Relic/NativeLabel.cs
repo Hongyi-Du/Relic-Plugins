@@ -18,12 +18,14 @@ namespace Relic;
 // This first control deliberately has no editing/selection or vertical-text API.
 // Menu labels keep their containing native Button as the accessible control;
 // standalone preview labels expose a real, read-only Text automation peer.
-public sealed class NativeLabel : Panel
+public sealed class NativeLabel : Panel, ITextScaleListener
 {
     private readonly Image image;
     private readonly string text, familyList, locale;
     private readonly float baseFontSize, baseLineHeight;
-    private readonly Windows.UI.ViewManagement.UISettings? textSettings;
+    // Follows Windows' text size setting (see TextScale).
+    private readonly bool scaleText;
+    private bool listeningToTextScale;
     private double textScale;
     private float fontSize => (float)(baseFontSize * textScale);
     private float lineHeight => (float)(baseLineHeight * textScale);
@@ -72,12 +74,6 @@ public sealed class NativeLabel : Panel
         ["failure"] = failure
     };
 
-    private static Windows.UI.ViewManagement.UISettings CreateTextSettings()
-    {
-        using var timing = PerformanceTrace.Measure("NativeLabel.UISettings.create");
-        return new();
-    }
-
     public NativeLabel(string text, string familyList, double fontSize, ushort fontWeight, string locale, double lineHeight,
         bool characterEllipsis = false, bool accessibleText = false, bool wrapWholeWords = false, bool primaryFontLineSpacing = false,
         bool scaleText = true)
@@ -86,10 +82,10 @@ public sealed class NativeLabel : Panel
         this.text = text; this.familyList = familyList; baseFontSize = checked((float)fontSize);
         weight = fontWeight; this.locale = locale; baseLineHeight = checked((float)lineHeight);
         // Selectable path text already scales its whole layout. Its per-line
-        // paint labels use scaleText:false and never need an OS settings
-        // object or subscription of their own.
-        if (scaleText) textSettings = CreateTextSettings();
-        textScale = textSettings?.TextScaleFactor ?? 1;
+        // paint labels use scaleText:false and never follow the setting.
+        this.scaleText = scaleText;
+        textScale = scaleText ? TextScale.Factor : 1;
+        PerformanceTrace.Track("NativeLabel", this);
         resolvedLineHeight = this.lineHeight;
         this.characterEllipsis = characterEllipsis; this.accessibleText = accessibleText;
         this.wrapWholeWords = wrapWholeWords;
@@ -305,7 +301,11 @@ public sealed class NativeLabel : Panel
         attachCount++;
         preparationRetired = false;
         DetachSubscriptions();
-        if (textSettings != null) { textSettings.TextScaleFactorChanged += TextScaleChanged; RefreshTextScale(); }
+        if (scaleText)
+        {
+            if (!listeningToTextScale) { listeningToTextScale = true; TextScale.Listen(this); }
+            RefreshTextScale();
+        }
         observedRoot = XamlRoot; if (observedRoot != null) observedRoot.Changed += RootChanged;
         DependencyObject? parent = VisualTreeHelper.GetParent(this);
         while (parent != null && parent is not ContentPresenter) parent = VisualTreeHelper.GetParent(parent);
@@ -314,11 +314,11 @@ public sealed class NativeLabel : Panel
             foregroundToken = presenter.RegisterPropertyChangedCallback(ContentPresenter.ForegroundProperty, (_, _) => ObserveForeground());
         ObserveForeground(); InvalidateMeasure(); QueueDraw();
     }
-    private void TextScaleChanged(Windows.UI.ViewManagement.UISettings sender, object args) =>
-        DispatcherQueue.TryEnqueue(RefreshTextScale);
+    void ITextScaleListener.TextScaleChanged() =>
+        DispatcherQueue.TryEnqueue(() => { if (IsLoaded) RefreshTextScale(); });
     private void RefreshTextScale()
     {
-        var value = textSettings?.TextScaleFactor ?? 1;
+        var value = scaleText ? TextScale.Factor : 1;
         if (value == textScale) return;
         textScale = value;
         preparation?.Cancel(); preparationError = null;
@@ -369,7 +369,6 @@ public sealed class NativeLabel : Panel
     }
     private void DetachSubscriptions()
     {
-        if (textSettings != null) textSettings.TextScaleFactorChanged -= TextScaleChanged;
         if (observedRoot != null) { observedRoot.Changed -= RootChanged; observedRoot = null; }
         if (presenter != null) { presenter.UnregisterPropertyChangedCallback(ContentPresenter.ForegroundProperty, foregroundToken); presenter = null; }
         if (foreground != null)
@@ -616,6 +615,7 @@ public sealed class NativeLabel : Panel
         if (surfaceInterop != IntPtr.Zero && pixelWidth == width && pixelHeight == height) return;
         using var timing = PerformanceTrace.Measure("NativeLabel.surface.create");
         Release(ref surfaceInterop); surface = new SurfaceImageSource(width, height, false);
+        PerformanceTrace.Track("LabelSurface", surface);
         // CsWinRT returns the real projected object's native IInspectable.
         var inspectable = WinRT.MarshalInspectable<object>.FromManaged(surface);
         try

@@ -12,7 +12,6 @@ namespace Relic;
 internal static class NativeGlyphWarmup
 {
     private static int pendingPreparations;
-    private static readonly UISettings settings = new();
     private static readonly ConditionalWeakTable<TextBlock, Binding> bindings = new();
     internal static int PendingPreparations => Volatile.Read(ref pendingPreparations);
 
@@ -26,7 +25,7 @@ internal static class NativeGlyphWarmup
     internal static string SourceText(TextBlock label) =>
         bindings.TryGetValue(label, out var binding) ? binding.SourceText : label.Text;
 
-    private sealed class Binding
+    private sealed class Binding : ITextScaleListener
     {
         private readonly TextBlock label;
         private readonly double opacity;
@@ -36,12 +35,13 @@ internal static class NativeGlyphWarmup
         private NativeGlyphRasterPreparation.Request? current;
         private NativeGlyphRasterPreparation.Prepared? prepared;
         private double minimumHeight;
-        private bool mounted, suspended, changingText, changingHeight;
+        private bool mounted, suspended, changingText, changingHeight, listeningToTextScale;
         internal string SourceText { get; private set; }
 
         internal Binding(TextBlock label, XamlRoot? windowRoot)
         {
             this.label = label; this.windowRoot = windowRoot;
+            PerformanceTrace.Track("GlyphBinding", this);
             SourceText = label.Text; opacity = label.Opacity; minimumHeight = label.MinHeight;
             label.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) =>
             {
@@ -75,7 +75,8 @@ internal static class NativeGlyphWarmup
             if (mounted) return;
             mounted = true; suspended = false; root = label.XamlRoot;
             if (root != null) root.Changed += RootChanged;
-            settings.TextScaleFactorChanged += TextScaleChanged;
+            // One shared settings object, weakly (see TextScale).
+            if (!listeningToTextScale) { listeningToTextScale = true; TextScale.Listen(this); }
             Prepare();
         }
 
@@ -83,14 +84,14 @@ internal static class NativeGlyphWarmup
         {
             mounted = false; suspended = true;
             if (root != null) root.Changed -= RootChanged;
-            root = null; settings.TextScaleFactorChanged -= TextScaleChanged;
+            root = null;
             cancellation?.Cancel(); cancellation = null; current = null;
             prepared?.Dispose(); prepared = null; WithholdText();
         }
 
         private void RootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => Prepare();
-        private void TextScaleChanged(UISettings sender, object args) =>
-            label.DispatcherQueue.TryEnqueue(Prepare);
+        void ITextScaleListener.TextScaleChanged() =>
+            label.DispatcherQueue.TryEnqueue(() => { if (mounted) Prepare(); });
 
         private void SetText(string value)
         {
@@ -135,7 +136,7 @@ internal static class NativeGlyphWarmup
                 ? window?.Language ?? label.Language : label.Language;
             var direction = !label.IsLoaded && label.ReadLocalValue(FrameworkElement.FlowDirectionProperty) == DependencyProperty.UnsetValue
                 ? window?.FlowDirection ?? label.FlowDirection : label.FlowDirection;
-            var scale = label.IsTextScaleFactorEnabled ? settings.TextScaleFactor : 1;
+            var scale = label.IsTextScaleFactorEnabled ? TextScale.Factor : 1;
             var request = new NativeGlyphRasterPreparation.Request(SourceText, label.FontFamily.Source,
                 language, (float)(label.FontSize * scale), label.FontWeight.Weight,
                 (uint)label.FontStyle, (uint)label.FontStretch, (float)(context?.RasterizationScale ?? 1),

@@ -42,7 +42,7 @@ internal sealed class NativeChatList : Grid
         // The seek went to a row above the reading row (see SeekIndex), and
         // whether the reading row itself was then sought as a fallback.
         internal bool SeekedAbove, SeekedRow;
-        internal int SeekIndex = -1;
+        internal int SeekIndex = -1, Walks, Reseeks;
         internal long SeekAt;
         internal (double Width, double Height, double RowWidth, double RowHeight, double ContentTop)? LastGeometry;
     }
@@ -385,6 +385,7 @@ internal sealed class NativeChatList : Grid
                 if (!valid) continue;
                 using var timing = PerformanceTrace.Measure("conversation.list.row.build");
                 work.Host.Child = work.Entry.Row.Build(); work.Host.MinHeight = 0;
+                PerformanceTrace.Track("ChatRow", work.Host.Child);
                 built++;
             }
             finally { Interlocked.Decrement(ref pendingBuilds); PresentationPreparation.NotifyCompletion(); }
@@ -550,12 +551,21 @@ internal sealed class NativeChatList : Grid
     // a row above it instead, by our own height estimates, so the corrections
     // scroll down through rows that are already placed. The margin covers rows
     // above that turn out shorter than estimated.
-    private int SeekIndex(Position intent, int index)
+    private int SeekIndex(Position intent, int index, double margin)
     {
-        if (intent.Kind != PositionKind.Reading || intent.Top <= 0) return index;
+        if (intent.Kind != PositionKind.Reading || margin <= 0) return index;
         var seek = index; var above = 0d;
-        while (seek > 0 && above < intent.Top + 240) { seek--; above += entries[seek].Row.Estimate + spacing; }
+        while (seek > 0 && above < margin) { seek--; above += entries[seek].Row.Estimate + spacing; }
         return seek;
+    }
+
+    // The top, on screen, of the first realized row at or above this one.
+    private double FirstRealizedTop(ScrollViewer viewport, int index)
+    {
+        var first = TryGetRealizedRow(index);
+        var i = index - 1;
+        while (i >= 0 && TryGetRealizedRow(i) is { IsLoaded: true } earlier) { first = earlier; i--; }
+        return first is { IsLoaded: true } ? Bounds(first, viewport).Top : double.NegativeInfinity;
     }
 
     // A restore waits for events (layout, a built row, a finished view
@@ -596,14 +606,16 @@ internal sealed class NativeChatList : Grid
             if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
             intent.RequestedEntry = entry; intent.Corrections = 0; intent.LastGeometry = null; intent.Settled = false;
             intent.CorrectionPending = false; intent.CorrectionCompleted = false; intent.CorrectionTarget = null;
-            intent.SeekedAbove = false; intent.SeekedRow = false; intent.SeekIndex = -1;
+            intent.SeekedAbove = false; intent.SeekedRow = false; intent.SeekIndex = -1; intent.Walks = 0;
             // The platform realizes the target; this does not construct or
             // manually position an off-viewport item in an ItemsRepeater.
             var existing = TryGetRealizedRow(index);
             var existingBounds = existing is { IsLoaded: true } ? Bounds(existing, viewport) : default;
             if (existing == null || existingBounds.Bottom <= 0 || existingBounds.Top >= viewport.ViewportHeight)
             {
-                var seekIndex = SeekIndex(intent, index);
+                // A row cut by the top edge (Top <= 0) is sought itself: its
+                // correction goes down.
+                var seekIndex = SeekIndex(intent, index, intent.Top > 0 ? intent.Top + 240 : 0);
                 intent.SeekedAbove = seekIndex != index; intent.SeekIndex = seekIndex;
                 intent.SeekAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 TracePosition(intent, intent.SeekedAbove ? "seek_above" : "seek");
@@ -633,17 +645,25 @@ internal sealed class NativeChatList : Grid
         var host = TryGetRealizedRow(index);
         if (host == null && intent.SeekedAbove && !intent.SeekedRow)
         {
-            // The seek lands in a later layout pass. Until the row it went to
-            // is on screen, a missing reading row means nothing: seeking the
-            // reading row then (as once happened at once) put corrections back
-            // into estimated rows. Seek the reading row itself only when the
-            // rows between turned out far taller than estimated, or the seek
-            // has not landed after a while.
-            var seekHost = TryGetRealizedRow(intent.SeekIndex);
-            var seekLanded = seekHost is { IsLoaded: true } && Bounds(seekHost, viewport) is var seekBounds
-                && seekBounds.Bottom > 0 && seekBounds.Top < viewport.ViewportHeight;
-            if (!seekLanded && System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 500) return;
-            intent.SeekedRow = true; TracePosition(intent, seekLanded ? "seek_row" : "seek_row.unlanded");
+            // The seek above lands over more than one layout pass: the row it
+            // went to is placed first, the rows below it later. Seeking the
+            // reading row itself as soon as it was missing (once in the same
+            // pass as the seek) put it above the view, and the upward
+            // corrections were absorbed again. Only when the rows before it
+            // reach past the bottom of the view were they taller than estimated:
+            // then walk down past them (a correction down lands).
+            Border? last = null;
+            for (var i = index - 1; i >= Math.Max(0, index - 400) && last == null; i--)
+                if (TryGetRealizedRow(i) is { IsLoaded: true } realized) last = realized;
+            if (last != null && intent.Walks < 8 && Bounds(last, viewport) is var lastBounds
+                && lastBounds.Bottom >= viewport.ViewportHeight && lastBounds.Bottom > Math.Max(intent.Top, 0) + 1)
+            {
+                intent.Walks++; TracePosition(intent, "walk_down");
+                RequestOffset(viewport, viewport.VerticalOffset + lastBounds.Bottom - Math.Max(intent.Top, 0));
+                return;
+            }
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(intent.SeekAt).TotalMilliseconds < 1000) return;
+            intent.SeekedRow = true; TracePosition(intent, "seek_row");
             list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
             return;
         }
@@ -709,6 +729,22 @@ internal sealed class NativeChatList : Grid
             // a successful restore. Follow-latest remains visibly unsettled.
             if (intent.Kind != PositionKind.Latest)
             { TracePosition(intent, "failed.corrections"); EndPosition(intent, false); }
+            return;
+        }
+        // An upward correction that uncovers rows above the realized ones is
+        // absorbed: the panel places them by estimate and moves the rows with
+        // the view (five corrections of 406 px once left the row where it
+        // was). Seek a row above again instead, further up each time; the
+        // corrections from there go down, and those land.
+        var rise = intent.Kind == PositionKind.Reading ? intent.Top - bounds.Top : 0;
+        if (rise > 1 && intent.Reseeks < 2 && FirstRealizedTop(viewport, index) + rise > 0)
+        {
+            intent.Reseeks++;
+            var reseek = SeekIndex(intent, index, Math.Max(intent.Top, 0) + 240 * (intent.Reseeks + 1));
+            intent.SeekedAbove = reseek != index; intent.SeekIndex = reseek; intent.SeekedRow = false; intent.Walks = 0;
+            intent.SeekAt = System.Diagnostics.Stopwatch.GetTimestamp(); intent.LastGeometry = null;
+            TracePosition(intent, "reseek_above");
+            list.ScrollIntoView(entries[reseek], ScrollIntoViewAlignment.Leading);
             return;
         }
         intent.LastGeometry = geometry; intent.Corrections++;

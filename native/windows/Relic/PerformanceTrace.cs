@@ -9,6 +9,9 @@ internal static class PerformanceTrace
         && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RELIC_PERF_MANIFEST"));
     private static readonly ConcurrentQueue<object> records = new();
     internal static Scope Measure(string name) => new Scope(name);
+    // Set while the idle phase measures: record every timed scope, not only
+    // those over 5 ms, to see any of our own work that runs while idle.
+    internal static volatile bool RecordAll;
     internal static void Count(string name, double value)
     {
         if (Enabled) records.Enqueue(new { name, value, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
@@ -18,6 +21,32 @@ internal static class PerformanceTrace
     {
         if (Enabled) records.Enqueue(new { name, detail, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
     }
+    // CI-only: how many objects of a kind are still alive (not yet collected),
+    // reported with each memory checkpoint. Weak references only, so tracking
+    // never keeps anything alive; counts include garbage the GC has not
+    // reached yet, which the frequent gen2 collections here keep small.
+    private static readonly Dictionary<string, List<WeakReference>> tracked = [];
+    private static int trackedAdds;
+    internal static void Track(string kind, object instance)
+    {
+        if (!Enabled) return;
+        lock (tracked)
+        {
+            if (!tracked.TryGetValue(kind, out var list)) tracked[kind] = list = [];
+            list.Add(new WeakReference(instance));
+            if (++trackedAdds % 4096 == 0) foreach (var entries in tracked.Values) entries.RemoveAll(entry => !entry.IsAlive);
+        }
+    }
+    private static Dictionary<string, int> Alive()
+    {
+        lock (tracked)
+        {
+            var alive = new Dictionary<string, int>();
+            foreach (var (kind, list) in tracked) { list.RemoveAll(entry => !entry.IsAlive); alive[kind] = list.Count; }
+            return alive;
+        }
+    }
+
     // Where the process's memory is at one point of a scenario: the managed
     // heap (and how much of it is free space), what the GC has committed, and
     // the process totals, so growth can be told apart as managed or native.
@@ -32,7 +61,7 @@ internal static class PerformanceTrace
                 fragmentation = generation.FragmentationAfterBytes }).ToArray(),
             live_bytes = GC.GetTotalMemory(false), allocated_bytes = GC.GetTotalAllocatedBytes(),
             working_set = process.WorkingSet64, private_bytes = process.PrivateMemorySize64,
-            unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+            alive = Alive(), unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
     }
     internal static object[] Drain()
     {
@@ -65,7 +94,7 @@ internal static class PerformanceTrace
         {
             if (start == 0) return;
             var ms = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-            if (ms > 5) Count(name, ms);
+            if (ms > 5 || RecordAll) Count(name, ms);
         }
     }
 }

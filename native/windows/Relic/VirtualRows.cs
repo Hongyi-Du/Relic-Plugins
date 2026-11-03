@@ -641,6 +641,7 @@ internal sealed class VirtualRows : Grid
             if (host.Child != null || host.Tag is not Row row) return;
             using var timing = PerformanceTrace.Measure("row.build");
             host.Child = row.Build(); host.MinHeight = 0;
+            PerformanceTrace.Track("VirtualRow", host.Child);
         }
         public void RecycleElement(ElementFactoryRecycleArgs args)
         {

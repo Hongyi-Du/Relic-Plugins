@@ -46,7 +46,7 @@ public sealed partial class MainWindow
                 }
             }
             await Write("performance-ready.json", new { pid = Environment.ProcessId, unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), phases_version = 2 }, token);
-            long sequence = 0, pings = 0, lastCensus = 0;
+            long sequence = 0, pings = 0, lastCensus = 0, lastIdleSample = 0;
             long lastPublished = 0, publishedWorst = -1, pendingSince = 0;
             string? publishedAction = null;
             var publishedPending = false;
@@ -107,6 +107,14 @@ public sealed partial class MainWindow
                     if (Volatile.Read(ref performanceAction).StartsWith("switch", StringComparison.Ordinal)
                         && Stopwatch.GetElapsedTime(lastCensus).TotalMilliseconds >= 2000)
                     { lastCensus = Stopwatch.GetTimestamp(); PerformanceThreadCensus.Take(); }
+                    // While idle, once a second: which threads used CPU (cached
+                    // handles only, no thread enumeration), and every timed piece
+                    // of our own work however short. Two runs of the same code
+                    // measured 0.5% and 2.3% idle CPU.
+                    var idleNow = Volatile.Read(ref performanceAction) == "idle-measure";
+                    PerformanceTrace.RecordAll = idleNow;
+                    if (idleNow && Stopwatch.GetElapsedTime(lastIdleSample).TotalMilliseconds >= 1000)
+                    { lastIdleSample = Stopwatch.GetTimestamp(); PerformanceThreadCensus.SampleCycles(); }
                     await Task.Delay(40, token);
                 }
             }

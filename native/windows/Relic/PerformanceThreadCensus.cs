@@ -19,18 +19,63 @@ internal static class PerformanceThreadCensus
     private static List<(string Name, long Start, long End)>? modules;
     private static DateTime processStart;
 
+    private static void LoadModules(Process process)
+    {
+        if (modules != null) return;
+        modules = process.Modules.Cast<ProcessModule>()
+            .Select(module => (System.IO.Path.GetFileName(module.FileName ?? module.ModuleName) ?? "",
+                (long)module.BaseAddress, (long)module.BaseAddress + module.ModuleMemorySize)).ToList();
+        processStart = process.StartTime;
+    }
+
+    // The idle phase: CPU cycles each thread used since the last sample, from
+    // handles opened once at the first sample, so sampling does not enumerate
+    // the process's threads (that alone costs a measurable part of idle CPU).
+    private static List<(int Id, IntPtr Handle, string Name)>? idleThreads;
+    private static readonly Dictionary<int, ulong> idleCycles = [];
+    private static ulong idleProcessCycles;
+    private static long idleSampledAt;
+    internal static void SampleCycles()
+    {
+        try
+        {
+            if (idleThreads == null)
+            {
+                using var process = Process.GetCurrentProcess();
+                LoadModules(process);
+                idleThreads = [];
+                foreach (ProcessThread thread in process.Threads)
+                {
+                    var handle = OpenThread(0x0800 /* THREAD_QUERY_LIMITED_INFORMATION */, false, (uint)thread.Id);
+                    if (handle != IntPtr.Zero) idleThreads.Add((thread.Id, handle, Describe(thread.Id)));
+                    thread.Dispose();
+                }
+            }
+            var used = new List<(string Name, int Id, ulong Cycles)>();
+            foreach (var (id, handle, name) in idleThreads)
+            {
+                if (!QueryThreadCycleTime(handle, out var cycles)) continue;
+                if (idleCycles.TryGetValue(id, out var before) && cycles > before) used.Add((name, id, cycles - before));
+                idleCycles[id] = cycles;
+            }
+            QueryProcessCycleTime(GetCurrentProcess(), out var processCycles);
+            var elapsed = idleSampledAt == 0 ? 0 : Stopwatch.GetElapsedTime(idleSampledAt).TotalMilliseconds;
+            if (idleSampledAt != 0)
+                PerformanceTrace.Note("idle.cycles", new { elapsed_ms = Math.Round(elapsed, 1),
+                    process_cycles = processCycles - idleProcessCycles,
+                    threads = used.OrderByDescending(entry => entry.Cycles).Take(12)
+                        .Select(entry => new { entry.Name, entry.Id, entry.Cycles }).ToArray() });
+            idleProcessCycles = processCycles; idleSampledAt = Stopwatch.GetTimestamp();
+        }
+        catch (Exception error) { PerformanceTrace.Note("idle.cycles.error", error.Message); }
+    }
+
     internal static void Take()
     {
         try
         {
             using var process = Process.GetCurrentProcess();
-            if (modules == null)
-            {
-                modules = process.Modules.Cast<ProcessModule>()
-                    .Select(module => (System.IO.Path.GetFileName(module.FileName ?? module.ModuleName) ?? "",
-                        (long)module.BaseAddress, (long)module.BaseAddress + module.ModuleMemorySize)).ToList();
-                processStart = process.StartTime;
-            }
+            LoadModules(process);
             var current = new Dictionary<int, Seen>();
             foreach (ProcessThread thread in process.Threads)
             {
@@ -98,4 +143,7 @@ internal static class PerformanceThreadCensus
     [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr memory);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
     [DllImport("ntdll.dll")] private static extern int NtQueryInformationThread(IntPtr thread, int informationClass, out IntPtr information, int length, IntPtr returned);
+    [DllImport("kernel32.dll")] private static extern bool QueryThreadCycleTime(IntPtr thread, out ulong cycles);
+    [DllImport("kernel32.dll")] private static extern bool QueryProcessCycleTime(IntPtr process, out ulong cycles);
+    [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
 }
