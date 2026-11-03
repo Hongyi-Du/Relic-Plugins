@@ -51,9 +51,6 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer sidebarTimer = new() { Interval = TimeSpan.FromMilliseconds(1500) };
     private bool refreshing, pending, closing, ready, sending, sendingThread;
     private TaskCompletionSource? refreshCompletion;
-    // The reads of the refresh in flight, and the chat it reads (see Select).
-    private CancellationTokenSource? refreshCancellation;
-    private string refreshingOrg = "", refreshingMember = "";
     private string renderedView = "";
     private bool sidebarStructureChanged;
     private long presentationVersion, renderedPresentationVersion;
@@ -315,11 +312,9 @@ public sealed partial class MainWindow : Window
         if (refreshing) { pending = true; if (refreshCompletion != null) await refreshCompletion.Task; return; }
         refreshing = true; pending = false;
         var completed = refreshCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cancel = refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        var token = cancel.Token;
         try
         {
-            var selectedOrg = refreshingOrg = org; var selectedMember = refreshingMember = member;
+            var selectedOrg = org; var selectedMember = member;
             var oldOrgs = orgs; var oldSnap = snap; var oldMessages = messages;
             var oldConversation = conversation; var oldLive = liveData; var oldThread = threadData;
             // These reads have no dependency on one another. Keep one bounded
@@ -334,8 +329,8 @@ public sealed partial class MainWindow : Window
                     System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds), TaskScheduler.Default);
                 return request;
             }
-            var organizationsRequest = Timed("orgs", api.Get("/api/orgs", token));
-            var copiesRequest = Timed("cc", api.Get("/api/cc", token));
+            var organizationsRequest = Timed("orgs", api.Get("/api/orgs"));
+            var copiesRequest = Timed("cc", api.Get("/api/cc"));
             // The selected chat's snapshot and messages do not depend on those
             // two reads either. Start them together instead of a second round
             // trip; only an organization that no longer exists asks again below.
@@ -352,7 +347,7 @@ public sealed partial class MainWindow : Window
             }
             if (org.Length > 0)
             {
-                earlySnapshot = Timed("snapshot", api.Get(PathFor(), token)); earlyChat = Timed("chat", api.Get(ChatPath(), token));
+                earlySnapshot = Timed("snapshot", api.Get(PathFor())); earlyChat = Timed("chat", api.Get(ChatPath()));
                 Observe(earlySnapshot); Observe(earlyChat);
                 // A member's transcript and live state otherwise wait for the new
                 // snapshot to say they exist. The snapshot already loaded for this
@@ -361,8 +356,8 @@ public sealed partial class MainWindow : Window
                 if (member.Length > 0 && snapOrg == org)
                 {
                     var known = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
-                    if (known.Flag("has_transcript")) earlyTranscript = Timed("convo", api.Get(ConvoPath(), token));
-                    if (known.Flag("embedded")) earlyLive = Timed("live", api.Get(LivePath(), token));
+                    if (known.Flag("has_transcript")) earlyTranscript = Timed("convo", api.Get(ConvoPath()));
+                    if (known.Flag("embedded")) earlyLive = Timed("live", api.Get(LivePath()));
                     Observe(earlyTranscript); Observe(earlyLive);
                 }
             }
@@ -387,21 +382,21 @@ public sealed partial class MainWindow : Window
             if (org.Length > 0)
             {
                 var reuse = earlySnapshot != null && org == requestedOrg && member == requestedMember;
-                var snapshotRequest = reuse ? earlySnapshot! : Timed("snapshot", api.Get(PathFor(), token));
-                var chatRequest = reuse ? earlyChat! : Timed("chat", api.Get(ChatPath(), token));
+                var snapshotRequest = reuse ? earlySnapshot! : Timed("snapshot", api.Get(PathFor()));
+                var chatRequest = reuse ? earlyChat! : Timed("chat", api.Get(ChatPath()));
                 await Task.WhenAll(snapshotRequest, chatRequest);
                 var snapshot = await snapshotRequest;
                 var chat = await chatRequest;
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                 snap = snapshot; snapOrg = org;
                 var loadedMessages = messages;
-                var mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token).WaitAsync(token) : chat.Rows("items");
+                var mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
                 // An older page can arrive while the merge runs on a worker;
                 // committing the merge of the list as it was dropped that page.
                 while (org == selectedOrg && member == selectedMember && !ReferenceEquals(messages, loadedMessages))
                 {
                     loadedMessages = messages;
-                    mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token).WaitAsync(token) : chat.Rows("items");
+                    mergedMessages = olderHistory ? await Task.Run(() => Transcript.MergeMessages(loadedMessages, chat.Rows("items")), lifetime.Token) : chat.Rows("items");
                 }
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                 messages = mergedMessages;
@@ -410,9 +405,9 @@ public sealed partial class MainWindow : Window
                 {
                     var m = snap.Rows("members").FirstOrDefault(x => x.Text("name") == member);
                     var transcriptRequest = !m.Flag("has_transcript") ? Task.FromResult<JsonNode>(new JsonObject())
-                        : reuse && earlyTranscript != null ? earlyTranscript : Timed("convo", api.Get(ConvoPath(), token));
+                        : reuse && earlyTranscript != null ? earlyTranscript : Timed("convo", api.Get(ConvoPath()));
                     var liveRequest = !m.Flag("embedded") ? Task.FromResult<JsonNode>(new JsonObject())
-                        : reuse && earlyLive != null ? earlyLive : Timed("live", api.Get(LivePath(), token));
+                        : reuse && earlyLive != null ? earlyLive : Timed("live", api.Get(LivePath()));
                     await Task.WhenAll(transcriptRequest, liveRequest);
                     if (org != selectedOrg || member != selectedMember) { pending = true; return; }
                     conversation = await transcriptRequest;
@@ -420,7 +415,7 @@ public sealed partial class MainWindow : Window
                 }
                 else { conversation = new JsonObject(); liveData = new JsonObject(); }
                 if (org != selectedOrg || member != selectedMember) { pending = true; return; }
-                if (pane == "thread" && threadId.Length > 0) threadData = await api.Get(PathFor("/thread?root=" + Client.Segment(threadId)), token);
+                if (pane == "thread" && threadId.Length > 0) threadData = await api.Get(PathFor("/thread?root=" + Client.Segment(threadId)));
                 var ids = snap.Rows("decisions").Select(d => d.Text("kind") + ":" + d.Text("id") + ":" + d.Text("member")).ToHashSet();
                 if (!active && preferences.Flag("notify") && lastDecisions.TryGetValue(org, out var previous) && ids.Except(previous).Any()) Notify(T("notify.decisions", ("n", ids.Count)));
                 lastDecisions[org] = ids;
@@ -449,7 +444,7 @@ public sealed partial class MainWindow : Window
                     Detail: snapshotChanged || !JsonNode.DeepEquals(oldThread, nextThread),
                     Identities: chatChanged ? MessagePresentationIdentities(nextMessages) : null,
                     MemberIdentity: snapshotChanged ? MemberPresentationIdentity(nextSnap) : null);
-            }, lifetime.Token).WaitAsync(token);
+            }, lifetime.Token);
             if (org != selectedOrg || member != selectedMember) { pending = true; return; }
             if (changes.Identities != null) messagePresentationIdentities = changes.Identities;
             if (changes.MemberIdentity != null) memberPresentationIdentity = changes.MemberIdentity;
@@ -475,13 +470,7 @@ public sealed partial class MainWindow : Window
             // rows never sit in front of the chat the person asked for and the next click never waits for them.
             if (detailChanged) _ = Run(() => DrawDetailAfterChat(selectedOrg, selectedMember, changes.Detail));
         }
-        // Cancelled by a click on another chat; that click refreshes next.
-        catch (OperationCanceledException) when (token.IsCancellationRequested && !lifetime.IsCancellationRequested) { }
-        finally
-        {
-            refreshing = false; if (ReferenceEquals(refreshCancellation, cancel)) refreshCancellation = null; cancel.Dispose();
-            completed.TrySetResult(); if (pending) Schedule(); MonitorTick();
-        }
+        finally { refreshing = false; completed.TrySetResult(); if (pending) Schedule(); MonitorTick(); }
     }
     private int detailRequest;
     private async Task DrawDetailAfterChat(string selectedOrg, string selectedMember, bool detailData)
@@ -518,11 +507,6 @@ public sealed partial class MainWindow : Window
         // Anchor the bottom edge while the chat is filled (see NativeChatList).
         if (chatScroll != null) chatScroll.VerticalAnchorRatio = 1;
         var requested = latestRequest;
-        // A refresh still reading another chat (often one a live event
-        // started) made this click wait for its reads: half a second once,
-        // which took a switch past one second. Cancel them; this chat's own
-        // refresh follows at once.
-        if (refreshing && (refreshingOrg != org || refreshingMember != member)) refreshCancellation?.Cancel();
         await Refresh();
         if (org != id || member != who) return;
         if (renderedView != id + "/" + who) await Refresh();
