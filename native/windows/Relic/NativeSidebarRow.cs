@@ -28,6 +28,13 @@ internal sealed class NativeSidebarRow : ListViewItem
     internal int Watching => observers.Count;
     internal NativeSidebarOrganizationState? OrganizationState => organization?.Current;
 
+    // Names this row if a layout inside it fails (see LayoutFailure).
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        try { return base.MeasureOverride(availableSize); }
+        catch (COMException error) { LayoutFailure.Name(error, this); throw; }
+    }
+
     internal NativeSidebarRow()
     {
         // WinUI delivers Loaded and Unloaded asynchronously and not always in

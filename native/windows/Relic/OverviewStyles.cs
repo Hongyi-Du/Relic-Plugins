@@ -190,6 +190,13 @@ public abstract class OverviewTokenView : ContentControl
         IsTabStop = false; MinWidth = MinHeight = 0; FontFamily = new FontFamily(FontFamilies.UI);
         Template = XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ContentControl'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{TemplateBinding CornerRadius}' Padding='{TemplateBinding Padding}' Foreground='{TemplateBinding Foreground}' FontFamily='{TemplateBinding FontFamily}' FontSize='{TemplateBinding FontSize}' FontWeight='{TemplateBinding FontWeight}'/></ControlTemplate>");
     }
+
+    // Names this token if a layout inside it fails (see LayoutFailure).
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        try { return base.MeasureOverride(availableSize); }
+        catch (System.Runtime.InteropServices.COMException error) { LayoutFailure.Name(error, this); throw; }
+    }
 }
 
 public sealed class OverviewChipView : OverviewTokenView { }

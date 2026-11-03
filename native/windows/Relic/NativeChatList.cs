@@ -310,7 +310,8 @@ internal sealed class NativeChatList : Grid
         ItemsReplacing?.Invoke();
         var sameView = committedView == ViewIdentity;
         var samePresentation = committedPresentationContext == PresentationContext;
-        if (!sameView) StopFollowingLast();
+        // Another chat's rows go away now; none may keep the focus (see ReleaseRowFocus).
+        if (!sameView) { ReleaseRowFocus(); StopFollowingLast(); }
         Dictionary<string, Entry> previous = sameView ? entries.Where(entry => entry.Row.Key != null)
             .GroupBy(entry => entry.Row.Key!).ToDictionary(group => group.Key, group => group.First()) : [];
         var next = new List<Entry>(Children.Count);
@@ -490,7 +491,7 @@ internal sealed class NativeChatList : Grid
         if (kind == PositionKind.Latest && TryGetRealizedRow(entries.Count - 1) == null)
         {
             TracePosition(intent, "seek_early");
-            list.ScrollIntoView(entries[^1], ScrollIntoViewAlignment.Default);
+            ScrollRowIntoView(entries[^1], ScrollIntoViewAlignment.Default);
         }
         QueuePositionCheck();
         return intent.Completion.Task;
@@ -639,7 +640,48 @@ internal sealed class NativeChatList : Grid
         intent.SeekedRow = true; intent.SeekIndex = index; intent.SeekLanded = false;
         intent.SeekAt = System.Diagnostics.Stopwatch.GetTimestamp(); intent.LastGeometry = null;
         TracePosition(intent, step);
-        list.ScrollIntoView(entry, ScrollIntoViewAlignment.Leading);
+        ScrollRowIntoView(entry, ScrollIntoViewAlignment.Leading);
+    }
+
+    // ScrollIntoView stores its target row as the panel's focused container.
+    // A row that also has focus inside it (a button, a link, selected text)
+    // and is then moved out of view by a layout is pinned as a second one,
+    // and that layout fails with E_FAIL: WinUI's ModernCollectionBasePanel::
+    // EnsureRecycleContainerCandidate pins it without releasing the stored
+    // one (ScrollItemIntoView itself releases first). Such a failure crashed
+    // a switched chat in CI (run 41724334497). A row about to leave the view
+    // gives the focus to the list's own scroll viewer first.
+    private void ReleaseRowFocus()
+    {
+        if (XamlRoot is not { } root || Viewport is not { } viewport) return;
+        if (Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(root) is not DependencyObject focused) return;
+        for (var node = focused; node != null && !ReferenceEquals(node, list); node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is not ListViewItem) continue;
+            PerformanceTrace.Note("conversation.list.row_focus_released", new { focused = focused.GetType().Name });
+            viewport.Focus(FocusState.Programmatic);
+            return;
+        }
+    }
+
+    private void ScrollRowIntoView(Entry entry, ScrollIntoViewAlignment alignment)
+    {
+        ReleaseRowFocus();
+        list.ScrollIntoView(entry, alignment);
+    }
+
+    // CI and crash evidence: a failing layout inside the list (the panel
+    // returning E_FAIL) surfaces at the nearest managed element without its
+    // name. The crash record (App.CaptureFailure) lists the exception's data.
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        try { return base.MeasureOverride(availableSize); }
+        catch (System.Runtime.InteropServices.COMException error)
+        {
+            LayoutFailure.Name(error, this, new { rows = entries.Count, view = ViewIdentity, intent = position?.Kind.ToString(),
+                offset = Viewport?.VerticalOffset, extent = Viewport?.ExtentHeight, pending = pendingBuilds });
+            throw;
+        }
     }
 
     // Whether every realized row from `from` down to the reading row has been
@@ -725,7 +767,7 @@ internal sealed class NativeChatList : Grid
                 intent.SeekedAbove = seekIndex != index; intent.SeekIndex = seekIndex;
                 intent.SeekAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 TracePosition(intent, intent.SeekedAbove ? "seek_above" : "seek");
-                list.ScrollIntoView(entries[seekIndex], intent.Kind == PositionKind.Latest ? ScrollIntoViewAlignment.Default : ScrollIntoViewAlignment.Leading);
+                ScrollRowIntoView(entries[seekIndex], intent.Kind == PositionKind.Latest ? ScrollIntoViewAlignment.Default : ScrollIntoViewAlignment.Leading);
                 RestoreTimedOut(intent);
                 return;
             }
@@ -901,7 +943,7 @@ internal sealed class NativeChatList : Grid
             intent.SeekedAbove = reseek != index; intent.SeekIndex = reseek; intent.SeekedRow = false; intent.Walks = 0; intent.SeekLanded = false;
             intent.SeekAt = System.Diagnostics.Stopwatch.GetTimestamp(); intent.LastGeometry = null;
             TracePosition(intent, "reseek_above");
-            list.ScrollIntoView(entries[reseek], ScrollIntoViewAlignment.Leading);
+            ScrollRowIntoView(entries[reseek], ScrollIntoViewAlignment.Leading);
             return;
         }
         intent.LastGeometry = geometry; intent.Corrections++;

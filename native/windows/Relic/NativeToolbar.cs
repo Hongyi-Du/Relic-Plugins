@@ -10,6 +10,13 @@ internal sealed class NativeToolbar : CommandBar
 {
     public NativeToolbar() => DefaultStyleKey = typeof(CommandBar);
 
+    // Names this element if a layout inside it fails (see LayoutFailure).
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        try { return base.MeasureOverride(availableSize); }
+        catch (System.Runtime.InteropServices.COMException error) { LayoutFailure.Name(error, this); throw; }
+    }
+
     protected override void OnApplyTemplate()
     {
         base.OnApplyTemplate();

@@ -32,6 +32,10 @@ public partial class App : Application
             System.IO.File.AppendAllText(System.IO.Path.Combine(directory, "app-unhandled.jsonl"), System.Text.Json.JsonSerializer.Serialize(new
             {
                 source, message, exception = error?.ToString(), hresult = error?.HResult,
+                // What the exception carries beyond its stack: the element whose
+                // layout failed (LayoutFailure) and any WinRT error details.
+                data = error?.Data.Count > 0 ? error.Data.Cast<System.Collections.DictionaryEntry>()
+                    .ToDictionary(entry => entry.Key.ToString() ?? "", entry => entry.Value?.ToString()) : null,
                 scene = System.IO.File.Exists(sceneFile) ? System.IO.File.ReadAllText(sceneFile) : null,
                 time = DateTimeOffset.UtcNow.ToString("O")
             }) + Environment.NewLine);
