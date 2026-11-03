@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from relic_core import claude_desktop, wake  # noqa: E402
+from relic_core import claude_desktop, monitor, wake  # noqa: E402
 from relic_core.context import render, render_messages, render_seats  # noqa: E402
 from relic_core.store import OrgError, Store, is_relic_tool  # noqa: E402
 
@@ -183,9 +183,38 @@ def handle(event, store=None):
     return output
 
 
+STOPPED = ("人在 Relic 窗口停止了这个会话。Stopped by the person in the Relic window: end this turn now. Do not call "
+           "any more tools; reply with one short sentence saying where you stopped. The person resumes you by typing "
+           "to this session or with Resume in the Relic window.")
+
+
+def braked(event, name, actor):
+    """The person's Stop in the Relic window: refuse every tool call, end automatic turns at once, and never hold a
+    stopped session in its turn. The person typing to the session releases it. Returns the hook output, or None."""
+    if name not in ("PreToolUse", "UserPromptSubmit", "Stop", "SubagentStop"):
+        return None
+    try:
+        if not monitor.brake_for(actor):
+            return None
+        if name == "PreToolUse":
+            return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
+                                           "permissionDecisionReason": STOPPED}}
+        if name == "UserPromptSubmit":
+            if monitor.automatic(event.get("prompt")):
+                return context_output(name, STOPPED)
+            monitor.release(actor)
+            return None
+        return {}
+    except Exception:  # the brake must never break a session's hooks
+        return None
+
+
 def respond(event, store):
     name = event.get("hook_event_name")
     actor = actor_key(event)
+    stopped = braked(event, name, actor)
+    if stopped is not None:
+        return stopped
 
     if name == "SessionStart":
         org_id, member, role = os.getenv("RELIC_ORG"), os.getenv("RELIC_MEMBER"), os.getenv("RELIC_ROLE", "")

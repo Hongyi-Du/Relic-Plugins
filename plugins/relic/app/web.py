@@ -18,7 +18,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from relic_core import __version__, i18n, platform_support, runner, wake
+from relic_core import __version__, i18n, monitor, platform_support, runner, wake
 from relic_core.sessions import actor_for, all_sessions
 from relic_core.store import OrgError, Store, data_home, person_language
 
@@ -622,6 +622,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(views.org_list(self.app.store))
             if api == ["orgchart"]:
                 return self._json(views.orgchart(self.app.store, self.app.hub, self.app.lang()))
+            if api == ["monitor"]:  # who is working on this machine, what it costs, and what can start them again
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                return self._json(monitor.snapshot(self.app.store))
             if api == ["cc"]:  # what was copied to the person
                 return self._json(views.copies(self.app.store, self.app.lang()))
             if api == ["harnesses"]:
@@ -785,6 +789,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"avatar": prefs.avatar_url(a.get("org"), a.get("member"))})
             if len(api) == 3 and api[0] == "harnesses" and api[2] == "install":
                 return self._json(app.install(api[1]))
+            if len(api) == 2 and api[0] == "monitor" and api[1] in ("stop", "resume"):
+                key = str(a.get("key") or "")
+                if not a.get("all") and not key:
+                    return self._error(400, "key or all is required")
+                if api[1] == "stop":
+                    result = monitor.stop_all(store) if a.get("all") else monitor.stop(store, key)
+                else:
+                    result = monitor.resume_all(store) if a.get("all") else monitor.resume(store, key)
+                app.bus.publish({"type": "monitor"})
+                return self._json(result)
             if len(api) == 3 and api[0] == "cc" and api[2] in ("read", "retire"):
                 cid = int(api[1])
                 return self._json(app.read_copy(cid) if api[2] == "read" else app.retire_copy(cid))

@@ -2080,6 +2080,16 @@ class Store:
             org["auto_wake"] = bool(on)
             self._event(db, org_id, "human", "organization.auto_wake", {"on": bool(on)})
 
+    def set_seat_auto_wake(self, org_id, member, on, reason=""):
+        """One seat's switch for automatic wake-ups (wake.wakeable reads it); the person's Stop in the Relic window
+        turns it off for every seat of the stopped session, and Resume turns back on what Stop turned off."""
+        with self.change(org_id) as (org, db):
+            seat = org["members"].get(member)
+            if seat is None:
+                raise OrgError("No member %s in %s" % (member, org["name"]))
+            seat["auto_wake"] = bool(on)
+            self._event(db, org_id, member, "member.auto_wake", {"on": bool(on), "reason": reason})
+
     # ---------------- shared work ----------------
     def work(self, actor, op, a):
         """Shared work in your organization; with org=<an organization below yours>, read its documents and
