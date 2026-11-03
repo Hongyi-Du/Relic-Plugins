@@ -68,9 +68,18 @@ final class UIWorkTrace: @unchecked Sendable {
     /// The traced work since `before`, most time first: what ran on the main
     /// thread while a probe waited, even when it ended before the answer.
     func work(since before: [String: (calls: Int, ms: Double)], limit: Int = 16) -> [String] {
-        delta(since: before).map { (name: $0.key, calls: $0.value["calls"] as? Int ?? 0, ms: $0.value["ms"] as? Double ?? 0) }
-            .sorted { $0.ms != $1.ms ? $0.ms > $1.ms : $0.calls > $1.calls }
-            .prefix(limit).map { $0.ms > 0 ? "\($0.name) \($0.calls)/\($0.ms) ms" : "\($0.name) \($0.calls)x" }
+        typealias Entry = (name: String, calls: Int, ms: Double)
+        var entries: [Entry] = []
+        for (name, values) in delta(since: before) {
+            let calls: Int = values["calls"] as? Int ?? 0
+            let ms: Double = values["ms"] as? Double ?? 0
+            entries.append((name: name, calls: calls, ms: ms))
+        }
+        entries.sort { (a: Entry, b: Entry) -> Bool in a.ms != b.ms ? a.ms > b.ms : a.calls > b.calls }
+        return entries.prefix(limit).map { (entry: Entry) -> String in
+            entry.ms > 0 ? entry.name + " " + String(entry.calls) + "/" + String(entry.ms) + " ms"
+                         : entry.name + " " + String(entry.calls) + "x"
+        }
     }
     /// CI only. Times each pass of the main run loop's display work, from the
     /// first to the last observer before the run loop waits: SwiftUI's graph
