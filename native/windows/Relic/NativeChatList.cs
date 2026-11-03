@@ -414,6 +414,12 @@ internal sealed class NativeChatList : Grid
         // LayoutUpdated can repeat while ChangeView is still in flight. Only
         // its final ViewChanged permits evaluating that correction's result.
         if (intent.CorrectionPending) return;
+        // This check runs at low priority and can come before the layout pass
+        // that applies rows built since the last one. Judging the anchor from
+        // their old estimated heights settled it early and let it drift. Bring
+        // layout up to date first; the next frame would do the same work.
+        using (PerformanceTrace.Measure(TraceName + ".list.layout_before_check")) list.UpdateLayout();
+        if (!ReferenceEquals(position, intent) || !intent.IsCurrent()) return;
         var host = TryGetRealizedRow(index);
         if (host == null || !ReadyHost(host) || !intent.IsReady()) return;
         var bounds = Bounds(host, viewport);
