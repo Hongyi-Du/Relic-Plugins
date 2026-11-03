@@ -32,6 +32,7 @@ import RelicCore
             seed = manifest["seed"].integer
             let watchdog = ResponsivenessWatchdog(output: output); monitor = watchdog
             watchdog.samplesStartup = phase != .workflows
+            watchdog.samplesEarlyStalls = phase != .workflows
             for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
             let fixture = manifest["fixture"]
             let suite = "Relic.Responsiveness." + UUID().uuidString
@@ -56,12 +57,10 @@ import RelicCore
             current.startupStage = nil
             guard current.ready else { throw RelicError.message(current.error) }
             try await settleConversation(current)
-            // A diagnostic workflows run studies the cold dialogs. Open them
-            // first, so an earlier failure's 30 s retention cannot end the run
-            // before them. Acceptance runs keep the manifest's order.
-            let rows = manifest["plan"].rows
-            let plan = env["RELIC_PERF_DIAGNOSTIC"] == "true" && phase == .workflows
-                ? rows.filter { $0["kind"].text == "dialog" } + rows.filter { $0["kind"].text != "dialog" } : rows
+            // Every run keeps the manifest's order. A diagnostic workflows run
+            // samples the first dialog where acceptance opens it, after the
+            // large group chat and the earlier panes, not straight after startup.
+            let plan = manifest["plan"].rows
             for action in plan {
                 defer {
                     watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
@@ -213,6 +212,9 @@ import RelicCore
                 try await Task.sleep(for: .milliseconds(150))
             }
             result["responder_before"] = responder(window)
+            // Wall-clock marks in the stall records' clock: a long probe can
+            // then be placed at the opening request or at the close.
+            result["open_requested_unix_ms"] = Date().timeIntervalSince1970 * 1000
             switch action["name"].text {
             case "settings": m.sheet = .settings
             case "about": m.settingsSection = "about"; m.sheet = .settings
@@ -222,7 +224,9 @@ import RelicCore
             default: throw RelicError.message("Unknown dialog in performance manifest")
             }
             try await settleConversation(m); result["responder_open"] = responder(window)
+            result["close_requested_unix_ms"] = Date().timeIntervalSince1970 * 1000
             m.sheet = nil; try await settleConversation(m); result["responder_after"] = responder(window)
+            result["closed_unix_ms"] = Date().timeIntervalSince1970 * 1000
         case "scroll-history":
             try await m.select(action["org"].text); try await settleConversation(m)
             while m.moreChat {

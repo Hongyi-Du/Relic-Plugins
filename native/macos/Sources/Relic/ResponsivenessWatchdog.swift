@@ -33,6 +33,9 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     /// Diagnostic runs only. A phase that studies a later action can skip the
     /// startup sample, whose overhead can fail the phase before that action.
     var samplesStartup = true
+    /// Diagnostic runs only. Early-stall samples slow the actions before the
+    /// one a phase studies; the workflows phase samples its first dialog instead.
+    var samplesEarlyStalls = true
     private var persistence = HeartbeatPersistence()
 
     init(output: URL) { self.output = output }
@@ -93,7 +96,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // Diagnostic runs only: a sample that starts after a 250 ms failure
         // sees idle time. Start while a main-thread block is still growing,
         // so the sample holds the actual work of the long stalls.
-        let sampleEarly = diagnostic && pending > 0 && (now - pending) * 1000 >= 170 && earlySamples < 3
+        let sampleEarly = diagnostic && samplesEarlyStalls && pending > 0 && (now - pending) * 1000 >= 170 && earlySamples < 3
             && !(stage.hasPrefix("startup") || stage.hasSuffix(":dialog"))
         if sampleEarly { earlySamples += 1 }
         let earlyName = "early-stall-" + String(earlySamples)
@@ -159,9 +162,9 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         // interval symbolicating millions of recursive SwiftUI frames and leave
         // no file. A 10 ms interval covers the same eight seconds with bounded
         // diagnostic overhead. The acceptance probes are completely separate.
-        // The first dialog's 2 s at 5 ms still resolves a 300 ms stall and
+        // The first dialog's 2 s at 3 ms resolves a 300 ms stall and still
         // finishes symbolicating within the 30 s diagnostic retention.
-        let interval = name == "startup-diagnostic" ? "10" : name == "first-dialog" ? "5" : "1"
+        let interval = name == "startup-diagnostic" ? "10" : name == "first-dialog" ? "3" : "1"
         sampler.arguments = [String(ProcessInfo.processInfo.processIdentifier), String(seconds), interval, "-mayDie", "-file", output.appendingPathComponent(name + ".sample.txt").path]
         let log = output.appendingPathComponent(name + ".sampler.log")
         FileManager.default.createFile(atPath: log.path, contents: nil)
