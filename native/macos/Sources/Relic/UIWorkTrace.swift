@@ -10,6 +10,8 @@ final class UIWorkTrace: @unchecked Sendable {
     private var ordinal = 0
     private var active: [Int: (name: String, started: Double, main: Bool)] = [:]
     private var totals: [String: (count: Int, ms: Double, maximum: Double)] = [:]
+    /// Bumped on every change to `totals`, so an unchanged copy can be reused.
+    private var version = 0
     private var gauges: [String: (current: Int, peak: Int)] = [:]
     static func gauge(_ name: String, _ value: Int) {
         guard enabled else { return }
@@ -41,11 +43,20 @@ final class UIWorkTrace: @unchecked Sendable {
         let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
         let previous = trace.totals[name] ?? (0, 0, 0)
         trace.totals[name] = (previous.count + 1, previous.ms, previous.maximum)
+        trace.version &+= 1
     }
     /// Calls and milliseconds so far, to attribute work to one scripted action.
     func counts() -> [String: (calls: Int, ms: Double)] {
         lock.lock(); defer { lock.unlock() }
         return totals.mapValues { (calls: $0.count, ms: $0.ms) }
+    }
+    /// The totals' version, and a copy of them only if they changed since
+    /// `known`: the watchdog takes one for every probe it sends, and in the
+    /// idle phase nothing changes between probes.
+    func counts(ifChangedSince known: Int) -> (version: Int, counts: [String: (calls: Int, ms: Double)]?) {
+        lock.lock(); defer { lock.unlock() }
+        guard version != known else { return (version, nil) }
+        return (version, totals.mapValues { (calls: $0.count, ms: $0.ms) })
     }
     func delta(since before: [String: (calls: Int, ms: Double)]) -> [String: [String: Any]] {
         var result: [String: [String: Any]] = [:]
@@ -64,6 +75,7 @@ final class UIWorkTrace: @unchecked Sendable {
         let ms = (ended - scope.started) * 1000
         let previous = trace.totals[scope.name] ?? (0, 0, 0)
         trace.totals[scope.name] = (previous.count + 1, previous.ms + ms, max(previous.maximum, ms))
+        trace.version &+= 1
     }
     /// The traced work since `before`, most time first: what ran on the main
     /// thread while a probe waited, even when it ended before the answer.
@@ -132,6 +144,7 @@ final class UIWorkTrace: @unchecked Sendable {
         let trace = shared; trace.lock.lock(); defer { trace.lock.unlock() }
         let previous = trace.totals[name] ?? (0, 0, 0)
         trace.totals[name] = (previous.count + 1, previous.ms + ms, max(previous.maximum, ms))
+        trace.version &+= 1
     }
     /// Scopes still open now, oldest first, with how long each has been open.
     func openScopes() -> [String] {

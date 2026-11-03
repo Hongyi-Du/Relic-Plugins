@@ -27,6 +27,7 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
     /// The traced work totals when the pending probe was sent: a probe that
     /// waits over 120 ms lists the work that ran meanwhile, finished or not.
     private var pendingWork: [String: (calls: Int, ms: Double)] = [:]
+    private var pendingWorkVersion = -1
     private var stalls: [[String: Any]] = []
     /// Probes that waited more than 120 ms, with the traced work still open
     /// when each was answered: which actions come close to the 250 ms limit,
@@ -137,7 +138,12 @@ final class ResponsivenessWatchdog: @unchecked Sendable {
         let earlyName = "early-stall-" + String(earlySamples)
         let earlyReceipt: [String: Any] = ["action": stage, "pending_ms": pending > 0 ? (now - pending) * 1000 : 0]
         let persist = persistence.shouldWrite(now: now, action: stage, worst: worst, unfinished: !enqueue)
-        if enqueue { pending = now; pendingEpoch = Self.epoch; pendingStage = stage; pendingWork = UIWorkTrace.shared.counts() }
+        if enqueue {
+            pending = now; pendingEpoch = Self.epoch; pendingStage = stage
+            let work = UIWorkTrace.shared.counts(ifChangedSince: pendingWorkVersion)
+            if let counts = work.counts { pendingWork = counts }
+            pendingWorkVersion = work.version
+        }
         if persist { sequence += 1 }
         let receipt: [String: Any] = ["unix_ms": Self.epoch, "sequence": sequence, "pings": pings,
             "max_ui_stall_ms": worst, "pending_since_unix_ms": pendingEpoch, "action": stage,

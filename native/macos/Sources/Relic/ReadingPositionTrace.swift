@@ -37,6 +37,13 @@ import AppKit
         guard let current = pending else { return }
         pending = nil; verifying = current
         record(current, kind: current.kind, scroll: scroll)
+        // "kind/displayed": once more on the main queue's next turn, after the
+        // display flush that ran this update has laid out and committed the
+        // rows. The measurement above can see row views AppKit has not moved
+        // yet in the same layout pass; this one is what the frame showed.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { record(current, kind: current.kind + "/displayed", scroll: scroll) }
+        }
     }
 
     /// The stream's next update, after any scroll of its own was requested.

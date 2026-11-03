@@ -6,6 +6,10 @@ import RelicCore
 /// one-time table, TextKit and font setup into launch, instead of blocking
 /// the first chat that appears after the data arrives.
 ///
+/// An unfocused composer editor is built too: the first editable text view
+/// of the process was the composer's own mount at startup, one turn of
+/// which held a 339 ms flush in CI.
+///
 /// The next rows are a notice, an activity group and one message of every
 /// block kind (heading, emphasis, inline code and a link, a list, a quote,
 /// a code block and a table) with its Markdown already parsed, so all are
@@ -44,6 +48,8 @@ struct NativeWarmup: View {
         List {
             ReferenceLabel("Relic 组织 Organization", size: 13.3, weight: 600)
             SelectableText(value: AttributedString("原生界面准备中。 Preparing native text."), pointSize: 14, lineHeight: 23.1)
+            MentionEditor(text: .constant(""), contextID: "warmup", placeholder: "Relic", members: [], onMention: { _ in }, send: {})
+                .frame(height: 26.4)
             MessageView(item: Self.notice)
             MessageView(item: Self.activity)
             MessageView(item: Self.sample.item, preparedBody: Self.sample.body)
