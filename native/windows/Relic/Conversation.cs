@@ -592,8 +592,12 @@ public sealed partial class MainWindow
                 BorderBrush = amberBanner ? OverviewAlpha(Paint("B7791F", "E2B15A"), .3) : Line };
             conversationBanner.Visibility = Visibility.Visible;
         }
+        // Only the exact bottom resumes following without the person's intent.
+        // A redraw within 120 px did, so the first live update after a wheel
+        // up (the view still a few lines from the bottom) pulled the chat back
+        // to the latest message and the next scroll to the top loaded nothing.
         var atBottom = !loadingOlder && !stream.ReadingAnchorRestorePending
-            && (keepLatest || chatScroll.ScrollableHeight - chatScroll.VerticalOffset < 120);
+            && (keepLatest || chatScroll.ScrollableHeight - chatScroll.VerticalOffset <= 1);
         // The "load older" control is the list header rather than a row, so the
         // message being read anchors an older page (see NativeChatList.TopContent).
         if (chatMore)

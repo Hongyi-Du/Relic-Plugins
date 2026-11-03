@@ -123,13 +123,14 @@ internal sealed class NativeChatList : Grid
             dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             { commitQueued = false; Commit(); });
         });
-        // Rows are scroll anchor candidates: while the person reads (anchor ratio
-        // 0), the ScrollViewer keeps the row at the top of the viewport in place
-        // when rows above it are built or change height. Following the latest
-        // message (ratio 1) anchors the bottom edge instead.
+        // Rows are not scroll anchor candidates. During a far scroll the
+        // ScrollViewer could pick a row whose container the panel then recycled
+        // for another item, and shifted the view by that item's position (a
+        // scroll to the top stopped 272 px down). AnchorRequested names the
+        // anchor instead, only while a reading position is restored.
         list.ItemTemplate = XamlTemplates.Load<DataTemplate>(
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
-            "<Border HorizontalAlignment='Stretch' UseLayoutRounding='False' CanBeScrollAnchor='True'/></DataTemplate>");
+            "<Border HorizontalAlignment='Stretch' UseLayoutRounding='False'/></DataTemplate>");
         // KeepScrollOffset turns off the panel's own "maintain viewport" tracking.
         // That tracking generates from a remembered row index; once the index fell
         // outside the realized rows (a long chat, an older page, a far scroll),
@@ -189,11 +190,26 @@ internal sealed class NativeChatList : Grid
         {
             Viewport.ViewChanged -= ViewChanged;
             Viewport.SizeChanged -= ViewSizeChanged;
+            Viewport.AnchorRequested -= AnchorRequested;
         }
         Viewport = viewport; viewport.IsTabStop = true;
         viewport.ViewChanged += ViewChanged; viewport.SizeChanged += ViewSizeChanged;
+        viewport.AnchorRequested += AnchorRequested;
         ViewportReady?.Invoke(viewport);
         QueuePositionCheck();
+    }
+
+    // While a reading position is restored (anchor ratio 0), the ScrollViewer
+    // holds the message being read where it is when rows above it are built
+    // or change height; otherwise each correction was undone by the next rows
+    // to build. Only that message, and only while it is realized and on screen.
+    private void AnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
+    {
+        if (position is not { Kind: PositionKind.Reading, RequestedEntry: { } entry } intent || !intent.IsCurrent()) return;
+        if (TryGetRealizedRow(entries.IndexOf(entry)) is not { IsLoaded: true } host
+            || !mounted.TryGetValue(host, out var binding) || !ReferenceEquals(binding.Entry, entry)) return;
+        var bounds = Bounds(host, sender);
+        if (bounds.Bottom > 0 && bounds.Top < sender.ViewportHeight) args.Anchor = host;
     }
 
     private void ConfigurePresenter()
