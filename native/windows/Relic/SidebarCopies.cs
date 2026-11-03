@@ -193,7 +193,7 @@ public sealed partial class MainWindow
         side.Padding = new Thickness(8, 4, 8, 12); side.Spacing = 0;
         var create = QuietButton("", CreateOrg); create.HorizontalAlignment = HorizontalAlignment.Stretch; create.Height = 34; create.MinHeight = 0; create.Padding = new Thickness(10, 0, 10, 0); create.CornerRadius = new CornerRadius(8);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(create, T("common.new_org"));
-        var createLabel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center }; var createIcon = (ReferenceVectorIcon)Glyph("\uE70F", 17); createIcon.Foreground = Paint("5A5853", "B8B5AE"); createLabel.Children.Add(createIcon); var createText = OverviewText(T("common.new_org"), 14); createText.IsTextSelectionEnabled = false; createLabel.Children.Add(createText); create.Content = createLabel; sideTools.Children.Add(create);
+        var createLabel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center }; var createIcon = (ReferenceVectorIcon)Glyph("\uE70F", 17); createIcon.Foreground = Paint("5A5853", "B8B5AE"); createLabel.Children.Add(createIcon); var createText = SidebarText(T("common.new_org"), 14); createText.IsTextSelectionEnabled = false; createLabel.Children.Add(createText); create.Content = createLabel; sideTools.Children.Add(create);
         searchSurface.Margin = new Thickness(0, 2, 0, 0); searchSurface.Height = 34; searchSurface.Padding = new Thickness(10, 0, 10, 0); searchSurface.ColumnSpacing = 8; searchSurface.CornerRadius = new CornerRadius(8); searchSurface.Background = Paint("EFEEEA", "262624");
         searchSurface.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); searchSurface.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); searchSurface.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var searchIcon = (ReferenceVectorIcon)Glyph("\uE721", 15); searchIcon.Foreground = Muted; searchIcon.VerticalAlignment = VerticalAlignment.Center; searchIcon.IsHitTestVisible = false; searchSurface.Children.Add(searchIcon);
@@ -373,7 +373,7 @@ public sealed partial class MainWindow
                     tree.Children.Add(() =>
                     {
                     var add = QuietButton("", AddMember); add.Foreground = Muted; add.HorizontalAlignment = HorizontalAlignment.Stretch; add.Padding = new Thickness(8, 6, 8, 6); add.MinHeight = 0; add.CornerRadius = new CornerRadius(8);
-                    var addContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; addContent.Children.Add(ReferenceIcon("plus", 14)); var addText = OverviewText(T("common.add_member"), 12.5, true); addText.IsTextSelectionEnabled = false; addContent.Children.Add(addText); add.Content = addContent;
+                    var addContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; addContent.Children.Add(ReferenceIcon("plus", 14)); var addText = SidebarText(T("common.add_member"), 12.5, true); addText.IsTextSelectionEnabled = false; addContent.Children.Add(addText); add.Content = addContent;
                     Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, addText.Text);
                     return new Border { Child = add, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, firstChat ? 2 : 0, 0, 8), Margin = new Thickness(10, 0, 0, 0), UseLayoutRounding = false };
                     });
@@ -455,13 +455,14 @@ public sealed partial class MainWindow
     private PersonPicture SidebarOrgFace(JsonNode organization)
     {
         var badge = OverviewOrgBadge(organization, organization.Text("kind") == "subgroup");
+        if (badge is NativeOrganizationAvatarPaint paint) NativeGlyphWarmup.Attach(paint.Initial);
         return SidebarPicture(organization.Text("name"), badge, 22);
     }
     private Grid SidebarFace(string who, string url, string state, bool secretary)
     {
         var label = who.Length > 0 ? Display(who) : T("common.group_chat");
         var painted = who.Length == 0 && !secretary ? ChatAvatar(false) : secretary && url.Length == 0 ? ChatAvatar(true) : AvatarPaint(url, label, 28);
-        if (painted is Border face) { face.CornerRadius = new CornerRadius(8); if (face.Child is TextBlock initial) { initial.FontSize = 12; initial.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; } }
+        if (painted is Border face) { face.CornerRadius = new CornerRadius(8); if (face.Child is TextBlock initial) { initial.FontSize = 12; initial.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; NativeGlyphWarmup.Attach(initial); } }
         var result = new Grid { Width = 28, Height = 28 }; result.Children.Add(SidebarPicture(label, painted, 28));
         if (state is not ("" or "idle"))
         {

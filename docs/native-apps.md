@@ -1,5 +1,23 @@
 # Current delivery policy — Amendment 9 core chat flow
 
+Windows86dfb81 focused opening41550968094 passes large116/116 (max937.363ms,
+UI99.137ms,358.539MiB/37threads) and person-shape83/83 (max916.414ms,
+UI82.113ms,349.570MiB/37threads). Full acceptance remains outstanding.
+Idle41550963991 stops in startup before its ten-second sample; post-failure
+trace reaches717/819ms. The first sidebar rows still had unprepared native
+avatar initials and create/add labels. Those actual controls now use the same
+bounded glyph preparation as other sidebar text, without changing their style.
+An earlier pre-sidebar stall is not yet attributed; this is a testable fix,
+not evidence that every startup pause or the idle gate is resolved.
+
+Changes for the clients: integrated Mac779fd5d/68336f0 via292daa9, retaining
+standard native List recycling and partial real-input receipts. REQUESTS adds
+no shared API or gate changes. Windows explicit End now cancels the preceding
+native pan before queuing its new latest-row seek. Real subsequent wheel,
+pointer and direct-manipulation cancellation remains unchanged. The retained
+person-shape0142 trace showed an old DM notification canceling End94ms later;
+focused history CI must prove the fix without changing visible-row assertions.
+
 Windows1c2901a opening41549531409 passes every large-fixture click116/116,
 max856.129ms, worst UI118.658ms, peak386.496MiB/40threads. Person-shape still
 fails24/83 openings while row queues prepare; unchanged latest-content checks
