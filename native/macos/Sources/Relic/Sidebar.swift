@@ -6,6 +6,10 @@ struct Sidebar: View {
     var revealMembers = true
     @State private var focused = false
     @State private var profileImageVisible = false
+    /// The organization whose members the tree shows. Another organization's
+    /// member rows are admitted in their own turn after the switch publishes;
+    /// the switch's transaction only collapses the previous organization.
+    @State private var revealedOrganization = ""
     private let newOrganizationOwner = "relic-text-button/sidebar-new-organization"
     var body: some View {
         let _ = UIWorkTrace.count("body.sidebar")
@@ -34,7 +38,7 @@ struct Sidebar: View {
                     }.padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
                     ForEach(OrganizationOutline.rows(organizations: m.organizations, selected: m.organization,
                         members: m.members, folded: m.folded, search: m.search, groupLabel: m.t("common.group_chat"),
-                        secretaryLabel: m.t("common.secretary"), revealMembers: revealMembers && !m.snapshot["org"].isNull)) { row in
+                        secretaryLabel: m.t("common.secretary"), revealMembers: revealMembers && !m.snapshot["org"].isNull && revealedOrganization == m.organization)) { row in
                         ProgressiveRow(estimatedHeight: row.kind == .organization ? 46 : 61) { SidebarOutlineRow(row: row).equatable() }
                     }
                     if m.organizations.isEmpty { ReferenceLabel(m.t("side.no_orgs"), size: 12.5, color: RelicStyle.muted, lines: 0).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading) }
@@ -68,6 +72,16 @@ struct Sidebar: View {
             .accessibilityElement(children: .contain).accessibilityLabel(m.t("page.side"))
             .accessibilityIdentifier("relic-region/sidebar")
             .onChange(of: m.focusSearch) { if m.focusSearch { focused = true; m.focusSearch = false } }
+            .task(id: m.organization) {
+                guard revealedOrganization != m.organization else { return }
+                let ticket = PerformanceRendering.beginSurface(), turn = UUID()
+                defer { PerformanceRendering.endSurface(ticket) }
+                guard await RowMountQueue.shared.acquire(turn, label: "sidebar-members", priority: 25) else { return }
+                defer { RowMountQueue.shared.release(turn) }
+                guard !Task.isCancelled else { return }
+                revealedOrganization = m.organization
+                try? await Task.sleep(for: .milliseconds(32))
+            }
     }
 }
 

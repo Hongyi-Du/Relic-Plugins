@@ -263,6 +263,10 @@ struct SheetContent: View {
 struct RightPane: View {
     @EnvironmentObject var m: Model
     @State private var presentedPane: String?
+    /// The pane and the organization it shows. Like another pane, another
+    /// organization's overview is built in its own turn after the switch
+    /// publishes, not inside the transaction that renders the switch.
+    private var paneKey: String { m.pane + "@" + m.organization }
     var floating = false
     var body: some View {
         VStack(spacing: 0) {
@@ -287,7 +291,7 @@ struct RightPane: View {
             }.padding(.leading, 8).padding(.trailing, 6).frame(height: 44)
                 .modifier(RecordedSurface(background: .clear, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0), kind: "card", owner: "relic-card/right-pane-header"))
                 .accessibilityElement(children: .contain).accessibilityIdentifier("relic-card/right-pane-header").accessibilityLabel("")
-            if presentedPane == m.pane { switch m.pane {
+            if presentedPane == paneKey { switch m.pane {
             case "workspace": WorkspaceView()
             case "files": FilePreview()
             case "thread": ThreadView()
@@ -295,14 +299,14 @@ struct RightPane: View {
             } } else { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityHidden(true) }
         }.frame(maxHeight: .infinity, alignment: .top).padding(.leading, 1)
             .modifier(RecordedSurface(background: RelicStyle.sidebar, border: RelicStyle.line, edges: EdgeInsets(top: 0, leading: 1, bottom: 0, trailing: 0), kind: "region", shadows: floating ? SurfaceShadow.dialog : [])).help(m.t("panel.resize"))
-            .task(id: m.pane) {
-                guard presentedPane != m.pane else { return }
+            .task(id: paneKey) {
+                guard presentedPane != paneKey else { return }
                 let ticket = PerformanceRendering.beginSurface(), turn = UUID()
                 defer { PerformanceRendering.endSurface(ticket) }
                 guard await RowMountQueue.shared.acquire(turn, label: "inspector." + m.pane) else { return }
                 defer { RowMountQueue.shared.release(turn) }
                 guard !Task.isCancelled else { return }
-                presentedPane = m.pane
+                presentedPane = paneKey
                 try? await Task.sleep(for: .milliseconds(32))
             }
     }
