@@ -10,9 +10,13 @@ import AppKit
     static var enabled: Bool { VisualCapture.enabled || TitlebarCapture.enabled || ResponsivenessCapture.enabled }
     private static let live = NSHashTable<Probe>.weakObjects()
     func makeNSView(context: Context) -> Probe {
-        let view = Probe(); Self.live.add(view); updateNSView(view, context: context); return view
+        let view = Probe(frame: .zero); updateNSView(view, context: context); return view
     }
     func updateNSView(_ view: Probe, context: Context) { view.kind = kind; view.ready = ready; view.identity = identity }
+    /// Mounted probes of one window, without walking its whole view tree.
+    static func probes(in window: NSWindow) -> [Probe] {
+        live.allObjects.filter { $0.window === window }
+    }
     static func visibleConversationRows(in window: NSWindow) -> [String] {
         live.allObjects.filter { $0.window === window && $0.kind == "conversation-row" && $0.visibleInViewport }.map(\.identity)
     }
@@ -45,6 +49,8 @@ import AppKit
     }
     final class Probe: NSView {
         var kind = "", ready = false, identity = ""
+        override init(frame frameRect: NSRect) { super.init(frame: frameRect); RenderReadiness.live.add(self) }
+        required init?(coder: NSCoder) { super.init(coder: coder); RenderReadiness.live.add(self) }
         var visibleInViewport: Bool {
             guard !isHiddenOrHasHiddenAncestor else { return false }
             var rect = bounds, ancestor = superview

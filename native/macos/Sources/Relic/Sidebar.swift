@@ -123,8 +123,8 @@ private struct OrgTree: View {
                             .rotationEffect(.degrees(expanded ? 90 : 0))
                             .highPriorityGesture(TapGesture().onEnded { if active || hasChildren { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
                         OrganizationAvatar(node: node)
-                        ReferenceLabel(node["name"].text, size: 13.44, weight: 600, lineHeight: 18.144, lines: 2, owner: owner).frame(maxWidth: .infinity, alignment: .leading)
-                        if !active { ReferenceLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted, lines: 0, owner: owner).fixedSize() }
+                        PlainLabel(node["name"].text, size: 13.44, weight: 600, lineHeight: 18.144).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                        if !active { PlainLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted).fixedSize() }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                         .accessibilityElement(children: .contain)
                         .environment(\.nativeElementParent, owner)
@@ -184,14 +184,14 @@ struct SidebarChatRow: View {
                 avatar.frame(width: 30)
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 6) {
-                        ReferenceLabel(title, size: 13.3, weight: 550, lineHeight: 17.955, owner: owner)
+                        PlainLabel(title, size: 13.3, weight: 550, lineHeight: 17.955).lineLimit(1)
                         if secretary, who != nil { SmallBadge(text: badgeText, color: RelicStyle.violet, background: RelicStyle.violetSoft) }
                         else if who?["leader"].flag == true { SmallBadge(text: badgeText, color: RelicStyle.accent) }
                     }.frame(height: 18, alignment: .leading)
-                    if !subtitle.isEmpty { ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2, owner: owner).frame(height: 16.2, alignment: .leading) }
+                    if !subtitle.isEmpty { PlainLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2).lineLimit(1).frame(height: 16.2, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .trailing, spacing: 3) {
-                    if !date.isNull { ReferenceLabel(timestamp, size: 11, color: RelicStyle.muted, lines: 0, owner: owner).fixedSize() }
+                    if !date.isNull { PlainLabel(timestamp, size: 11, color: RelicStyle.muted).fixedSize() }
                     if unread > 0 { NativeCountBadge(text: unread > 99 ? "99+" : String(unread)) }
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)

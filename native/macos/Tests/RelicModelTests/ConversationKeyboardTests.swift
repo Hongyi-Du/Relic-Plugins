@@ -101,8 +101,12 @@ import RelicCore
             repeat {
                 try await Task.sleep(for: .milliseconds(100)); host.layoutSubtreeIfNeeded()
                 let height = find(host)?.documentView?.bounds.height ?? 0
+                // The table holds a bounded window; its unrealized rows keep
+                // AppKit's small estimate, so require a scrollable document
+                // rather than a fixed total height.
+                let viewport = find(host)?.contentView.bounds.height ?? .greatestFiniteMagnitude
                 if !model.isPreparingConversation, RowMountQueue.shared.isIdle,
-                   height > 1000, previousHeight == height { quiet += 1 }
+                   height > viewport, previousHeight == height { quiet += 1 }
                 else { quiet = 0 }
                 previousHeight = height
                 if quiet >= 3 { return }
@@ -112,7 +116,9 @@ import RelicCore
         try await settled("initial presentation")
         let scroll = try XCTUnwrap(find(host))
         let table = try XCTUnwrap(scroll.documentView as? NSTableView)
-        XCTAssertGreaterThanOrEqual(table.numberOfRows, messageCount, "Virtualization must retain the whole loaded history")
+        XCTAssertEqual(model.streamRows.count, messageCount, "The prepared conversation must retain the whole loaded history")
+        XCTAssertLessThanOrEqual(table.numberOfRows, ConversationWindow.maximum + 2,
+            "The native table holds a bounded window of the loaded history, never thousands of rows")
         var realizedRows = 0
         table.enumerateAvailableRowViews { _, _ in realizedRows += 1 }
         XCTAssertLessThan(realizedRows, 100, "A 400pt viewport must not instantiate thousands of native message rows")

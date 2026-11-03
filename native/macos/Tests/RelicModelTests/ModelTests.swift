@@ -109,7 +109,7 @@ final class ModelTransport: URLProtocol {
                 case "/api/cc": return (200, #"{"items":[],"unread":0}"#)
                 case "/api/org/a": return (200, #"{"members":[]}"#)
                 case "/api/org/a/chat":
-                    XCTAssertEqual(request.url?.query, member.isEmpty ? "kind=group&limit=1000" : "kind=private&member=analyst&limit=1000")
+                    XCTAssertEqual(request.url?.query, member.isEmpty ? "kind=group&limit=200" : "kind=private&member=analyst&limit=200")
                     received.fulfill(); return (200, payload)
                 default: XCTFail("Unexpected request " + request.url!.path); return (500, "{}")
                 }
@@ -175,7 +175,7 @@ final class ModelTransport: URLProtocol {
             switch request.url!.path {
             case "/api/org/b": snapshot.fulfill(); return (200, #"{"org":{"id":"b"},"members":[]}"#)
             case "/api/org/b/chat":
-                XCTAssertEqual(request.url!.query, "kind=group&limit=1000")
+                XCTAssertEqual(request.url!.query, "kind=group&limit=200")
                 chat.fulfill(); return (200, #"{"items":[{"id":42,"body":"**Latest** message"}],"more":true}"#)
             default: XCTFail("Chat navigation must not wait for global refresh: " + request.url!.path); return (500, "{}")
             }
@@ -198,7 +198,7 @@ final class ModelTransport: URLProtocol {
             switch request.url!.path {
             case "/api/org/a": return (200, #"{"members":[{"name":"analyst","embedded":true,"has_transcript":true}]}"#)
             case "/api/org/a/chat":
-                XCTAssertEqual(request.url!.query, "kind=private&member=analyst&limit=1000")
+                XCTAssertEqual(request.url!.query, "kind=private&member=analyst&limit=200")
                 return (200, #"{"items":[{"id":8,"body":"Private latest"}],"more":false}"#)
             case "/api/org/a/live": live.fulfill(); return (200, #"{"items":[{"seq":1,"text":"live"}],"status":{"state":"running"}}"#)
             case "/api/org/a/convo": transcript.fulfill(); return (200, #"{"steps":[{"id":"step-1","text":"transcript"}]}"#)

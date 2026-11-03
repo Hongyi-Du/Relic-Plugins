@@ -68,7 +68,7 @@ struct OverviewChip: View {
         switch tone { case "ok": return RelicStyle.green.opacity(0.14); case "warn": return RelicStyle.amberSoft; case "bad": return RelicStyle.redSoft; case "sec": return RelicStyle.violetSoft; case "accent": return RelicStyle.accent.opacity(0.13); default: return RelicStyle.hover }
     }
     var body: some View {
-        ReferenceLabel(text, size: 11.5, color: foreground, lineHeight: 20, owner: identity, truncates: false).fixedSize()
+        PlainLabel(text, size: 11.5, color: foreground, lineHeight: 20).lineLimit(1).fixedSize()
             .frame(height: 20).padding(.horizontal, 8).padding(.vertical, 1)
             .modifier(RecordedSurface(background: background, radius: 10, kind: "chip", owner: identity))
             .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)
@@ -165,8 +165,8 @@ struct OverviewRow<Leading: View, Trailing: View>: View {
         HStack(spacing: 9) {
             leading
             VStack(alignment: .leading, spacing: 0) {
-                ReferenceLabel(title, size: 13, weight: 600, owner: owner, struck: struck).frame(minHeight: 20.8)
-                ReferenceLabel(subtitle, size: 12, color: RelicStyle.muted, owner: owner).frame(minHeight: 19.2)
+                PlainLabel(title, size: 13, weight: 600, struck: struck).lineLimit(1).frame(minHeight: 20.8)
+                PlainLabel(subtitle, size: 12, color: RelicStyle.muted).lineLimit(1).frame(minHeight: 19.2)
             }.frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }.padding(.horizontal, 8).padding(.vertical, 6).padding(.horizontal, -8)

@@ -16,7 +16,9 @@ struct ActionMenu: View {
                 }
             }.padding(7)
         }.frame(width: max(250, contentWidth + 14))
-            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.dialog, nativeFill: true))
+            // A small shadow: the broad blurred one was rasterized on the UI
+            // thread over the whole menu every time it opened.
+            .modifier(RecordedSurface(background: RelicStyle.card, border: RelicStyle.border, borderWidth: 1, radius: 12, kind: "region", owner: "relic-region/menu", shadows: SurfaceShadow.small, nativeFill: true))
             .onPreferenceChange(MenuIntrinsicWidth.self) { contentWidth = $0 }
             .onExitCommand { m.appMenu = nil }
     }
@@ -182,7 +184,7 @@ struct NativeMenuRow: View {
                     if checked { ReferenceIcon(name: "check", size: 14, color: RelicStyle.accent) }
                     else { Color.clear.frame(width: 14, height: 14).accessibilityHidden(true) }
                 }
-                ReferenceLabel(title, size: 13, color: enabled ? RelicStyle.ink : RelicStyle.faint, owner: identity).frame(maxWidth: .infinity, alignment: .leading)
+                PlainLabel(title, size: 13, color: enabled ? RelicStyle.ink : RelicStyle.faint).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                 if !shortcut.isEmpty { Keycap(shortcut, menu: true) }
             }.padding(.horizontal, 10).frame(height: 34.8)
         }.buttonStyle(MenuItemStyle()).accessibilityIdentifier(identity)
@@ -214,7 +216,7 @@ struct Keycap: View {
     @State private var identity = "relic-chip/keycap/" + UUID().uuidString
     init(_ value: String, menu: Bool = false) { self.value = value; self.menu = menu }
     var body: some View {
-        ReferenceLabel(value, size: menu ? 11 : 11.5, color: menu ? RelicStyle.muted : RelicStyle.ink, lineHeight: menu ? 13 : 14, owner: identity, monospaced: true)
+        PlainLabel(value, size: menu ? 11 : 11.5, color: menu ? RelicStyle.muted : RelicStyle.ink, lineHeight: menu ? 13 : 14, monospaced: true).lineLimit(1)
             .fixedSize().padding(.horizontal, menu ? 0 : 7).padding(.top, menu ? 0 : 2).padding(.bottom, menu ? 0 : 3)
             .modifier(RecordedSurface(background: menu ? .clear : RelicStyle.hover, border: menu ? .clear : RelicStyle.border,
                 borderWidth: menu ? 0 : 1, radius: 5, edges: menu ? nil : EdgeInsets(top: 1, leading: 1, bottom: 2, trailing: 1), kind: "chip", owner: identity))

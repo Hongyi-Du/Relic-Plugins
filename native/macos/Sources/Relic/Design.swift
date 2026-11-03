@@ -186,7 +186,7 @@ struct NativeCountBadge: View {
     var toolbar = false
     @State private var identity = "relic-badge/" + UUID().uuidString
     var body: some View {
-        ReferenceLabel(text, size: toolbar ? 10 : 11, weight: 700, color: .white, lineHeight: toolbar ? 15 : 11, lines: 0, owner: identity)
+        PlainLabel(text, size: toolbar ? 10 : 11, weight: 700, color: .white, lineHeight: toolbar ? 15 : 11).lineLimit(1)
             .padding(.horizontal, toolbar ? 4 : 5).frame(minWidth: toolbar ? 15 : 18).frame(height: toolbar ? 15 : 18)
             .modifier(RecordedSurface(background: toolbar ? RelicStyle.red : RelicStyle.accent, radius: toolbar ? 8 : 9, kind: "badge", owner: identity))
             .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity)
@@ -219,7 +219,7 @@ struct SmallBadge: View {
     var background: Color? = nil
     @State private var identity = "relic-badge/" + UUID().uuidString
     var body: some View {
-        ReferenceLabel(text, size: 10.5, weight: 600, color: color, lineHeight: 18, owner: identity)
+        PlainLabel(text, size: 10.5, weight: 600, color: color, lineHeight: 18).lineLimit(1)
             .padding(.horizontal, 6).frame(height: 18)
             .modifier(RecordedSurface(background: background ?? color.opacity(0.13), radius: 5, kind: "badge", owner: identity))
             .accessibilityElement(children: .contain).accessibilityLabel("").accessibilityIdentifier(identity).help(text)

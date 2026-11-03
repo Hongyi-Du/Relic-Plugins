@@ -24,10 +24,15 @@ struct SelectableText: NSViewRepresentable {
     var uniformSource = false
     var maximumLines = 0
     var fileLinkTooltip: String? = nil
+    /// An already styled passage (several Markdown blocks in one view).
+    var rendered: NSAttributedString? = nil
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSTextView {
         let trace = UIWorkTrace.begin("text.make." + region); defer { UIWorkTrace.end(trace) }
         let storage = NSTextStorage(), layout = InlineCodeLayoutManager()
+        // A long message is taller than the viewport; lay out only the part
+        // being displayed. Its height still comes from the measurement layout.
+        layout.allowsNonContiguousLayout = true
         layout.recordDraws = VisualCapture.enabled
         let container = NSTextContainer(containerSize: NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(layout); layout.addTextContainer(container)
@@ -51,7 +56,7 @@ struct SelectableText: NSViewRepresentable {
             selectable.quote = { text in m.setQuote(text, from: author.isEmpty ? m.t("common.quote") : author) }
         }
         let baseSize: CGFloat = pointSize ?? (m.preferences["font"].text == "large" ? 15.5 : m.preferences["font"].text == "small" ? 13 : 14) * scale
-        let rendered = NativeTextStyle.render(value, size: baseSize, weight: weight, color: color, lineHeight: lineHeight, monospaced: monospaced, uniformSource: uniformSource, fileLinkTooltip: fileLinkTooltip)
+        let rendered = self.rendered ?? NativeTextStyle.render(value, size: baseSize, weight: weight, color: color, lineHeight: lineHeight, monospaced: monospaced, uniformSource: uniformSource, fileLinkTooltip: fileLinkTooltip)
         view.linkTextAttributes = [.foregroundColor: NSColor(RelicStyle.accent)]
         if view.attributedString() != rendered {
             let selected = view.selectedRange(); view.textStorage?.setAttributedString(rendered)
@@ -82,20 +87,43 @@ struct SelectableText: NSViewRepresentable {
 }
 
 extension NativeTextStyle {
+    /// A conservative lower bound for the unwrapped width of the longest line:
+    /// no rendered glyph is narrower than a fifth of the smallest font size.
+    static func minimumUnwrappedWidth(_ value: NSAttributedString) -> CGFloat {
+        guard value.length > 0 else { return 0 }
+        var size = CGFloat.greatestFiniteMagnitude
+        value.enumerateAttribute(.font, in: NSRange(location: 0, length: value.length)) { font, _, _ in
+            if let font = font as? NSFont { size = min(size, font.pointSize) }
+        }
+        guard size.isFinite, size > 0 else { return 0 }
+        var longest = 0, current = 0
+        for unit in value.string.utf16 {
+            if unit == 10 || unit == 13 || unit == 0x2028 || unit == 0x2029 { longest = max(longest, current); current = 0 }
+            else { current += 1 }
+        }
+        return CGFloat(max(longest, current)) * size * 0.2
+    }
     static func contentSize(_ value: NSAttributedString, available: CGFloat, maximumLines: Int = 0) -> CGSize {
         let trace = UIWorkTrace.begin("text.measure"); defer { UIWorkTrace.end(trace) }
         // Measure a separate TextKit layout. SwiftUI probes several widths before
         // assigning the final frame; mutating the live container here leaves the
         // last probe width behind and can draw a second line outside its height.
+        // A passage whose longest line provably cannot fit wraps to exactly the
+        // available width, so its separate unwrapped layout is skipped.
+        let wraps = minimumUnwrappedWidth(value) >= available
         let storage = NSTextStorage(attributedString: value)
         let layout = NSLayoutManager()
-        let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude))
+        let container = NSTextContainer(containerSize: NSSize(width: wraps ? max(1, available) : 100_000, height: CGFloat.greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
         storage.addLayoutManager(layout); layout.addTextContainer(container)
-        layout.ensureLayout(for: container)
         // CSS shrink-to-fit is based on the unwrapped preferred width. Using the
         // longest already-wrapped line incorrectly narrows the entire bubble.
-        let width = max(1, min(available, ceil(layout.usedRect(for: container).width)))
+        let width: CGFloat
+        if wraps { width = max(1, available) }
+        else {
+            layout.ensureLayout(for: container)
+            width = max(1, min(available, ceil(layout.usedRect(for: container).width)))
+        }
         container.containerSize.width = width
         container.maximumNumberOfLines = maximumLines
         container.lineBreakMode = maximumLines > 0 ? .byTruncatingTail : .byWordWrapping
@@ -184,7 +212,11 @@ enum NativeTextStyle {
         return rendered
     }
     static func preferredWidth(_ value: NSAttributedString) -> CGFloat {
-        PreferredTextWidthCache.shared.width(value) {
+        // Wider than any message, dialog or table column: every caller clamps
+        // it to the offered width, so its exact unwrapped layout is never used.
+        let bound = minimumUnwrappedWidth(value)
+        if bound >= 4096 { return bound }
+        return PreferredTextWidthCache.shared.width(value) {
             let trace = UIWorkTrace.begin("text.preferred-width"); defer { UIWorkTrace.end(trace) }
             let storage = NSTextStorage(attributedString: value), layout = NSLayoutManager()
             let container = NSTextContainer(containerSize: NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude))
