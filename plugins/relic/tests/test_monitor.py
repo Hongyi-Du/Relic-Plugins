@@ -205,7 +205,8 @@ class Statistics(Base):
         self.assertEqual(day["bucket"], "hour")
         self.assertEqual(self.series(day)["%s/head" % self.org][1], 220)  # the earlier session is two days back
         head = next(s for s in day["series"] if s["key"] == "%s/head" % self.org)
-        self.assertEqual(head["values"][-1], 20)  # this hour
+        same_hour = int((self.now - 1800) // 3600) == int((self.now - 300) // 3600)
+        self.assertEqual(head["values"][-1], 220 if same_hour else 20)  # this hour: n2, and n1 when it fell in it too
         self.assertEqual(head["cumulative"], monitor._running(head["values"]))
         self.assertEqual(len(day["starts"]), len(head["values"]))
         for i, start in enumerate(day["starts"][1:], 1):
