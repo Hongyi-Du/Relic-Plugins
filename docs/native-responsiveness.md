@@ -2,6 +2,9 @@
 
 All execution is CI-only, with synthetic stores. The existing large fixture is
 retained; `person-shape` adds the reported 14-organization store distribution.
+On Windows, `person-shape` also runs at 150% display scale, the person's laptop
+setting: layout rounding differs at a fractional scale, and a layout cycle that
+ended the app there (2026-11-04) never happened at 100%.
 No human message content is read into a fixture or artifact.
 
 ## Focused CI feedback

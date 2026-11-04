@@ -48,6 +48,7 @@ internal sealed class NativeInsetShadow
     }
     private void Update()
     {
+        LayoutFeedback.Note("inset_shadow", Owner.ActualWidth, Owner.ActualHeight);
         if (Owner.ActualWidth <= 0 || Owner.ActualHeight <= 0) return;
         var state = (Owner.ActualWidth, Owner.ActualHeight, Owner.CornerRadius, Owner.BorderThickness, Owner.Padding);
         if (current == state && geometry != null && ReferenceEquals(Path.Data, geometry)) return;

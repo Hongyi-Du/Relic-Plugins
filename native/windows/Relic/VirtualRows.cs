@@ -317,7 +317,7 @@ internal sealed class VirtualRows : Grid
         if (followingLast is { } follow) follow.IsScrolling = args.IsIntermediate;
         if (!args.IsIntermediate) QueueFollowCheck();
     }
-    private void FollowViewportSizeChanged(object sender, SizeChangedEventArgs args) => QueueFollowCheck();
+    private void FollowViewportSizeChanged(object sender, SizeChangedEventArgs args) { LayoutFeedback.Note("virtual_rows:viewport", args.NewSize.Width, args.NewSize.Height); QueueFollowCheck(); }
     private EndGeometry ReadEndGeometry(FollowRequest follow)
     {
         var viewport = follow.Viewport; var index = Children.Count - 1;

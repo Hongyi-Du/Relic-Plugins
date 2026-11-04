@@ -249,7 +249,9 @@ internal sealed class NativeChatList : Grid
     {
         if (Math.Abs(delta) < .25 || userPanning || Viewport is not { } viewport || !element.IsLoaded
             || position is { Kind: PositionKind.Latest }) return;
-        if (Bounds(element, viewport).Top < 0) pendingShift += delta;
+        var top = Bounds(element, viewport).Top;
+        LayoutFeedback.Note("chat:row_height", delta, top);
+        if (top < 0) pendingShift += delta;
     }
 
     private void ApplyPendingShift()
@@ -264,6 +266,7 @@ internal sealed class NativeChatList : Grid
         if (position is { SeekIndex: >= 0, SeekLanded: false } seeking && !SeekLanded(seeking, viewport)
             && System.Diagnostics.Stopwatch.GetElapsedTime(seeking.SeekAt).TotalMilliseconds < 1000) return;
         PerformanceTrace.Count(TraceName + ".list.keep_rows_on_screen", shift);
+        LayoutFeedback.Note("chat:shift", shift, viewport.VerticalOffset);
         RequestOffset(viewport, RequestedOffset(viewport) + shift);
         // A correction still on its way moves with the rows too.
         if (position is { CorrectionPending: true } pending) pending.CorrectionTarget = requestedOffset;
@@ -524,6 +527,7 @@ internal sealed class NativeChatList : Grid
         if (sender is not FrameworkElement header) return;
         var delta = args.NewSize.Height - args.PreviousSize.Height;
         if (args.PreviousSize.Height == 0) delta += header.Margin.Top + header.Margin.Bottom;
+        LayoutFeedback.Note("chat:header", delta);
         KeepRowsOnScreen(header, delta);
     }
     private void ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)

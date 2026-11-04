@@ -52,9 +52,25 @@ internal sealed class NativeBannerLayout : Panel
         return new Size(double.IsFinite(availableSize.Width) ? availableSize.Width : allocation.Icon + gap + allocation.Text, measuredHeight);
     }
 
+    // Measure and arrange can disagree by layout rounding. At a 150% display
+    // scale the parent measured this panel at 420 and arranged it at 420.667
+    // (one device pixel). Re-measuring the children for that difference set the
+    // icon's width again (11.3096 instead of 11.2913), which asked for another
+    // measure at 420, and so on: the widths alternated for 250 passes and WinUI
+    // ended the app with a layout cycle (AG_E_LAYOUT_CYCLE). A rounding
+    // difference keeps the measured allocation; a real one re-measures, at most
+    // once per dispatcher turn, so this panel cannot keep layout from settling.
+    private const double RoundingTolerance = 2;
+    private long remeasuredTurn = -1;
+
     protected override Size ArrangeOverride(Size finalSize)
     {
-        if (finalSize.Width != measuredAvailable) MeasureChildren(finalSize.Width);
+        if (!(Math.Abs(finalSize.Width - measuredAvailable) <= RoundingTolerance) && remeasuredTurn != LayoutFeedback.Turn)
+        {
+            remeasuredTurn = LayoutFeedback.Turn;
+            LayoutFeedback.Note("banner:arrange_remeasure", finalSize.Width, measuredAvailable);
+            MeasureChildren(finalSize.Width);
+        }
         icon.Arrange(new Rect(0, 0, allocation.Icon, iconHeight));
         text.Arrange(new Rect(allocation.Icon + gap, 0, allocation.Text, text.DesiredSize.Height));
         return finalSize;

@@ -212,7 +212,7 @@ public sealed partial class MainWindow
             WorkspaceCheckerboard(surface);
             var frame = new Grid { Padding = new Thickness(16) }; frame.Children.Add(surface);
             void FitImage() { if (bitmap.PixelWidth > 0 && frame.ActualWidth > 0) surface.Width = Math.Min(bitmap.PixelWidth + 2, Math.Max(0, frame.ActualWidth - 32)); }
-            bitmap.ImageOpened += (_, _) => FitImage(); frame.SizeChanged += (_, _) => FitImage(); detail.Children.Add(frame); return;
+            bitmap.ImageOpened += (_, _) => FitImage(); frame.SizeChanged += (_, _) => { LayoutFeedback.Note("files:fit_image", frame.ActualWidth); FitImage(); }; detail.Children.Add(frame); return;
         }
         if (fileData.Text("kind") == "binary") { WorkspaceEmptyBlock(detail, T("file.binary")); return; }
         if (fileData.Text("kind") == "markdown")
