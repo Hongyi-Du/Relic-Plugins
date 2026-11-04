@@ -11,6 +11,9 @@ struct ConversationWindow: Equatable {
     /// window; in CI a switch away from a group chat's 24 rows cost the
     /// table's batch update 75-142 ms, against about 2 ms between private
     /// chats (run 41733608162, person-shape). Reading further up adds pages.
+    /// (Removing the previous rows in an update of their own did not help:
+    /// that update took 8-16 ms and the insertion kept the cost, while the
+    /// extra turn delayed the opened chat, run 41741673461.)
     static let initial = 16, page = 16, maximum = 72
     /// A newly opened chat's List first receives only its latest rows, at
     /// least `tail` and enough by their placeholder heights to fill the
@@ -262,25 +265,13 @@ struct ConversationStream: View {
                     // The List replaces or extends its rows in a display update
                     // of its own, ahead of the rows waiting to be built and
                     // after the one being built now (RowMountQueue.adoptPriority).
-                    var turn = UUID()
+                    let turn = UUID()
                     guard await RowMountQueue.shared.acquire(turn, label: "adopt", priority: RowMountQueue.adoptPriority) else { return }
                     guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
+                    let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
                     // Another chat's rows start from the latest few; the rest
                     // of its window is admitted above them in later turns.
                     let anotherChat = !presentedKey.hasPrefix(m.selection.key + "#")
-                    if anotherChat, !presented.isEmpty {
-                        // The previous chat's rows leave the table in an update
-                        // of their own, and the opened chat's rows go in with
-                        // the next: in CI one update doing both cost the table
-                        // 79-162 ms when either chat was a group chat.
-                        UIWorkTrace.untilNextTurn("stream.clear")
-                        presented = []; presentedKey = ""
-                        RowMountQueue.shared.releaseAfterUpdate(turn)
-                        turn = UUID()
-                        guard await RowMountQueue.shared.acquire(turn, label: "adopt", priority: RowMountQueue.adoptPriority) else { return }
-                        guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
-                    }
-                    let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
                     UIWorkTrace.untilNextTurn(anotherChat ? "stream.adopt-chat" : "stream.adopt")
                     presented = m.streamRows; presentedKey = key
                     let tail = ConversationWindow.tailCount(of: presented, filling: fillHeight)
