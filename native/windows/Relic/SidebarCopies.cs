@@ -113,7 +113,7 @@ public sealed partial class MainWindow
                 VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false
             };
             toolbarLogo.Loaded += (_, _) => ClipToolbarLogo();
-            toolbarLogo.SizeChanged += (_, args) => { LayoutFeedback.Note("toolbar.logo_clip", args.NewSize.Width, args.NewSize.Height); ClipToolbarLogo(); };
+            toolbarLogo.SizeChanged += (_, args) => { LayoutFeedback.Note("toolbar:logo_clip", args.NewSize.Width, args.NewSize.Height); ClipToolbarLogo(); };
             toolbarLogo.Unloaded += (_, _) =>
             {
                 toolbarLogoBackingVisual = null; toolbarLogoBackingOwner = null;
@@ -344,7 +344,7 @@ public sealed partial class MainWindow
             if (secretary && !secretarySetup) tag = SidebarTag(OverviewRoleName(who, T("common.secretary")), true);
             else if (snap.Rows("members").FirstOrDefault(m => m.Text("name") == who).Flag("leader")) tag = SidebarTag(T("common.leader"), false);
             if (tag != null) { heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); Grid.SetColumn(tag, 1); heading.Children.Add(tag); }
-            text.SizeChanged += (_, args) => { LayoutFeedback.Note("sidebar.heading_max", args.NewSize.Width, args.PreviousSize.Width); heading.MaxWidth = args.NewSize.Width; };
+            text.SizeChanged += (_, args) => { LayoutFeedback.Note("sidebar:heading_max", args.NewSize.Width, args.PreviousSize.Width); heading.MaxWidth = args.NewSize.Width; };
             text.Children.Add(heading);
             if (subtitle.Length > 0)
             {
@@ -624,7 +624,7 @@ public sealed partial class MainWindow
             var title = new RichTextBlock { FontFamily = new FontFamily(FontFamilies.UI), FontSize = 14, FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }, Foreground = Ink, TextWrapping = TextWrapping.Wrap, LineHeight = 19.6, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, IsTextSelectionEnabled = true };
             var paragraph = new Paragraph(); paragraph.Inlines.Add(new Run { Text = c.Text("protocol_id"), FontFamily = new FontFamily("Cascadia Code"), FontSize = 12.88, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Paint("5A5853", "B8B5AE") }); paragraph.Inlines.Add(new Run { Text = " " + c.Text("title") }); title.Blocks.Add(paragraph); titles.Children.Add(title);
             Grid.SetColumn(titles, 1); top.Children.Add(titles); Grid.SetColumn(badges, 2); top.Children.Add(badges);
-            top.SizeChanged += (_, args) => { LayoutFeedback.Note("copies.badges_max", args.NewSize.Width, args.NewSize.Height); badges.MaxWidth = args.NewSize.Width * .45; }; card.Children.Add(top);
+            top.SizeChanged += (_, args) => { LayoutFeedback.Note("copies:badges_max", args.NewSize.Width, args.NewSize.Height); badges.MaxWidth = args.NewSize.Width * .45; }; card.Children.Add(top);
             card.Children.Add(new Border { Child = Rich(c.Text("summary"), documentStyle: true), Background = live ? Paint("F8F7F5", "191918") : Paint("FFFFFF", "1F1F1E"), BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(10), Opacity = live ? 1 : .8 });
             var metadata = new List<string> { T(c?["issued_by"].Text("member").Length > 0 ? "cc.issued_by" : "cc.proposed_by", ("name", c.Text("author_display"))) };
             if (c.Rows("approved_display").Count > 0) metadata.Add(T("cc.approved_by", ("names", words.List(c.Rows("approved_display").Select(n => n.Text())))));

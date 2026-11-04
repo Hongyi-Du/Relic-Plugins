@@ -40,7 +40,7 @@ internal static class LayoutFeedback
     {
         passes++;
         if (passes > MostPasses) MostPasses = passes;
-        if (passes is 20 or 60 or 120 or 200 or 240) Note("layout.passes", passes);
+        if (passes is 20 or 60 or 120 or 200 or 240) Note("layout:passes", passes);
         if (resetQueued) return;
         resetQueued = true;
         queue.TryEnqueue(DispatcherQueuePriority.Low, () => { resetQueued = false; passes = 0; turn++; });

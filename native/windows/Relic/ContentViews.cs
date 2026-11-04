@@ -235,7 +235,7 @@ public sealed partial class MainWindow
                         var decorated = new Grid(); decorated.Children.Add(code);
                         var underline = new Microsoft.UI.Xaml.Shapes.Line { Stroke = OverviewAlpha(Accent, .7), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 1, 1 }, IsHitTestVisible = false };
                         decorated.Children.Add(underline);
-                        code.SizeChanged += (_, _) => { LayoutFeedback.Note("markdown.code_underline", code.ActualWidth, code.BaselineOffset); underline.X2 = code.ActualWidth; underline.Y1 = underline.Y2 = code.BaselineOffset + 1; };
+                        code.SizeChanged += (_, _) => { LayoutFeedback.Note("markdown:code_underline", code.ActualWidth, code.BaselineOffset); underline.X2 = code.ActualWidth; underline.Y1 = underline.Y2 = code.BaselineOffset + 1; };
                         codeContent = decorated;
                     }
                     else code.Text = part.Text;

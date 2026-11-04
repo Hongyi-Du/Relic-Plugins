@@ -166,7 +166,7 @@ public sealed partial class MainWindow : Window
         var right = Scroll(detail); Grid.SetRow(right, 1); inspector.Children.Add(right); inspectorSurface.Children.Add(inspector); inspectorSurface.BorderThickness = new Thickness(1, 0, 0, 0); Grid.SetColumn(inspectorSurface, 2); columns.Children.Add(inspectorSurface);
         Grid.SetRow(columns, 2); root.Children.Add(columns); Content = root; Resizers(); WireComposer(); NavigationShortcuts();
         ConfigureNativeTitleBar();
-        root.SizeChanged += (_, _) => { LayoutFeedback.Note("root.size", root.ActualWidth, root.ActualHeight); appTitle.MaxWidth = root.ActualWidth * .4; LayoutColumns(); };
+        root.SizeChanged += (_, _) => { LayoutFeedback.Note("root:size", root.ActualWidth, root.ActualHeight); appTitle.MaxWidth = root.ActualWidth * .4; LayoutColumns(); };
         root.LayoutUpdated += (_, _) => LayoutFeedback.LayoutPass(DispatcherQueue);
         root.GotFocus += (_, e) =>
         {

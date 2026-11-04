@@ -68,7 +68,7 @@ internal sealed class NativeBannerLayout : Panel
         if (!(Math.Abs(finalSize.Width - measuredAvailable) <= RoundingTolerance) && remeasuredTurn != LayoutFeedback.Turn)
         {
             remeasuredTurn = LayoutFeedback.Turn;
-            LayoutFeedback.Note("banner.arrange_remeasure", finalSize.Width, measuredAvailable);
+            LayoutFeedback.Note("banner:arrange_remeasure", finalSize.Width, measuredAvailable);
             MeasureChildren(finalSize.Width);
         }
         icon.Arrange(new Rect(0, 0, allocation.Icon, iconHeight));
