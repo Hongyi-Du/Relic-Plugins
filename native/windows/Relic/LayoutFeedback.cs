@@ -22,6 +22,9 @@ internal static class LayoutFeedback
     private static long turn;
     private static bool resetQueued;
     internal static int MostPasses { get; private set; }
+    // Changes once the dispatcher turn's layout has settled: a panel that may
+    // redo work while arranging can limit itself to once per turn.
+    internal static long Turn => turn;
 
     internal static void Note(string source, double a = double.NaN, double b = double.NaN)
     {
