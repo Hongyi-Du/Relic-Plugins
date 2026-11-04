@@ -107,9 +107,9 @@ private struct SidebarOutlineRow: View, Equatable {
             else {
                 Group {
                     switch row.kind {
-                    case .group: SidebarChatRow(who: nil, group: true)
-                    case .secretary: SidebarChatRow(who: row.node["name"].isNull ? nil : row.node, group: false)
-                    case .member: SidebarChatRow(who: row.node, group: false)
+                    case .group: SidebarChatEntry(who: nil, group: true)
+                    case .secretary: SidebarChatEntry(who: row.node["name"].isNull ? nil : row.node, group: false)
+                    case .member: SidebarChatEntry(who: row.node, group: false)
                     case .addMember:
                         Button { m.openMemberForm() } label: {
                             HStack(spacing: 8) {
@@ -129,22 +129,50 @@ private struct SidebarOutlineRow: View, Equatable {
     }
 }
 
+/// Reads one organization row's state from the model. An organization
+/// switch evaluates every built entry again, which is cheap; the row below
+/// is rebuilt only when its own state changed (the organization left and
+/// the one opened), not all of them as when each row read the model itself.
 private struct OrgTree: View {
+    @EnvironmentObject var m: Model
+    let node: Node
+    let depth: Int
+    let hasChildren: Bool
+    var body: some View {
+        let _ = UIWorkTrace.count("body.org-entry")
+        let id = node["id"].text, active = m.organization == id
+        let folded = m.search.isEmpty && m.folded.contains(id)
+        OrgTreeRow(node: node, depth: depth, hasChildren: hasChildren, active: active,
+                   expanded: (active || hasChildren) && !folded,
+                   lastAt: active ? "" : m.shortWhen(node["last_at"]), chartTitle: m.t("appmenu.org_chart")).equatable()
+    }
+}
+
+private struct OrgTreeRow: View, Equatable {
+    /// Actions only: the body reads nothing from the model.
     @EnvironmentObject var m: Model
     @Environment(\.colorScheme) private var scheme
     let node: Node
     let depth: Int
     let hasChildren: Bool
+    let active: Bool
+    let expanded: Bool
+    let lastAt: String
+    let chartTitle: String
+    static func == (a: Self, b: Self) -> Bool {
+        guard a.depth == b.depth, a.hasChildren == b.hasChildren, a.active == b.active, a.expanded == b.expanded,
+              a.lastAt == b.lastAt, a.chartTitle == b.chartTitle else { return false }
+        let left = a.node.raw as AnyObject, right = b.node.raw as AnyObject
+        return left === right || (left as? NSObject)?.isEqual(right) == true
+    }
     private var id: String { node["id"].text }
-    private var active: Bool { m.organization == id }
     private var owner: String { "relic-org/" + id }
-    private var folded: Bool { m.search.isEmpty && m.folded.contains(id) }
-    private var expanded: Bool { (active || hasChildren) && !folded }
     private var accessibilityName: String {
-        [OrganizationAvatar.initial(for: node), node["name"].text, active ? "" : m.shortWhen(node["last_at"])].filter { !$0.isEmpty }.joined(separator: " ")
+        [OrganizationAvatar.initial(for: node), node["name"].text, lastAt].filter { !$0.isEmpty }.joined(separator: " ")
     }
     var body: some View {
                 let _ = UIWorkTrace.count("body.org-tree")
+                let id = self.id, active = self.active, hasChildren = self.hasChildren
                 Button {
                     PerformancePointer.observed(PerformancePointer.organization(id))
                     if active { m.toggleFold(id) } else { m.run { try await m.select(id) } }
@@ -155,35 +183,50 @@ private struct OrgTree: View {
                             .highPriorityGesture(TapGesture().onEnded { if active || hasChildren { m.toggleFold(id) } else { m.run { try await m.select(id) } } })
                         OrganizationAvatar(node: node)
                         PlainLabel(node["name"].text, size: 13.44, weight: 600, lineHeight: 18.144).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                        if !active { PlainLabel(m.shortWhen(node["last_at"]), size: 11.5, color: RelicStyle.muted).fixedSize() }
+                        if !active { PlainLabel(lastAt, size: 11.5, color: RelicStyle.muted).fixedSize() }
                     }.padding(.leading, CGFloat(8 + depth * 16)).padding(.trailing, 8).padding(.vertical, 6).frame(minHeight: 34)
                         .accessibilityElement(children: .contain)
                         .environment(\.nativeElementParent, owner)
                 }.buttonStyle(QuietButtonStyle(selected: active, selectionApplicable: true, radius: 8, expanded: expanded)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(node["name"].text + (node["purpose"].text.isEmpty ? "" : "\n" + node["purpose"].text))
                     .modifier(PerformancePointerTarget(identity: PerformancePointer.organization(id)))
                     .recordedOpacity(!node["status"].text.isEmpty && node["status"].text != "active" ? 0.55 : 1)
-                    .contextMenu { Button(m.t("appmenu.org_chart")) { m.sheet = .chart } }
+                    .contextMenu { Button(chartTitle) { m.sheet = .chart } }
     }
 }
 
 struct MemberRow: View {
     let who: Node
-    var body: some View { SidebarChatRow(who: who, group: false) }
+    var body: some View { SidebarChatEntry(who: who, group: false) }
 }
 
-struct SidebarChatRow: View {
-    @EnvironmentObject var m: Model
-    @State private var avatarImageVisible = false
-    let who: Node?
-    let group: Bool
-    private var owner: String { "relic-list-row/" + m.organization + "/" + (group ? "group" : name) }
-    private var pointerTarget: String { !group && name.isEmpty ? "secretary-setup:" + m.organization : PerformancePointer.chat(m.organization, group ? "" : name) }
-    private var secretary: Bool { !group && (who == nil || who?["secretary"].flag == true) }
-    private var name: String { who?["name"].text ?? "" }
-    private var selected: Bool { group ? m.member.isEmpty : !name.isEmpty && m.member == name }
-    private var head: Node { m.snapshot["chats"][group ? "group" : "member:" + name]["last"] }
-    private var title: String { group ? m.t("common.group_chat") : secretary ? m.t(name.isEmpty ? "side.set_secretary" : "common.secretary") : who?.display ?? "" }
-    private var subtitle: String {
+/// What one sidebar chat row shows, read from the model by its entry.
+struct SidebarChatContent: Equatable {
+    var organization = "", name = "", title = "", subtitle = "", badge = "", timestamp = ""
+    var role = "", state = "", initial = "", cardTitle = "", traceTitle = ""
+    var group = false, secretary = false, leader = false, hasWho = false, selected = false, hasDate = false
+    var unread = 0
+    @MainActor init(model m: Model, who: Node?, group: Bool) {
+        let name = who?["name"].text ?? ""
+        let secretary = !group && (who == nil || who?["secretary"].flag == true)
+        let selected = group ? m.member.isEmpty : !name.isEmpty && m.member == name
+        // One history scan and one preview/date formatting pass per entry.
+        let head = m.snapshot["chats"][group ? "group" : "member:" + name]["last"]
+        let date = head["at"].isNull ? who?["doing_at"] ?? Node() : head["at"]
+        organization = m.organization; self.name = name; self.group = group; self.secretary = secretary
+        self.selected = selected; hasWho = who != nil; leader = who?["leader"].flag == true
+        title = group ? m.t("common.group_chat") : secretary ? m.t(name.isEmpty ? "side.set_secretary" : "common.secretary") : who?.display ?? ""
+        subtitle = Self.subtitle(m, who: who, name: name, group: group, secretary: secretary)
+        unread = selected ? 0 : m.unread(group ? "" : name)
+        hasDate = !date.isNull
+        timestamp = date.isNull ? "" : m.shortWhen(date)
+        if secretary, let who { badge = who.display == m.t("common.secretary") ? who["name"].text : who.display }
+        else if who?["leader"].flag == true { badge = m.t("common.leader") }
+        role = who?["role"].text ?? ""
+        state = who?["state"].text ?? ""
+        initial = String(m.name(name).prefix(1)).uppercased()
+        cardTitle = m.t("chat.card"); traceTitle = m.t("common.context_trace")
+    }
+    @MainActor private static func subtitle(_ m: Model, who: Node?, name: String, group: Bool, secretary: Bool) -> String {
         if group { let preview = m.lastLine(); return preview.isEmpty ? m.t("side.group_sub") : preview }
         if name.isEmpty { return m.t("side.secretary_hint") }
         if !secretary, let doing = who?["doing"].text, !doing.isEmpty { return m.t("side.doing", ["doing": doing]) }
@@ -192,20 +235,41 @@ struct SidebarChatRow: View {
         if secretary { return [who?["doing"].text ?? "", who?["detail"].text ?? ""].first { !$0.isEmpty } ?? "" }
         return (who?["role"].text).flatMap { $0.isEmpty ? nil : $0 } ?? m.stateLabel(who?["state"].text ?? "")
     }
-    private var unread: Int { selected ? 0 : m.unread(group ? "" : name) }
-    private var date: Node { head["at"].isNull ? who?["doing_at"] ?? Node() : head["at"] }
-    private var badgeText: String {
-        if secretary, let who { return who.display == m.t("common.secretary") ? who["name"].text : who.display }
-        return who?["leader"].flag == true ? m.t("common.leader") : ""
+}
+
+/// Reads one sidebar chat row's values from the model. A chat switch or a
+/// new snapshot evaluates every built entry again, which is cheap; the row
+/// below is rebuilt only when its own values changed (the chat left and the
+/// chat opened on a switch), not every built row's labels, avatar, badges
+/// and button style, as each row did while it read the model itself.
+private struct SidebarChatEntry: View {
+    @EnvironmentObject var m: Model
+    let who: Node?
+    let group: Bool
+    var body: some View {
+        let _ = UIWorkTrace.count("body.sidebar-entry")
+        SidebarChatRow(content: SidebarChatContent(model: m, who: who, group: group)).equatable()
+    }
+}
+
+struct SidebarChatRow: View, Equatable {
+    /// Actions only: the body reads nothing from the model, so the row is
+    /// rebuilt only when `content` changes.
+    @EnvironmentObject var m: Model
+    @State private var avatarImageVisible = false
+    let content: SidebarChatContent
+    static func == (a: Self, b: Self) -> Bool { a.content == b.content }
+    private var owner: String { "relic-list-row/" + content.organization + "/" + (content.group ? "group" : content.name) }
+    private var pointerTarget: String {
+        !content.group && content.name.isEmpty ? "secretary-setup:" + content.organization
+            : PerformancePointer.chat(content.organization, content.group ? "" : content.name)
     }
     var body: some View {
-        // One history scan and one preview/date formatting pass per row update.
-        // Badges, native text and accessibility share the same resolved values.
         let _ = UIWorkTrace.count("body.sidebar-chat")
-        let subtitle = self.subtitle, unread = self.unread, date = self.date
-        let timestamp = date.isNull ? "" : m.shortWhen(date)
-        let accessibilityName = [group || secretary || avatarImageVisible ? "" : String(m.name(name).prefix(1)).uppercased(),
-            title, badgeText, subtitle, timestamp, unread > 0 ? unread > 99 ? "99+" : String(unread) : ""]
+        let content = self.content, name = content.name, group = content.group, secretary = content.secretary
+        let unread = content.unread, pointerTarget = self.pointerTarget
+        let accessibilityName = [group || secretary || avatarImageVisible ? "" : content.initial,
+            content.title, content.badge, content.subtitle, content.timestamp, unread > 0 ? unread > 99 ? "99+" : String(unread) : ""]
             .filter { !$0.isEmpty }.joined(separator: " ")
         Button {
             PerformancePointer.observed(pointerTarget)
@@ -216,31 +280,31 @@ struct SidebarChatRow: View {
                 avatar.frame(width: 30)
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 6) {
-                        PlainLabel(title, size: 13.3, weight: 550, lineHeight: 17.955).lineLimit(1)
-                        if secretary, who != nil { SmallBadge(text: badgeText, color: RelicStyle.violet, background: RelicStyle.violetSoft) }
-                        else if who?["leader"].flag == true { SmallBadge(text: badgeText, color: RelicStyle.accent) }
+                        PlainLabel(content.title, size: 13.3, weight: 550, lineHeight: 17.955).lineLimit(1)
+                        if secretary, content.hasWho { SmallBadge(text: content.badge, color: RelicStyle.violet, background: RelicStyle.violetSoft) }
+                        else if content.leader { SmallBadge(text: content.badge, color: RelicStyle.accent) }
                     }.frame(height: 18, alignment: .leading)
-                    if !subtitle.isEmpty { PlainLabel(subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2).lineLimit(1).frame(height: 16.2, alignment: .leading) }
+                    if !content.subtitle.isEmpty { PlainLabel(content.subtitle, size: 12, color: RelicStyle.muted, lineHeight: 16.2).lineLimit(1).frame(height: 16.2, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .trailing, spacing: 3) {
-                    if !date.isNull { PlainLabel(timestamp, size: 11, color: RelicStyle.muted).fixedSize() }
+                    if content.hasDate { PlainLabel(content.timestamp, size: 11, color: RelicStyle.muted).fixedSize() }
                     if unread > 0 { NativeCountBadge(text: unread > 99 ? "99+" : String(unread)) }
                 }.padding(.top, 1).frame(maxHeight: .infinity, alignment: .topTrailing)
             }.padding(.horizontal, 8).padding(.vertical, 6).fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .contain)
                 .environment(\.nativeElementParent, owner)
-        }.buttonStyle(QuietButtonStyle(selected: selected, selectionApplicable: true, radius: 8, unread: unread > 0)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(name + (who?["role"].text.isEmpty == false ? " · " + who!["role"].text : ""))
+        }.buttonStyle(QuietButtonStyle(selected: content.selected, selectionApplicable: true, radius: 8, unread: unread > 0)).accessibilityIdentifier(owner).accessibilityLabel(accessibilityName).help(name + (content.hasWho && !content.role.isEmpty ? " · " + content.role : ""))
             .modifier(PerformancePointerTarget(identity: pointerTarget))
-            .contextMenu { if !group && !name.isEmpty { Button(m.t("chat.card")) { m.openCard(name) }; Button(m.t("common.context_trace")) { m.openDetails("trace", member: name) } } }
+            .contextMenu { if !group && !name.isEmpty { Button(content.cardTitle) { m.openCard(name) }; Button(content.traceTitle) { m.openDetails("trace", member: name) } } }
     }
     private var avatar: some View {
         Group {
-            if group { SidebarGroupAvatar() }
-            else if secretary { Avatar(member: name, size: 28, secretaryStyle: true) }
-            else { Avatar(member: name, size: 28, imageVisibility: { avatarImageVisible = $0 }) }
+            if content.group { SidebarGroupAvatar() }
+            else if content.secretary { Avatar(member: content.name, size: 28, secretaryStyle: true) }
+            else { Avatar(member: content.name, size: 28, imageVisibility: { avatarImageVisible = $0 }) }
         }.overlay(alignment: .bottomTrailing) {
-            if let state = who?["state"].text, !state.isEmpty && state != "idle" {
-                StateDot(state: state, border: RelicStyle.sidebar).offset(x: 2, y: 2)
+            if !content.state.isEmpty && content.state != "idle" {
+                StateDot(state: content.state, border: RelicStyle.sidebar).offset(x: 2, y: 2)
             }
         }
     }

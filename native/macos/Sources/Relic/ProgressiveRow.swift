@@ -17,6 +17,22 @@ import SwiftUI
     static let shared = RowMountQueue()
     /// Four one-line rows (notices, activity lines, overview headings).
     static let budget = 4
+    /// A model publication (a chat or organization opened, a refreshed
+    /// snapshot) and a list's adoption of the rows it published take the
+    /// queue ahead of every waiting row, so no row is built in their display
+    /// update. In CI a chat's publication or adoption that shared its update
+    /// with a sidebar row's mount made 410 and 344 ms flushes, and an
+    /// organization's publication with one 220-235 ms (run 41709167265, large
+    /// open-0071 and warmup-0043).
+    static let publishPriority = 100, adoptPriority = 90
+    /// While a chat the person opened is loading, only turns of this priority
+    /// and above (publications, adoptions, dialog stages) are granted. The
+    /// rows still waiting then belong to the chat being left or can wait: in
+    /// CI the previous chat's rows went on mounting through a 712 ms load,
+    /// and the opened chat's content appeared after 1000 ms (run 41727919126,
+    /// large warmup-0047).
+    static let heldBelow = 30
+    private var held = false, holdGeneration = 0
     private struct Waiting { let id: UUID, continuation: CheckedContinuation<Bool, Never>, label: String, priority: Int, group: String?, weight: Int }
     private var active: Set<UUID> = []
     private var activeTrace: Int?
@@ -54,8 +70,36 @@ import SwiftUI
         UIWorkTrace.end(activeTrace); activeTrace = nil
         grant()
     }
+    /// Keep a publication's or adoption's turn through the display update that
+    /// shows its changes, as a row keeps its turn for 32 ms after its content
+    /// appeared, then release it.
+    func releaseAfterUpdate(_ id: UUID) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(32))
+            self.release(id)
+        }
+    }
+    /// Hold row turns below `heldBelow` while a chat loads; release them when
+    /// it is shown, replaced or abandoned, and after five seconds at most.
+    func holdRows(_ value: Bool) {
+        guard value != held else { return }
+        held = value
+        if value {
+            holdGeneration &+= 1
+            let generation = holdGeneration
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(5))
+                if self.held, self.holdGeneration == generation { self.holdRows(false) }
+            }
+        } else if active.isEmpty, !waiting.isEmpty, !grantScheduled {
+            grantScheduled = true
+            Task { @MainActor in self.grantScheduled = false; self.grant() }
+        }
+    }
     private func grant() {
         guard active.isEmpty, !waiting.isEmpty else { return }
+        // Waiting turns are kept in descending priority.
+        guard !held || waiting[0].priority >= Self.heldBelow else { return }
         let first = waiting.removeFirst()
         var admitted = [first]
         if let group = first.group, first.weight > 0 {

@@ -403,8 +403,15 @@ import Combine
         guard await mergeMessages(chat["items"].rows, selected: selected, navigation: navigation) else { return }
         startupStage?("publish")
         let snapshotChanged = !(await Node.sameContent(snapshot, snap))
-        guard selected == selection, navigation == navigationGeneration else { return }
-        if snapshotChanged { UIWorkTrace.untilNextTurn("publish.snapshot"); snapshot = snap; revision += 1 }
+        // A changed snapshot, like a chat, is published in a display update of
+        // its own (RowMountQueue.publishPriority).
+        let turn = UUID()
+        if snapshotChanged, !(await RowMountQueue.shared.acquire(turn, label: "publish", priority: RowMountQueue.publishPriority)) { return }
+        guard selected == selection, navigation == navigationGeneration else { RowMountQueue.shared.release(turn); return }
+        if snapshotChanged {
+            UIWorkTrace.untilNextTurn("publish.snapshot"); snapshot = snap; revision += 1
+            RowMountQueue.shared.releaseAfterUpdate(turn)
+        }
         if !hadHistory { moreChat = chat["more"].flag }
         let chatKey = member.isEmpty ? "group" : "member:" + member
         if !snap["chats"][chatKey]["last"]["id"].isNull { defaults.set(snap["chats"][chatKey]["last"]["id"].integer, forKey: "seen." + organization + "/" + chatKey) }
@@ -432,6 +439,7 @@ import Combine
     }
     func setSelection(_ next: ChatSelection, record: Bool = true) {
         navigationGeneration += 1; navigationTask?.cancel(); navigationTask = nil; pendingNavigation = nil
+        RowMountQueue.shared.holdRows(false)
         changeSelection(next, record: record, clearContent: true)
     }
     private func changeSelection(_ next: ChatSelection, record: Bool, clearContent: Bool) {
@@ -504,11 +512,14 @@ import Combine
         let generation = navigationGeneration
         navigationTask?.cancel()
         pendingNavigation = next
+        // The rows of the chat being left are not built while this one loads.
+        RowMountQueue.shared.holdRows(true)
         let task = Task { try await self.loadSelectedChat(next, generation: generation, record: record) }
         navigationTask = task
         defer {
             if generation == navigationGeneration {
                 navigationTask = nil; pendingNavigation = nil
+                RowMountQueue.shared.holdRows(false)
                 if refreshAfterNavigation { refreshAfterNavigation = false; schedule() }
             }
         }
@@ -566,12 +577,22 @@ import Combine
                 words: words, now: displayNow, privateChat: !selected.member.isEmpty) : streamRows
             UIWorkTrace.end(preparing)
             guard !Task.isCancelled, generation == navigationGeneration else { UIWorkTrace.count("load.superseded"); return }
+            // A changed chat is published in a display update of its own: after
+            // the row being built now, before the rows waiting to be built.
+            let turn = UUID()
+            if changed, !(await RowMountQueue.shared.acquire(turn, label: "publish", priority: RowMountQueue.publishPriority)) {
+                UIWorkTrace.count("load.superseded"); return
+            }
+            guard !Task.isCancelled, generation == navigationGeneration else {
+                RowMountQueue.shared.release(turn); UIWorkTrace.count("load.superseded"); return
+            }
             // Rebase a current-chat refresh if history or SSE advanced while
             // the background projection was running. New-chat replies never
             // merge the old displayed chat's messages into the requested chat.
             guard messageRevision == messageGeneration, liveRevision == liveGeneration,
-                  presentationRevision == conversationGeneration else { continue }
+                  presentationRevision == conversationGeneration else { RowMountQueue.shared.release(turn); continue }
             if changed {
+                defer { RowMountQueue.shared.releaseAfterUpdate(turn) }
                 // A canceled projection can finish later. Its identity-guarded
                 // defer must not clear a worker for a subsequent live update.
                 conversationTask?.cancel(); conversationTask = nil; conversationTaskID = nil

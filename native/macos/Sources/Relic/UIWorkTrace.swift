@@ -110,31 +110,57 @@ final class UIWorkTrace: @unchecked Sendable {
     /// lock otherwise. The full version of this timer, a scope begun and
     /// ended for every part, raised the idle phase's CPU from about 0.9% to
     /// 1.1-1.6%; the capture also leaves it off in the idle phase.
+    ///
+    /// Each stage's observers are also split by order, "runloop.<stage>.<part>":
+    /// "early" below -1, "order0" from -1 to 1, "middle" up to 1,999,999,
+    /// "order2m" up to 2,000,001 (Core Animation's commit observer has order
+    /// 2,000,000) and "late" after it. FlushTrace writes this macOS's observers
+    /// and their orders to runloop-observers.txt.
     @MainActor static func observeRunLoop() {
         guard enabled, !observingRunLoop else { return }
         observingRunLoop = true
-        func names(_ activity: CFRunLoopActivity) -> (observers: String?, after: String?) {
+        func stage(_ activity: CFRunLoopActivity) -> String {
             switch activity {
-            case .entry: return ("runloop.observers.entry", "runloop.after.entry")
-            case .beforeTimers: return ("runloop.observers.timers", "runloop.after.timers")
-            case .beforeSources: return ("runloop.observers.sources", "runloop.after.sources")
-            case .beforeWaiting: return ("runloop.observers.waiting", nil)
-            case .afterWaiting: return ("runloop.observers.woke", "runloop.after.woke")
-            default: return ("runloop.observers.exit", nil)
+            case .entry: return "entry"
+            case .beforeTimers: return "timers"
+            case .beforeSources: return "sources"
+            case .beforeWaiting: return "waiting"
+            case .afterWaiting: return "woke"
+            default: return "exit"
+            }
+        }
+        func after(_ activity: CFRunLoopActivity) -> String? {
+            switch activity {
+            case .entry, .beforeTimers, .beforeSources, .afterWaiting: return "runloop.after." + stage(activity)
+            default: return nil
             }
         }
         var part: String?, started = uptime
         func close(_ now: Double) {
             if let name = part, now - started >= 0.001 { record(name, ms: (now - started) * 1000) }
         }
+        var segmentStarted = started, segment = "early"
+        func closeSegment(_ now: Double, _ activity: CFRunLoopActivity, next: String) {
+            if now - segmentStarted >= 0.001 { record("runloop." + stage(activity) + "." + segment, ms: (now - segmentStarted) * 1000) }
+            segmentStarted = now; segment = next
+        }
         let all = CFRunLoopActivity.allActivities.rawValue
         let first = CFRunLoopObserverCreateWithHandler(nil, all, true, CFIndex.min) { _, activity in
-            let now = uptime; close(now); part = names(activity).observers; started = now
-        }
-        let last = CFRunLoopObserverCreateWithHandler(nil, all, true, CFIndex.max) { _, activity in
-            let now = uptime; close(now); part = names(activity).after; started = now
+            let now = uptime; close(now); part = "runloop.observers." + stage(activity); started = now
+            segmentStarted = now; segment = "early"
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), first, .commonModes)
+        let bounds: [(order: CFIndex, next: String)] = [(-1, "order0"), (1, "middle"), (1_999_999, "order2m"), (2_000_001, "late")]
+        for bound in bounds {
+            let observer = CFRunLoopObserverCreateWithHandler(nil, all, true, bound.order) { _, activity in
+                closeSegment(uptime, activity, next: bound.next)
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        }
+        let last = CFRunLoopObserverCreateWithHandler(nil, all, true, CFIndex.max) { _, activity in
+            let now = uptime; closeSegment(now, activity, next: "early")
+            close(now); part = after(activity); started = now
+        }
         CFRunLoopAddObserver(CFRunLoopGetMain(), last, .commonModes)
     }
     @MainActor private static var observingRunLoop = false

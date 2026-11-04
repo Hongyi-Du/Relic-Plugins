@@ -6,7 +6,15 @@ import RelicCore
 /// page or a jump to either end must only insert and remove a few dozen rows,
 /// never the whole loaded history in one AppKit table update.
 struct ConversationWindow: Equatable {
-    static let initial = 24, page = 16, maximum = 72
+    /// A chat opens with 16 built rows: the latest ones and a page above them.
+    /// Another chat's adoption removes or recycles every row of the previous
+    /// window; in CI a switch away from a group chat's 24 rows cost the
+    /// table's batch update 75-142 ms, against about 2 ms between private
+    /// chats (run 41733608162, person-shape). Reading further up adds pages.
+    /// (Removing the previous rows in an update of their own did not help:
+    /// that update took 8-16 ms and the insertion kept the cost, while the
+    /// extra turn delayed the opened chat, run 41741673461.)
+    static let initial = 16, page = 16, maximum = 72
     /// A newly opened chat's List first receives only its latest rows, at
     /// least `tail` and enough by their placeholder heights to fill the
     /// window; the rest of `initial` arrive `step` rows at a time in later
@@ -153,6 +161,10 @@ struct ConversationStream: View {
         let selection: String, version: Int, enabled: Bool, window: String, request: Int
     }
     private var latestID: String? { m.displayLiveItems.isEmpty ? presented.last?.id : "live-end" }
+    /// The height a newly shown chat's latest rows must fill: the List's own
+    /// viewport once it has been measured, not the whole window, so the
+    /// update that adopts another chat's rows inserts fewer table rows.
+    private var fillHeight: CGFloat { keyboard.observedViewportHeight > 100 ? keyboard.observedViewportHeight : m.windowSize.height }
     private var shownRange: Range<Int> { window.range(in: presented, selection: m.selection.key) }
 
     var body: some View {
@@ -196,7 +208,12 @@ struct ConversationStream: View {
                             .listRowSeparator(.hidden).listRowBackground(Color.clear)
                         }
                         if hasLive {
-                            LiveTurnView().padding(.bottom, 24).frame(maxWidth: 880).frame(maxWidth: .infinity)
+                            // Built in a turn of its own, as the latest row, not
+                            // in the update that adopts another chat's rows.
+                            ProgressiveRow(estimatedHeight: 96, workLabel: UIWorkTrace.enabled ? "row.conversation.live" : nil,
+                                           weight: RowMountQueue.budget) { LiveTurnView() }
+                                .environment(\.rowMountPriority, 20)
+                                .padding(.bottom, 24).frame(maxWidth: 880).frame(maxWidth: .infinity)
                                 .background(mount).id("live-end")
                                 .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
@@ -244,17 +261,24 @@ struct ConversationStream: View {
                 // Adopt the published rows in this later turn, then let the
                 // List receive the changed collection before its one semantic
                 // request. It retains the same native viewport.
-                let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
-                if presentedKey != key {
+                if presentedKey != m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count) {
+                    // The List replaces or extends its rows in a display update
+                    // of its own, ahead of the rows waiting to be built and
+                    // after the one being built now (RowMountQueue.adoptPriority).
+                    let turn = UUID()
+                    guard await RowMountQueue.shared.acquire(turn, label: "adopt", priority: RowMountQueue.adoptPriority) else { return }
+                    guard !Task.isCancelled else { RowMountQueue.shared.release(turn); return }
+                    let key = m.selection.key + "#" + String(m.streamVersion) + "#" + String(m.streamRows.count)
                     // Another chat's rows start from the latest few; the rest
                     // of its window is admitted above them in later turns.
                     let anotherChat = !presentedKey.hasPrefix(m.selection.key + "#")
                     UIWorkTrace.untilNextTurn(anotherChat ? "stream.adopt-chat" : "stream.adopt")
                     presented = m.streamRows; presentedKey = key
-                    let tail = ConversationWindow.tailCount(of: presented, filling: m.windowSize.height)
+                    let tail = ConversationWindow.tailCount(of: presented, filling: fillHeight)
                     if anotherChat, window.anchor == nil, window.selection == m.selection.key, window.count > tail {
                         window.count = tail
                     }
+                    RowMountQueue.shared.releaseAfterUpdate(turn)
                     await Task.yield()
                 }
                 await Task.yield()
@@ -324,7 +348,7 @@ struct ConversationStream: View {
                         request(.start, window: end < all.count ? ConversationWindow.pinned(0..<end, in: all, selection: key) : ConversationWindow.showing(0..<end, in: all, selection: key))
                     } else {
                         followsLatest = true; pinsTop = false
-                        request(.latest, window: ConversationWindow(selection: key, count: ConversationWindow.tailCount(of: all, filling: m.windowSize.height)))
+                        request(.latest, window: ConversationWindow(selection: key, count: ConversationWindow.tailCount(of: all, filling: fillHeight)))
                     }
                 }
                 keyboard.geometryChanged = { geometry in
@@ -465,7 +489,7 @@ struct ConversationStream: View {
             // The newest rows are outside the window: show them first, then
             // scroll after the List has received that bounded collection.
             pinsTop = false
-            request(.latest, window: ConversationWindow(selection: m.selection.key, count: ConversationWindow.tailCount(of: all, filling: m.windowSize.height))); return
+            request(.latest, window: ConversationWindow(selection: m.selection.key, count: ConversationWindow.tailCount(of: all, filling: fillHeight))); return
         }
         if let id = latestID { proxy.scrollTo(id, anchor: .bottom) }
     }
