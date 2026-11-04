@@ -112,14 +112,14 @@ def codex_program():
 def _claude_env():
     exe = claude_program()
     if not exe or not exe.lower().endswith(".exe") and os.name == "nt":
-        raise RuntimeError("Claude Code was not found on this computer. Install Claude Code or choose its executable in Settings.")
+        raise RuntimeError(i18n.t("harness.claude_missing"))
     return {"CLAUDE_CODE_EXECUTABLE": exe}
 
 
 def _codex_env():
     exe = codex_program()
     if not exe:
-        raise RuntimeError("Codex was not found on this computer. Install the Codex app or CLI first.")
+        raise RuntimeError(i18n.t("harness.codex_missing"))
     return {"CODEX_PATH": _codex_program(exe)}
 
 
@@ -357,7 +357,7 @@ def launch(harness, extra_env=None):
     else:
         program = spec["command"]()
         if not program:
-            raise RuntimeError("%s was not found on this computer. Install it first." % spec["title"])
+            raise RuntimeError(i18n.t("harness.program_missing", title=spec["title"]))
         argv = [program] + list(spec.get("args") or [])
     env = {k: v for k, v in os.environ.items() if k not in INHERITED}
     env.update(spec["env"]() if spec.get("env") else {})

@@ -2,6 +2,7 @@
 versions of the group chat and its digest (a fake model stands in for `claude -p`), task reports in the snapshot, and
 what installing the App as an application needs (manifest, service worker)."""
 import base64
+import io
 import json
 import os
 import sys
@@ -244,20 +245,45 @@ class Pages(Isolated):
         self.assertTrue(task["done_at"])
 
 
-@unittest.skipUnless(os.name == "nt", "the installed app is looked up in Edge's records on Windows")
-class InstalledApp(unittest.TestCase):
-    def test_the_installed_edge_app_is_found_by_its_start_address(self):
-        app_id, removed = "piamglelmmahgoepgnhjkafieagjbeca", "abcdefghijklmnopabcdefghijklmnop"
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-            profile = Path(tmp) / "Microsoft" / "Edge" / "User Data" / "Default"
-            (profile / "Sync Data" / "LevelDB").mkdir(parents=True)
-            (profile / "Preferences").write_text("{}", encoding="utf-8")
-            record = b"\x01web_apps-dt-%s\xfe\x05\n\"http://127.0.0.1:39321/?source=pwa\x12\x05Relic"
-            (profile / "Sync Data" / "LevelDB" / "000003.log").write_bytes(record % removed.encode() + record % app_id.encode())
-            (profile / "Web Applications" / "Manifest Resources" / app_id).mkdir(parents=True)  # a removed app has none
-            with mock.patch.dict(os.environ, {"LOCALAPPDATA": tmp}):
-                self.assertEqual(relic_app.installed_edge_app(39321), ("Default", app_id))
-                self.assertIsNone(relic_app.installed_edge_app(39400))  # installed for another address
+class InstalledNativeApp(unittest.TestCase):
+    def test_windows_package_executable_is_found_without_browser_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin = root / "package/plugins/relic"
+            executable = root / "package/Relic.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"MZ-native-fixture")
+            with mock.patch.object(relic_app, "ROOT", plugin), \
+                    mock.patch.object(relic_app, "WINDOWS", True), \
+                    mock.patch.dict(os.environ, {"LOCALAPPDATA": tmp, "RELIC_NATIVE_APP": ""}):
+                self.assertEqual(relic_app.native_executable(), executable)
+                executable.write_bytes(b"not a native executable")
+                with self.assertRaisesRegex(RuntimeError, "native Relic App is not installed"):
+                    relic_app.native_executable()
+
+    def test_mac_discovery_rejects_the_old_shell_launcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            executable = home / "Applications/Relic.app/Contents/MacOS/Relic"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"#!/bin/sh\nopen http://127.0.0.1")
+            with mock.patch.object(relic_app, "ROOT", home / "engine/plugins/relic"), \
+                    mock.patch.object(relic_app, "WINDOWS", False), \
+                    mock.patch.object(relic_app.sys, "platform", "darwin"), \
+                    mock.patch.object(Path, "home", return_value=home), \
+                    mock.patch.dict(os.environ, {"RELIC_NATIVE_APP": str(executable)}), \
+                    mock.patch.object(Path, "open", side_effect=FileNotFoundError):
+                with self.assertRaisesRegex(RuntimeError, "native Relic App is not installed"):
+                    relic_app.native_executable()
+            with mock.patch.object(relic_app, "WINDOWS", False), \
+                    mock.patch.dict(os.environ, {"RELIC_NATIVE_APP": str(executable)}), \
+                    mock.patch.object(Path, "open", side_effect=lambda *a, **kw: io.BytesIO(b"#!/bin/sh")):
+                with self.assertRaisesRegex(RuntimeError, "native Relic App is not installed"):
+                    relic_app.native_executable()
+            executable.write_bytes(b"\xcf\xfa\xed\xfe-native-fixture")
+            with mock.patch.object(relic_app, "WINDOWS", False), \
+                    mock.patch.dict(os.environ, {"RELIC_NATIVE_APP": str(executable)}):
+                self.assertEqual(relic_app.native_executable(), executable)
 
 
 if __name__ == "__main__":

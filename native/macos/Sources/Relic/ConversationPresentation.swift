@@ -1,0 +1,227 @@
+import Foundation
+import SwiftUI
+import RelicCore
+
+struct ConversationTimestampContext: Equatable {
+    let language: String
+    let calendar: Calendar
+    let dayStart: Date
+    let dayEnd: Date
+
+    init(language: String, now: Date, calendar: Calendar = .current) {
+        self.language = language; self.calendar = calendar
+        let start = calendar.startOfDay(for: now)
+        dayStart = start
+        dayEnd = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+    }
+
+    func isCurrent(language: String, now: Date, calendar: Calendar = .current) -> Bool {
+        self.language == language && self.calendar == calendar && now >= dayStart && now < dayEnd
+    }
+}
+
+struct ConversationRow: Identifiable {
+    let id: String
+    let item: Node
+    let separator: String?
+    let continued: Bool
+    var preparedBody: PreparedMarkdown? = nil
+    var clockLabel: String? = nil
+    var dayTooltip: String? = nil
+    var timestampContext: ConversationTimestampContext? = nil
+
+    static func prepareReplies(_ items: [Node], words: Words, now: Date) async -> [ConversationRow] {
+        await prepareBodies(build(items, words: words, now: now, separators: false), fromEnd: false)
+    }
+
+    // This async nonisolated entry runs CPU work on the cooperative executor,
+    // never on Model's main actor. Callers retain just one worker per model.
+    static func prepare(messages: [Node], steps: [Node], member: Node, live: [Node], status: Node,
+                        decisions: [Node], words: Words, now: Date, privateChat: Bool) async -> [ConversationRow] {
+        let active = Timeline.activeLive(live, status: status, decisions: decisions)
+        let items = privateChat ? Timeline.conversation(steps: steps, chat: messages, member: member, live: active, words: words) : messages
+        return await prepareBodies(build(items, words: words, now: now), fromEnd: true)
+    }
+    private static func prepareBodies(_ input: [ConversationRow], fromEnd: Bool) async -> [ConversationRow] {
+        var rows = input
+        let indices = fromEnd ? Array(rows.indices.suffix(16)) : Array(rows.indices.prefix(16))
+        // Prepare a bounded initial viewport on the background actor. The
+        // latest row then paints its complete body on its first native mount.
+        for index in indices {
+            guard !Task.isCancelled else { return rows }
+            let item = rows[index].item
+            guard !["notice", "acts", "receipt"].contains(item["type"].text) else { continue }
+            let text = item["body"].text.isEmpty ? item["text"].text : item["body"].text
+            rows[index].preparedBody = await MarkdownPreparation.shared.prepare(text)
+        }
+        return rows
+    }
+    static func build(_ items: [Node], words: Words, now: Date, separators: Bool = true, calendar: Calendar = .current) -> [ConversationRow] {
+        var previous: Node?, previousDate: Date?, lastDay: Date?
+        let clock = DateFormatter(); clock.locale = Locale(identifier: "en_US_POSIX"); clock.timeZone = calendar.timeZone; clock.dateFormat = "HH:mm"
+        let day = DateFormatter(); day.locale = Locale(identifier: words.language); day.timeZone = calendar.timeZone
+        let timestampContext = ConversationTimestampContext(language: words.language, now: now, calendar: calendar)
+        var dayLabels: [Date: String] = [:]
+        func dayLabel(_ date: Date) -> String {
+            let start = calendar.startOfDay(for: date)
+            if let cached = dayLabels[start] { return cached }
+            let label: String
+            if calendar.isDate(date, inSameDayAs: now) { label = words.t("time.today") }
+            else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { label = words.t("time.yesterday") }
+            else {
+                day.setLocalizedDateFormatFromTemplate(calendar.component(.year, from: date) == calendar.component(.year, from: now) ? "MMMMd" : "yMMMMd")
+                label = day.string(from: date)
+            }
+            dayLabels[start] = label
+            return label
+        }
+        return NodeRow.identify(items).map { row in
+            let item = row.node, date = Timeline.date(item["at"])
+            // Reuse this batch's parsed date and formatters. A native row can
+            // be measured repeatedly without parsing its timestamp or creating
+            // Foundation formatters again on the UI thread.
+            let clockLabel = date.map { clock.string(from: $0) } ?? ""
+            let dayTooltip = (date.map(dayLabel) ?? "") + " " + clockLabel
+            var separator: String?
+            if separators, let date {
+                let start = calendar.startOfDay(for: date)
+                if lastDay != start { separator = dayTooltip; lastDay = start; previous = nil }
+                else if let earlier = previousDate, previous != nil, date.timeIntervalSince(earlier) > 20 * 60 { separator = clockLabel; previous = nil }
+            }
+            let continued: Bool
+            if let previous, let date, let earlier = previousDate {
+                continued = previous["type"].text == "message" && previous["from"].text == item["from"].text &&
+                    previous["to"].rows.map(\.text) == item["to"].rows.map(\.text) &&
+                    date.timeIntervalSince(earlier) < 3 * 60 && previous["thread"].isNull
+            } else { continued = false }
+            if item["type"].text != "acts" { previous = item; previousDate = date }
+            return ConversationRow(id: row.id, item: item, separator: separator, continued: continued,
+                                   clockLabel: clockLabel, dayTooltip: dayTooltip, timestampContext: timestampContext)
+        }
+    }
+}
+
+/// Keep the author's avatar first in the native hierarchy, including outgoing
+/// messages. Like the reference grid, visual column placement is independent
+/// from that reading order; text keeps its ordinary left-to-right environment.
+struct MessageColumns: Layout {
+    var mine = false
+    struct Measurement { let width: CGFloat, avatar: CGSize, body: CGSize, bodyWidth: CGFloat }
+    struct Cache { var measurements: [CGFloat: Measurement] = [:] }
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.measurements.removeAll(keepingCapacity: true) }
+    // No subview defines an explicit alignment guide. Without these, SwiftUI's
+    // default merges the subviews' guides, measuring every subview again each
+    // time a parent stack asks this view for its leading or center guide.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
+    private func measurements(_ proposal: ProposedViewSize, _ subviews: Subviews, cache: inout Cache) -> Measurement {
+        let key = proposal.width ?? -.infinity
+        if let value = cache.measurements[key] { return value }
+        let trace = UIWorkTrace.begin("layout.message-columns"); defer { UIWorkTrace.end(trace) }
+        let avatar = subviews[0].sizeThatFits(.unspecified)
+        let available = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil }
+        let bodyWidth = min(720, available.map { max(0, $0 - avatar.width - 10) } ?? subviews[1].sizeThatFits(.unspecified).width)
+        let body = subviews[1].sizeThatFits(ProposedViewSize(width: bodyWidth, height: nil))
+        let value = Measurement(width: available ?? avatar.width + 10 + bodyWidth, avatar: avatar, body: body, bodyWidth: bodyWidth)
+        if cache.measurements.count >= 16 { cache.measurements.removeAll(keepingCapacity: true) }
+        cache.measurements[key] = value
+        return value
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let value = measurements(proposal, subviews, cache: &cache)
+        return CGSize(width: value.width, height: max(value.avatar.height, value.body.height))
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        guard subviews.count == 2 else { return }
+        let value = measurements(ProposedViewSize(width: bounds.width, height: nil), subviews, cache: &cache)
+        subviews[0].place(at: CGPoint(x: mine ? bounds.maxX - value.avatar.width : bounds.minX, y: bounds.minY),
+            anchor: .topLeading, proposal: ProposedViewSize(value.avatar))
+        subviews[1].place(at: CGPoint(x: mine ? bounds.maxX - value.avatar.width - 10 - value.bodyWidth : bounds.minX + value.avatar.width + 10, y: bounds.minY),
+            anchor: .topLeading, proposal: ProposedViewSize(width: value.bodyWidth, height: value.body.height))
+    }
+}
+
+enum ConversationSpacing {
+    static func messageTop(kind: String, continued: Bool, compact: Bool) -> CGFloat {
+        if kind == "notice" { return 8 }
+        if kind == "acts" { return 4 }
+        return continued ? 4 : compact ? 7 : 14
+    }
+    // The reference's block margins collapse: .day's bottom 8px and the
+    // following message's top margin take their maximum, not their sum.
+    static func separatorBottom(kind: String, continued: Bool, compact: Bool) -> CGFloat {
+        max(0, 8 - messageTop(kind: kind, continued: continued, compact: compact))
+    }
+}
+
+// Opening/resizing the inspector changes line wrapping without adding a
+// message. Preserve the current scroll offset through that reflow, just as
+// the reference's applyPanelWidth does. New content at the same viewport can
+// still follow the bottom. A person opening an existing disclosure preserves
+// the current reading position rather than treating it as newly received text.
+struct ConversationScrollFollowing {
+    var followsBottom = true
+    private var contentSize = CGSize.zero
+    private var viewportSize = CGSize.zero
+    private var pendingDisclosure = false
+
+    mutating func disclosureChanged() { pendingDisclosure = true }
+    mutating func contentChanged() { pendingDisclosure = false }
+
+    mutating func observe(content: CGSize, bottom: CGFloat, viewport: CGSize) -> Bool {
+        let heightChanged = abs(content.height - contentSize.height) > 1
+        let reflow = contentSize.width > 0 && abs(content.width - contentSize.width) > 1
+        let resized = viewportSize != .zero && viewport != viewportSize
+        if pendingDisclosure {
+            // TextKit can publish several heights for the same expansion.
+            // Only a real server-content revision ends this interaction;
+            // another layout pass must not masquerade as an incoming message.
+            contentSize = content; viewportSize = viewport
+            followsBottom = bottom - viewport.height < 120
+            return false
+        }
+        let follow = heightChanged && !reflow && !resized && followsBottom
+        if !heightChanged || reflow || resized { followsBottom = bottom - viewport.height < 120 }
+        contentSize = content; viewportSize = viewport
+        return follow
+    }
+}
+
+/// Scroll bookkeeping is used by event handlers, never by the view's layout.
+/// Keeping its mutable value directly in @State invalidated the entire lazy
+/// conversation on every geometry preference, including changes caused by the
+/// same staged insertion/scroll request. Retain its lifetime without publishing
+/// those observations as new view data.
+final class ConversationScrollTracking {
+    private var value = ConversationScrollFollowing()
+    var followsBottom: Bool {
+        get { value.followsBottom }
+        set { value.followsBottom = newValue }
+    }
+    func disclosureChanged() { value.disclosureChanged() }
+    func contentChanged() { value.contentChanged() }
+    func observe(content: CGSize, bottom: CGFloat, viewport: CGSize) -> Bool {
+        value.observe(content: content, bottom: bottom, viewport: viewport)
+    }
+}
+
+private struct ConversationDisclosureKey: EnvironmentKey { static let defaultValue: () -> Void = {} }
+extension EnvironmentValues {
+    var conversationDisclosure: () -> Void {
+        get { self[ConversationDisclosureKey.self] }
+        set { self[ConversationDisclosureKey.self] = newValue }
+    }
+}
+
+extension Model {
+    func conversationRows(_ items: [Node], separators: Bool = true, calendar: Calendar = .current) -> [ConversationRow] {
+        ConversationRow.build(items, words: words, now: displayNow, separators: separators, calendar: calendar)
+    }
+    func readReceipt(_ item: Node) -> String {
+        let others = item["to"].rows.map(\.text).filter { $0 != "human" }
+        let read = item["read_by"].rows.map(\.text).filter { others.contains($0) }
+        return others.count == 1 ? t(read.isEmpty ? "msg.unread" : "msg.read") : t("msg.read_count", ["read": String(read.count), "total": String(others.count)])
+    }
+}

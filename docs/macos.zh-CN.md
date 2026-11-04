@@ -35,10 +35,7 @@ bash install.command --host none --open
 `--host both` 安装，随后重启宿主并审阅、信任 hooks。默认 `--host auto` 向找到的 CLI 注册插件。
 `--configure-only` 只配置下载包，不改宿主设置，也不创建启动器。
 
-安装器创建 **`~/Applications/Relic.app`**，它是指向此目录和选定 Python 的 Finder 启动器，请保留源码
-目录。`--no-shortcut` 跳过创建；`bash install.command --remove-launcher` 只删除 Relic 自己创建的
-启动器，保留宿主注册和组织数据。从新的固定目录重新安装会更新受管理的启动器。这一本地生成的启动器
-不是已经签名的发行应用。
+从[原生构建 artifact](native-install.md)取得编译好的 SwiftUI `Relic.app`，放入 `~/Applications` 后从 Finder 打开。上面的源码包注册共用插件与引擎，不再创建 shell 启动器。`bash install.command --remove-launcher` 仅用于清理旧版受管理启动器，会拒绝删除原生应用等其他目录。宿主仍引用插件源码目录时，请保留该目录。
 
 以下命令中的 `python3` 应当是安装时选定的原生 arm64 Python 3.11+；如果 shell 选择了其他版本，
 请替换为所选解释器的完整路径。上面的 `--open` 会自动使用安装器选定的解释器。
@@ -52,7 +49,7 @@ python3 -X utf8 scripts/open_app.py --no-window
 
 每个 `RELIC_HOME` 只运行一个服务。状态查询不会启动服务；停止与重启会认证保存的服务实例，并等待其
 释放占用锁。重启在端口可用时沿用原端口。对旧版或无法验证的服务，不会只凭保存的 PID 杀进程。
-关闭浏览器窗口不会停止后台服务。停止服务会清理它持有的会话与进程，组织数据仍保留在磁盘上。
+原生 App 退出会停止自己启动的服务，保留原先已运行的服务。停止服务会清理它持有的会话与进程，组织数据仍保留在磁盘上。
 
 所有宿主应共享 `~/.relic` 或显式指定的 `RELIC_HOME`。替换包前先停止服务并备份数据目录。打开旧数据库
 时会在缺失的情况下补充活动路径字段，并保留已有记录；没有结构化路径的历史记录继续使用旧解析方式。
@@ -72,7 +69,7 @@ python3 -X utf8 scripts/open_app.py --no-window
 | --- | --- |
 | CLI 工具和 hooks | 组织、消息、文档、任务与治理共享本地数据库；执行约束需要宿主加载 hooks |
 | App 内的 ACP 成员 | HaochenGu 合并前 v0.4.1 测试中，已登录的 Claude Code 写作者与 Codex 审阅者完成了任务、双向消息和共享文档修订；启动等待指令之后需要明确的任务提示 |
-| 浏览器 App | 查找 Edge/Chrome app 包或打开默认浏览器；Safari/Chromium 交互、剪贴板、输入法和触控板验收尚未完成 |
+| 原生 App | SwiftUI 控件、原生菜单与通知、Apple Speech；键盘、输入法、触控板、麦克风及窗口真机验收仍是最后一道关 |
 | Finder 与 Terminal | 已实现原生文件/目录打开及交互会话启动器，失败会报告；交互验收尚未完成 |
 | 协议路径 | 记录绝对与解析后的路径，使用 NUL 分隔的 Git 路径，按 macOS Unicode 与目标卷的大小写行为匹配；检查符号链接别名并保留 Windows 匹配语义 |
 | Codex Desktop 与 ChatGPT 席位 | 已实现 Unix socket 通信；宿主提供的私有 socket 必须通过所需工具握手，并由宿主授权请求后才可用 |

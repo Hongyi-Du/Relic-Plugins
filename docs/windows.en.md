@@ -12,7 +12,7 @@ pre-upgrade backup to roll back. No v0.7.0 GitHub Release has been published.
 - Windows with Python 3.11+ on PATH. Check `python --version`.
 - Claude Code and/or Codex, installed and signed in (`claude --version`, `codex --version`). The installer adds the plugin to each host whose CLI it finds, including the CLI bundled with the Codex desktop app.
 - Node.js 22+ (with npm) for members that run inside the Relic App: their ACP adapters are installed from the App's Settings → Harness connections (about 70 MB under `~/.relic/acp`).
-- Microsoft Edge (or Chrome) for the App window. Voice input uses Edge's online speech recognition.
+- Install the native WinUI App from the [native build artifact](native-install.md). Voice input uses the installed Windows desktop speech recognizer for en-US or zh-CN and requires desktop microphone access.
 - Waking a Codex chat that is open in the Codex desktop app goes through that app's tool pipe; a CLI-only installation does not provide one. ChatGPT chat members need the ChatGPT desktop app running.
 - Git is only needed for cloning sources or member worktrees. No Docker or third-party Python package is needed.
 
@@ -52,7 +52,7 @@ python scripts/doctor.py
 python -X utf8 scripts/open_app.py
 ```
 
-`doctor.py` reports Python, the Claude Code and Codex CLIs, Node.js, the ACP adapters and the configured MCP server paths. The Relic App runs a local server on 127.0.0.1 (port 39321 or the next free one) and opens a Microsoft Edge (or Chrome) window; the Relic shortcut on the desktop does the same. Click Install in its window bar to install it as an application; afterwards `open_app.py` and the shortcut open the installed application.
+`doctor.py` reports Python, the Claude Code and Codex CLIs, Node.js, the ACP adapters and the configured MCP server paths. The WinUI App owns a local server on 127.0.0.1 (port 39321 or another free port). The desktop shortcut and `open_app.py` open that native application. Install it using the [native installer instructions](native-install.md); the plugin/source installer alone does not include the compiled UI.
 
 To run members inside the App, install the ACP adapters under Settings → Harness connections first, then use Add member. Those members need only Claude Code or Codex, installed and signed in: the App brings Relic into their sessions.
 

@@ -1,0 +1,433 @@
+﻿import AppKit
+import SwiftUI
+import RelicCore
+
+/// Runs the shared deterministic plan against the actual production model,
+/// view tree, native window and scroll view, without visual AX instrumentation.
+@MainActor enum ResponsivenessCapture {
+    static var enabled: Bool { ProcessEnvironment.contains("RELIC_PERF_MANIFEST") }
+    static func run() async {
+        let env = ProcessInfo.processInfo.environment
+        guard env["GITHUB_ACTIONS"] == "true", let path = env["RELIC_PERF_MANIFEST"] else {
+            fputs("Responsiveness capture requires GitHub Actions and a manifest\n", stderr); NSApp.terminate(nil); return
+        }
+        var monitor: ResponsivenessWatchdog?, model: Model?
+        var activeWindow: NSWindow?, captureOutput: URL?
+        var failureState: [String: Any] = [:]
+        var errors: [String] = [], receipts: [[String: Any]] = []
+        var display: CaptureDisplay?
+        var seed = 0, randomSeconds = 0.0, randomActions = 0
+        var phase = PerformancePhase.legacy, fixtureProfile = ""
+        var idleInterval: [String: Any] = [:]
+        do {
+            let manifest = Node(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))))
+            phase = try PerformancePhase(manifest: manifest)
+            fixtureProfile = manifest["fixture"]["profile"].text
+            let output = URL(fileURLWithPath: manifest["output"].text, isDirectory: true)
+            captureOutput = output
+            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            display = try CaptureDisplay(cases: manifest["plan"].rows.filter { $0["kind"].text == "resize" }
+                + [Node(["width": 1440, "height": 900])], output: output)
+            try await Task.sleep(for: .milliseconds(250))
+            seed = manifest["seed"].integer
+            let watchdog = ResponsivenessWatchdog(output: output); monitor = watchdog
+            watchdog.samplesStartup = phase != .workflows
+            watchdog.samplesEarlyStalls = phase != .workflows
+            // Diagnostic switch, history and monkey runs sample 20 s
+            // of the phase instead: sample starts about 20 s late, so the
+            // early-stall and first-stall samples held unrelated later work.
+            let samplesPhase = env["RELIC_PERF_DIAGNOSTIC"] == "true" && [.switchChats, .history, .monkey].contains(phase)
+            if samplesPhase { watchdog.samplesStartup = false; watchdog.samplesEarlyStalls = false; watchdog.samplesFirstStall = false }
+            for old in NSApp.windows { old.orderOut(nil); old.contentView = nil }
+            let fixture = manifest["fixture"]
+            let suite = "Relic.Responsiveness." + UUID().uuidString
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let current = Model(client: try Client(port: fixture["port"].integer, token: fixture["token"].text), defaults: defaults)
+            model = current
+            let window = TracedWindow(contentRect: NSRect(x: 40, y: 60, width: 1440, height: 900),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            activeWindow = window
+            let host = NSHostingView(rootView: MainView().environmentObject(current))
+            host.sizingOptions = []; host.autoresizingMask = [.width, .height]
+            window.contentView = host; WindowChrome.apply(to: window)
+            window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+            await settle()
+            // Framework initialization is complete; all organization loading,
+            // layout, parsing and events are included from this point onward.
+            // The idle phase measures CPU; it does not need the run loop timer.
+            if phase != .idle { UIWorkTrace.observeRunLoop(); FlushTrace.install(output: output) }
+            if watchdog.sampleStartupNow() {
+                startupSamplerSeen = try await waitForSampler("startup-diagnostic", output: output)
+            }
+            watchdog.begin()
+            current.startupStage = { watchdog.action("startup:" + $0) }
+            await current.start()
+            current.startupStage = nil
+            guard current.ready else { throw RelicError.message(current.error) }
+            try await settleConversation(current)
+            // Every run keeps the manifest's order. A diagnostic workflows run
+            // samples the settings dialog where acceptance opens it: warm,
+            // after the large group chat, panes and menus before it. The
+            // sampler arms when the phase reaches that dialog.
+            let plan = manifest["plan"].rows
+            // Diagnostic runs sample the last organization opened by pointer
+            // (the largest in the large profile) from its click on.
+            if env["RELIC_PERF_DIAGNOSTIC"] == "true", phase == .openEveryChat,
+               let last = plan.last(where: { $0["kind"].text == "organization" }) {
+                watchdog.armedStage = last["id"].text + ":organization"
+                watchdog.samplesEarlyStalls = false
+                armedActionID = last["id"].text
+            }
+            if samplesPhase, watchdog.samplePhaseNow(seconds: 20) {
+                phaseSamplerSeen = try await waitForSampler("phase", output: output)
+            }
+            for action in plan {
+                defer {
+                    watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
+                        "actions": receipts, "random_seconds": randomSeconds, "random_actions": randomActions])
+                }
+                if phase == .switchChats, !action["warmup"].flag, !action["switch_index"].isNull {
+                    watchdog.action("switch:" + action["switch_index"].text)
+                } else { watchdog.action(action["id"].text + ":" + action["kind"].text) }
+                do {
+                    let receipt: [String: Any]
+                    if action["kind"].text == "idle", phase == .idle {
+                        guard env["RELIC_PERF_DIAGNOSTIC"] != "true" else {
+                            throw RelicError.message("Idle CPU measurement cannot include diagnostic sampling")
+                        }
+                        current.appMenu = nil; current.sheet = nil
+                        try await settleConversation(current)
+                        let seconds = max(12, action["seconds"].integer)
+                        let began = ProcessInfo.processInfo.systemUptime, beganEpoch = Date().timeIntervalSince1970 * 1000
+                        watchdog.action("idle-measure")
+                        // No screenshot, AX/tree walk, or diagnostic sampler in
+                        // the idle interval. Shared monitoring reads real CPU.
+                        try await Task.sleep(for: .seconds(seconds))
+                        let ended = ProcessInfo.processInfo.systemUptime, endedEpoch = Date().timeIntervalSince1970 * 1000
+                        watchdog.action("idle-complete")
+                        idleInterval = ["start_unix_ms": beganEpoch, "end_unix_ms": endedEpoch,
+                            "start_uptime_seconds": began, "end_uptime_seconds": ended,
+                            "elapsed_seconds": ended - began, "requested_seconds": seconds,
+                            "screenshots": 0, "accessibility_snapshots": 0]
+                        var completed = action.object
+                        completed["idle_seconds"] = ended - began; completed["idle_interval"] = idleInterval
+                        completed["passed"] = true; receipt = completed
+                    } else {
+                        // Which work each scripted action caused: view bodies,
+                        // layouts and native text, counted and timed by name.
+                        let work = UIWorkTrace.shared.counts()
+                        var completed = try await perform(action, model: current, window: window, output: output, phase: phase)
+                        completed["ui_work"] = UIWorkTrace.shared.delta(since: work)
+                        let reading = ReadingPositionTrace.take()
+                        if !reading.isEmpty { completed["reading_position"] = reading }
+                        receipt = completed
+                    }
+                    receipts.append(receipt)
+                    if receipt["passed"] as? Bool == false {
+                        let failures = receipt["errors"] as? [String] ?? ["Native action failed"]
+                        errors.append(contentsOf: failures.map { action["id"].text + ": " + $0 })
+                        if !phase.continuesFailedActions { throw RelicError.message(failures.joined(separator: "; ")) }
+                    }
+                } catch {
+                    if !phase.continuesFailedActions { throw error }
+                    var receipt = action.object; receipt["passed"] = false; receipt["errors"] = [String(describing: error)]
+                    receipts.append(receipt); errors.append(action["id"].text + ": " + String(describing: error))
+                }
+            }
+            if phase == .switchChats {
+                let completed = receipts.filter { $0["warmup"] as? Bool == false && $0["passed"] as? Bool == true && $0["did_switch"] as? Bool == true }
+                let indices = Set(completed.compactMap { $0["switch_index"] as? Int })
+                if completed.count != 200 || indices != Set(0..<200) { errors.append("The 200 distinct measured real chat switches did not complete: \(completed.count)") }
+            }
+            if phase.runsMonkey {
+            let deck = manifest["monkey"].rows
+            guard !deck.isEmpty else { throw RelicError.message("Empty monkey action deck") }
+            let start = ProcessInfo.processInfo.systemUptime
+            var random = UInt64(max(0, seed))
+            repeat {
+                let action = deck[randomActions % deck.count]
+                watchdog.action("monkey:" + action["kind"].text)
+                let work = UIWorkTrace.shared.counts()
+                var receipt = try await perform(action, model: current, window: window, output: output, phase: phase)
+                receipt["ui_work"] = UIWorkTrace.shared.delta(since: work)
+                let reading = ReadingPositionTrace.take()
+                if !reading.isEmpty { receipt["reading_position"] = reading }
+                if receipt["passed"] as? Bool == false { throw RelicError.message((receipt["errors"] as? [String] ?? ["Monkey navigation failed"]).joined(separator: "; ")) }
+                random = random &* 6364136223846793005 &+ 1442695040888963407
+                let targets = ["sidebar", "menu:file", "menu:edit", "menu:view", "menu:help", "pane:overview", "pane:workspace", "pane:files"]
+                let target = action["kind"].text == "menu" ? "menu:" + action["name"].text
+                    : action["kind"].text == "pane" ? "pane:" + action["pane"].text : targets[Int(random % UInt64(targets.count))]
+                current.appMenu = nil; current.sheet = nil; await settle()
+                if phase.usesPointerNavigation, receipt["open_ms"] != nil {
+                    receipt["navigation_pointer_target"] = receipt["pointer_target"]
+                    receipt["navigation_click_events"] = receipt["click_events"]
+                }
+                receipt["pointer_target"] = target
+                let pointerStarted = ProcessInfo.processInfo.systemUptime
+                receipt["click_events"] = try await click(window, target: target)
+                receipt["elapsed_ms"] = (receipt["elapsed_ms"] as? Double ?? 0) + (ProcessInfo.processInfo.systemUptime - pointerStarted) * 1000
+                receipt["id"] = "monkey-\(randomActions)"; receipts.append(receipt)
+                randomActions += 1
+                randomSeconds = ProcessInfo.processInfo.systemUptime - start
+                watchdog.recordActions(["phase": phase.rawValue, "profile": fixtureProfile,
+                    "actions": receipts, "random_seconds": randomSeconds, "random_actions": randomActions])
+            } while randomSeconds < Double(max(180, manifest["seconds"].integer))
+            }
+        } catch {
+            errors.append(String(describing: error))
+            if let window = activeWindow, let output = captureOutput {
+                failureState = RenderReadiness.diagnostic(in: window)
+                failureState["top_gap_pt"] = ConversationKeyboardMount.edgeGap(in: window, atTop: true)
+                failureState["bottom_gap_pt"] = ConversationKeyboardMount.bottomGap(in: window)
+                failureState["scroll_position"] = ConversationKeyboardMount.position(in: window)
+                failureState["conversation_rows"] = model?.streamRows.count
+                failureState["history_pages"] = model?.historyPagesLoaded
+                do { failureState["screenshot"] = try await capture(window, output: output, name: "failure-window.png") }
+                catch { errors.append(String(describing: error)) }
+            }
+        }
+        // Diagnostic only: keep the process until the phase sample is written.
+        if phaseSamplerSeen != nil, let output = captureOutput { try? await waitForSample("phase", output: output) }
+        let independentTruth = !phase.usesPointerNavigation || receipts.filter { ["organization", "group", "private"].contains($0["kind"] as? String ?? "") }
+            .allSatisfy { $0["amendment9_eligible"] as? Bool == true }
+        monitor?.finish(["phase": phase.rawValue, "fixture_profile": fixtureProfile, "profile": fixtureProfile,
+                         "amendment9_eligible": phase != .legacy && env["RELIC_PERF_DIAGNOSTIC"] != "true" && independentTruth,
+                         "actions": receipts, "errors": errors, "random_seconds": randomSeconds,
+                         "random_actions": randomActions, "seed": seed, "idle_interval": idleInterval,
+                         "ui_work": UIWorkTrace.shared.snapshot(), "failure_state": failureState,
+                         "reading_position": ReadingPositionTrace.summary(),
+                         "startup_sampler_seen_after_ms": startupSamplerSeen.map { $0 as Any } ?? NSNull(),
+                         "phase_sampler_seen_after_ms": phaseSamplerSeen.map { $0 as Any } ?? NSNull()])
+        model?.stop(); activeWindow?.orderOut(nil); activeWindow?.contentView = nil; activeWindow?.close()
+        display?.restore(); NSApp.terminate(nil)
+    }
+
+    private static var diagnosedDialog = false
+    private static var armedActionID: String?
+    private static var startupSamplerSeen: Double?, phaseSamplerSeen: Double?
+    /// Diagnostic runs only: wait until a sample just started is actually
+    /// sampling. Its first line comes long before its first sample (about
+    /// 20 s on the CI runners), so the samples that began work 150 ms after
+    /// that line held later, unrelated work instead. Returns how long the
+    /// sampling took to be seen after the line, or nil if it was not seen.
+    @discardableResult
+    private static func waitForSampler(_ name: String, output: URL) async throws -> Double? {
+        let log = output.appendingPathComponent(name + ".sampler.log")
+        let deadline = ProcessInfo.processInfo.systemUptime + 6
+        while ProcessInfo.processInfo.systemUptime < deadline,
+              !((try? String(contentsOf: log, encoding: .utf8))?.contains("Sampling process") ?? false) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let seen = await samplerSuspensions(timeout: 45)
+        try await Task.sleep(for: .milliseconds(300))
+        return seen
+    }
+    /// Diagnostic runs only: how long until sample is seen sampling this
+    /// process (nil if not within the timeout). Each sample suspends the
+    /// whole task; a thread that reads the clock in a loop sees those
+    /// suspensions as regular gaps, about one every 3 ms, which ordinary
+    /// preemption on an otherwise idle process does not produce.
+    private static func samplerSuspensions(timeout: Double) async -> Double? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Double?, Never>) in
+            let thread = Thread {
+                func now() -> Double { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000 }
+                let started = now()
+                var last = started, window = started, gaps = 0
+                while last - started < timeout {
+                    let current = now()
+                    if current - last > 0.00025 { gaps += 1 }
+                    last = current
+                    if current - window >= 0.1 {
+                        if gaps >= 15 { continuation.resume(returning: (current - started) * 1000); return }
+                        gaps = 0; window = current
+                    }
+                }
+                continuation.resume(returning: nil)
+            }
+            thread.qualityOfService = .userInitiated
+            thread.start()
+        }
+    }
+    /// Diagnostic runs only: wait until sample has written its file, so the
+    /// phase cannot end while it is still symbolicating, and the actions
+    /// after it run without the sampler's own load.
+    private static func waitForSample(_ name: String, output: URL) async throws {
+        let log = output.appendingPathComponent(name + ".sampler.log")
+        let deadline = ProcessInfo.processInfo.systemUptime + 90
+        while ProcessInfo.processInfo.systemUptime < deadline,
+              !((try? String(contentsOf: log, encoding: .utf8))?.contains("written to file") ?? false) {
+            try await Task.sleep(for: .milliseconds(250))
+        }
+    }
+    private static func perform(_ action: Node, model m: Model, window: NSWindow, output: URL, phase: PerformancePhase = .legacy) async throws -> [String: Any] {
+        let env = ProcessInfo.processInfo.environment
+        let started = ProcessInfo.processInfo.systemUptime, kind = action["kind"].text
+        var result = action.object
+        m.appMenu = nil; m.sheet = nil
+        switch kind {
+        case "organization", "group", "private":
+            if action["id"].text == armedActionID { armedActionID = nil; try await waitForSampler("armed-action", output: output) }
+            if phase.usesPointerNavigation { return await PerformanceNavigation.open(action, phase: phase, model: m, window: window) }
+            try await m.select(action["org"].text, kind == "private" ? action["member"].text : "")
+            try await settleConversation(m)
+            guard m.organization == action["org"].text else { throw RelicError.message("Organization navigation did not complete") }
+        case "pane": m.setPane(action["pane"].text); try await settleConversation(m)
+        case "resize":
+            window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: CGFloat(action["width"].integer), height: CGFloat(action["height"].integer))), display: true)
+            await settle()
+            result["window_frame"] = ElementCapture.box(window.frame)
+            guard abs(window.frame.width - CGFloat(action["width"].integer)) <= 1,
+                  abs(window.frame.height - CGFloat(action["height"].integer)) <= 1 else {
+                throw RelicError.message("Runner display constrained the requested pressure window size")
+            }
+        case "menu":
+            m.appMenu = action["name"].text; await settle(); m.appMenu = nil; await settle()
+        case "dialog":
+            // Diagnostic runs sample the first dialog from its start. Give the
+            // sampler time to attach before the cold presentation begins.
+            let sampled = env["RELIC_PERF_DIAGNOSTIC"] == "true" && !diagnosedDialog
+            if sampled {
+                // /usr/bin/sample prints its first line long before it takes
+                // its first sample: samples whose dialog opened 150 ms, 3 s and
+                // 10 s after that line held only the idle wait that followed.
+                // Open it once the sample is seen suspending this process.
+                diagnosedDialog = true
+                let seen = try await waitForSampler("first-dialog", output: output)
+                result["sampler_seen_after_ms"] = seen.map { $0 as Any } ?? NSNull()
+            }
+            result["responder_before"] = responder(window)
+            // Wall-clock marks in the stall records' clock: a long probe can
+            // then be placed at the opening request or at the close.
+            result["open_requested_unix_ms"] = Date().timeIntervalSince1970 * 1000
+            switch action["name"].text {
+            case "settings": m.sheet = .settings
+            case "about": m.settingsSection = "about"; m.sheet = .settings
+            case "neworg": m.sheet = .create
+            case "member": m.openMemberForm()
+            case "tasks", "protocols": m.openDetails(action["name"].text)
+            default: throw RelicError.message("Unknown dialog in performance manifest")
+            }
+            try await settleConversation(m); result["responder_open"] = responder(window)
+            result["close_requested_unix_ms"] = Date().timeIntervalSince1970 * 1000
+            m.sheet = nil; try await settleConversation(m); result["responder_after"] = responder(window)
+            result["closed_unix_ms"] = Date().timeIntervalSince1970 * 1000
+            // The dialogs come last in the workflows phase. Without this wait
+            // the phase ended while sample was still symbolicating, and the
+            // runner collected no first-dialog sample.
+            if sampled { try await waitForSample("first-dialog", output: output) }
+        case "scroll-history":
+            try await m.select(action["org"].text); try await settleConversation(m)
+            while m.moreChat {
+                while m.loadingOlder { try await Task.sleep(for: .milliseconds(20)) }
+                guard m.moreChat else { break }
+                let before = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text
+                try scroll(window, toTop: true)
+                // Exercise the production scroll-triggered pager. Directly
+                // calling loadOlder here could pass while the visible history
+                // never advanced, and race the real scroll observer's request.
+                let deadline = ProcessInfo.processInfo.systemUptime + 15
+                while m.moreChat && m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text == before {
+                    guard ProcessInfo.processInfo.systemUptime < deadline else {
+                        throw RelicError.message("Scrolling to the first row did not load the earlier page: pages=\(m.historyPagesLoaded), first=\(before ?? "nil"), topGap=\(ConversationKeyboardMount.edgeGap(in: window, atTop: true) ?? -1), loading=\(m.loadingOlder)")
+                    }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                while m.loadingOlder { try await Task.sleep(for: .milliseconds(20)) }
+                try await settleConversation(m)
+                let after = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].text
+                if m.moreChat && after == before { throw RelicError.message("Older page did not advance") }
+            }
+            try scroll(window, toTop: true); try await settleConversation(m)
+            result["top_screenshot"] = try await capture(window, output: output, name: action["id"].text + "-top.png")
+            guard let topGap = ConversationKeyboardMount.edgeGap(in: window, atTop: true), topGap <= 2 else {
+                throw RelicError.message("History data loaded but its first row is not at the visible top: \(ConversationKeyboardMount.edgeGap(in: window, atTop: true) ?? -1) pt")
+            }
+            result["visible_top_gap_pt"] = topGap
+            let topRows = RenderReadiness.visibleConversationRows(in: window)
+            result["visible_top_rows"] = topRows
+            guard let first = m.streamRows.first?.id, topRows.contains(first) else {
+                throw RelicError.message("History's first message is not actually visible")
+            }
+            result["pages_loaded"] = m.historyPagesLoaded
+            result["oldest_message_id"] = m.messages.first(where: { Int($0["id"].text) != nil })?["id"].integer ?? 0
+            result["history_complete"] = !m.moreChat
+            try scroll(window, toTop: false); try await settleConversation(m)
+            result["bottom_screenshot"] = try await capture(window, output: output, name: action["id"].text + "-bottom.png")
+            guard let bottomGap = ConversationKeyboardMount.bottomGap(in: window), bottomGap <= 2 else {
+                throw RelicError.message("End did not restore the visible latest history row: \(ConversationKeyboardMount.bottomGap(in: window) ?? -1) pt")
+            }
+            result["visible_bottom_gap_pt"] = bottomGap
+            let bottomRows = RenderReadiness.visibleConversationRows(in: window)
+            result["visible_bottom_rows"] = bottomRows
+            guard let last = m.streamRows.last?.id, bottomRows.contains(last) else {
+                throw RelicError.message("History's latest message is not actually visible")
+            }
+        default: throw RelicError.message("Unknown performance action: " + kind)
+        }
+        result["passed"] = true
+        result["target"] = action["org"].text + action["member"].text + action["name"].text + action["pane"].text
+        result["elapsed_ms"] = (ProcessInfo.processInfo.systemUptime - started) * 1000
+        return result
+    }
+    private static func settle() async { try? await Task.sleep(for: .milliseconds(300)) }
+    private static func responder(_ window: NSWindow) -> String { window.firstResponder.map { String(describing: type(of: $0)) } ?? "none" }
+    private static func capture(_ window: NSWindow, output: URL, name: String) async throws -> String {
+        let number = window.windowNumber, file = output.appendingPathComponent(name)
+        try await Task.detached {
+            let process = Process(), errors = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            process.arguments = ["-x", "-o", "-l", String(number), file.path]
+            process.standardOutput = FileHandle.nullDevice; process.standardError = errors
+            try process.run(); process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw RelicError.message("History window capture failed: " + String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+            }
+        }.value
+        return file.lastPathComponent
+    }
+    private static func settleConversation(_ model: Model) async throws {
+        // A completed HTTP request does not mean SwiftUI displayed its rows.
+        // Wait for projection, the real stream's observation, and visible
+        // Markdown tasks, while leaving the main run loop/watchdog running.
+        guard let window = NSApp.keyWindow else { throw RelicError.message("The production window is not active") }
+        try await PerformanceRendering.waitForContent(model, window: window)
+    }
+    private static func click(_ window: NSWindow, target: String) async throws -> Int {
+        guard let root = window.contentView, let bounds = PerformancePointer.bounds[target], bounds.width > 0, bounds.height > 0 else {
+            throw RelicError.message("Native pointer target has no laid-out bounds: " + target)
+        }
+        let before = PerformancePointer.clicks[target, default: 0]
+        let point = root.convert(NSPoint(x: bounds.midX, y: root.isFlipped ? bounds.midY : root.bounds.height - bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else {
+                throw RelicError.message("Could not create native mouse event")
+            }
+            NSApp.postEvent(event, atStart: false)
+        }
+        for _ in 0..<100 {
+            try await Task.sleep(for: .milliseconds(20))
+            let handled = PerformancePointer.clicks[target, default: 0] - before
+            if handled > 0 { await settle(); return handled }
+        }
+        throw RelicError.message("Native control did not handle the pointer click: " + target)
+    }
+    private static func scroll(_ window: NSWindow, toTop: Bool) throws {
+        func find(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView, scroll.accessibilityIdentifier() == ConversationKeyboard.identifier { return scroll }
+            for child in view.subviews { if let found = find(child) { return found } }
+            return nil
+        }
+        guard let root = window.contentView, let scroll = find(root), let document = scroll.documentView else {
+            throw RelicError.message("Production conversation scroll view not found")
+        }
+        if let controller = ConversationKeyboardMount.controller(for: scroll), controller.scrollToEdge != nil {
+            _ = controller.handle(toTop ? .home : .end, modifiers: []); return
+        }
+        let upper: CGFloat = document.isFlipped ? 0 : max(0, document.frame.height - scroll.contentView.bounds.height)
+        let lower: CGFloat = document.isFlipped ? max(0, document.frame.height - scroll.contentView.bounds.height) : 0
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: toTop ? upper : lower)); scroll.reflectScrolledClipView(scroll.contentView)
+    }
+}

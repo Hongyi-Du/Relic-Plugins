@@ -1,20 +1,17 @@
-"""Open the Relic App: start its local server when it is not running, then open its window.
+"""Open the native Relic App, or explicitly manage its shared headless engine.
 
-    python scripts/relic_app.py               server (in the background) + window
+    python scripts/relic_app.py               open the native App (it owns its server)
     python scripts/relic_app.py --no-window   only make sure the server runs
     python scripts/relic_app.py --serve       run the server in this process (what the background start runs)
     python scripts/relic_app.py --status      print JSON status without starting anything
     python scripts/relic_app.py --stop        stop this data folder's authenticated server
     python scripts/relic_app.py --restart     stop and restart, retaining its port when available
 
-The window is the Relic App installed as an application (its Start menu shortcut, or the app Edge records as
-installed for this address); otherwise Microsoft Edge (or Chrome) in app mode with its own profile under ~/.relic, so
-it opens as a separate app window; without either browser the default browser opens the page.
+The window is the installed WinUI or SwiftUI application. There is no browser fallback.
 """
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -190,73 +187,38 @@ def restart_server(port=0, timeout=20):
         return _start_server(port or previous.get("port", 0), timeout)
 
 
-def browser():
-    return platform_support.browser_executable()
-
-
-def installed_shortcut():
-    """The Start menu shortcut the browser made when the person installed the Relic App as an application, if any."""
-    if not WINDOWS:
-        return None
-    menu = Path(os.getenv("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs"
-    for link in sorted(menu.rglob("Relic*.lnk")) if menu.is_dir() else []:
+def native_executable():
+    """Find a compiled native App; never treat the former shell/Finder launcher as one."""
+    override = os.getenv("RELIC_NATIVE_APP")
+    candidates = [Path(override)] if override else []
+    if WINDOWS:
+        candidates.extend([ROOT.parents[1] / "Relic.exe",
+                           Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData/Local")) / "Programs/Relic/Relic.exe"])
+    elif sys.platform == "darwin":
+        candidates.extend(parent for parent in ROOT.parents if parent.suffix == ".app")
+        candidates.extend([Path.home() / "Applications/Relic.app", Path("/Applications/Relic.app")])
+    for candidate in candidates:
+        executable = candidate / "Contents/MacOS/Relic" if candidate.suffix == ".app" else candidate
         try:
-            data = link.read_bytes()
+            with executable.open("rb") as stream:
+                header = stream.read(4)
+            if (WINDOWS and header[:2] == b"MZ") or (not WINDOWS and header in (
+                    b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf")):
+                return executable
         except OSError:
             continue
-        if "--app-id".encode("utf-16-le") in data or b"--app-id" in data:
-            return link
-    return None
+    raise RuntimeError("The native Relic App is not installed. Install the WinUI Windows package or the SwiftUI "
+                       "Relic.app, or set RELIC_NATIVE_APP to its executable. No browser was opened.")
 
 
-def installed_edge_app(port):
-    """(profile, app id) of the Relic App installed in Microsoft Edge for this port, read from Edge's own record of its
-    installed web apps (Edge does not always make a Start menu shortcut). None when it is not installed."""
-    if not WINDOWS:
-        return None
-    root = Path(os.getenv("LOCALAPPDATA", "")) / "Microsoft/Edge/User Data"
-    start = ("http://127.0.0.1:%d/" % port).encode()
-    for prefs in sorted(root.glob("*/Preferences")) if root.is_dir() else []:
-        profile = prefs.parent
-        for record in sorted((profile / "Sync Data" / "LevelDB").glob("*")):
-            try:
-                data = record.read_bytes()
-            except OSError:
-                continue
-            for match in re.finditer(rb"web_apps-dt-([a-p]{32})", data):
-                app_id = match.group(1).decode()
-                # the record's start URL follows its key; an app removed since then has no resources left
-                if start in data[match.end():match.end() + 80] and (profile / "Web Applications" / "Manifest Resources" / app_id).is_dir():
-                    return profile.name, app_id
-    return None
-
-
-def open_window(url):
-    shortcut = installed_shortcut()
-    if shortcut:  # the installed application: its own window and title bar, no browser frame
-        try:
-            platform_support.open_external(str(shortcut))
-            return
-        except (OSError, RuntimeError):
-            pass  # a stale installed shortcut must not prevent the page from opening
-    edge_app = installed_edge_app(int(url.split(":")[2].split("/")[0]))
-    exe = browser()
-    if exe:
-        if edge_app and Path(exe).name.lower() == "msedge.exe":
-            profile, app_id = edge_app
-            args = [exe, "--profile-directory=" + profile, "--app-id=" + app_id]
-        else:
-            profile = data_home() / "app-window"
-            args = [exe, "--app=" + url, "--user-data-dir=" + str(profile), "--window-size=1480,940",
-                    "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"]
-        try:
-            subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             close_fds=True, start_new_session=not WINDOWS,
-                             creationflags=platform_support.creation_flags(0x00000200))
-            return
-        except OSError:
-            pass  # the browser may have moved or been removed after discovery
-    platform_support.open_external(url)
+def open_native_app():
+    executable = native_executable()
+    bundle = executable.parent.parent.parent
+    args = (["/usr/bin/open", str(bundle)] if not WINDOWS and bundle.suffix == ".app" else [str(executable)])
+    subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     close_fds=True, start_new_session=not WINDOWS,
+                     creationflags=platform_support.creation_flags(0x00000200))
+    return str(bundle if not WINDOWS and bundle.suffix == ".app" else executable)
 
 
 def main():
@@ -282,10 +244,15 @@ def main():
     if a.stop:
         print(json.dumps(stop_server()))
         return
+    if not a.no_window and not a.restart and not a.port:
+        print(open_native_app())
+        return
+    if not a.no_window:
+        native_executable()  # fail before creating a headless server when no native App is installed
     info = restart_server(a.port) if a.restart else start_server(a.port)
     url = "http://127.0.0.1:%d/" % int(info["port"])
     if not a.no_window:
-        open_window(url)
+        open_native_app()
     print(url)
 
 

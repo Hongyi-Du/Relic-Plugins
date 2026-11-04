@@ -225,7 +225,10 @@ def read(store, path):
     else:
         return dict(info, kind="binary")
     kind = "markdown" if suffix in (".md", ".markdown") else "json" if suffix == ".json" else "text"
-    return dict(info, kind=kind, text=text, truncated=size > TEXT_LIMIT)
+    result = dict(info, kind=kind, text=text, truncated=size > TEXT_LIMIT)
+    if kind == "json":
+        result["display_text"] = views.json_file_display(text)
+    return result
 
 
 def raw(store, path):

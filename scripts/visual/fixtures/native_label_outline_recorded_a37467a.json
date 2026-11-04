@@ -1,0 +1,471 @@
+{
+    "provenance":  {
+                       "commit":  "a37467a",
+                       "scene":  "en-US-dark-1024x700-group",
+                       "source_file":  "en-US-dark-1024x700-group.xaml.json",
+                       "retained_fields":  [
+                                               "id",
+                                               "type",
+                                               "parent",
+                                               "render_sibling_order",
+                                               "outline_owner_evidence",
+                                               "native_label_surface_evidence"
+                                           ],
+                       "description":  "Unmodified recorded values for NativeLabel xaml-31, production Image xaml-32 and their actual ancestor chain. The historical label contract is null; this fixture must remain unknown."
+                   },
+    "raw_nodes":  [
+                      {
+                          "id":  "xaml-0",
+                          "type":  "Grid",
+                          "parent":  null,
+                          "render_sibling_order":  0,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-0",
+                                                         "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                                                         "own_paint_contract":  "native-panel-background",
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  false,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+                                                                                        {
+                                                                                            "id":  "xaml-1",
+                                                                                            "index":  0,
+                                                                                            "same_parent_object":  true
+                                                                                        },
+                                                                                        {
+                                                                                            "id":  "xaml-119",
+                                                                                            "index":  1,
+                                                                                            "same_parent_object":  true
+                                                                                        },
+                                                                                        {
+                                                                                            "id":  "xaml-133",
+                                                                                            "index":  2,
+                                                                                            "same_parent_object":  true
+                                                                                        }
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     }
+                      },
+                      {
+                          "id":  "xaml-1",
+                          "type":  "NativeRegionGrid",
+                          "parent":  "xaml-0",
+                          "render_sibling_order":  0,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-1",
+                                                         "runtime_type":  "Relic.NativeRegionGrid",
+                                                         "own_paint_contract":  "relic-region-grid-peer-only",
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "local_layout":  {
+                                                                              "source":  "actual local layout Type.BaseType/IsSealed and exact audited source contract",
+                                                                              "owner_id":  "xaml-1",
+                                                                              "base_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                                                                              "is_sealed":  true,
+                                                                              "audited_source":  "native/windows/Relic/NativeRegion.cs#NativeRegionGrid"
+                                                                          },
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  false,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-1",
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+                                                                                        {
+                                                                                            "id":  "xaml-2",
+                                                                                            "index":  0,
+                                                                                            "same_parent_object":  true
+                                                                                        },
+                                                                                        {
+                                                                                            "id":  "xaml-28",
+                                                                                            "index":  1,
+                                                                                            "same_parent_object":  true
+                                                                                        },
+                                                                                        {
+                                                                                            "id":  "xaml-45",
+                                                                                            "index":  2,
+                                                                                            "same_parent_object":  true
+                                                                                        },
+                                                                                        {
+                                                                                            "id":  "xaml-118",
+                                                                                            "index":  3,
+                                                                                            "same_parent_object":  true
+                                                                                        }
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     }
+                      },
+                      {
+                          "id":  "xaml-28",
+                          "type":  "StackPanel",
+                          "parent":  "xaml-1",
+                          "render_sibling_order":  1,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-28",
+                                                         "runtime_type":  "Microsoft.UI.Xaml.Controls.StackPanel",
+                                                         "own_paint_contract":  "native-panel-background",
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  false,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-28",
+                                                                                              "xaml-1",
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+                                                                                        {
+                                                                                            "id":  "xaml-29",
+                                                                                            "index":  0,
+                                                                                            "same_parent_object":  true
+                                                                                        },
+                                                                                        {
+                                                                                            "id":  "xaml-33",
+                                                                                            "index":  1,
+                                                                                            "same_parent_object":  true
+                                                                                        },
+                                                                                        {
+                                                                                            "id":  "xaml-37",
+                                                                                            "index":  2,
+                                                                                            "same_parent_object":  true
+                                                                                        },
+                                                                                        {
+                                                                                            "id":  "xaml-41",
+                                                                                            "index":  3,
+                                                                                            "same_parent_object":  true
+                                                                                        }
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     }
+                      },
+                      {
+                          "id":  "xaml-29",
+                          "type":  "Button",
+                          "parent":  "xaml-28",
+                          "render_sibling_order":  0,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-29",
+                                                         "runtime_type":  "Microsoft.UI.Xaml.Controls.Button",
+                                                         "own_paint_contract":  "native-core-control-template-children-only",
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  true,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-29",
+                                                                                              "xaml-28",
+                                                                                              "xaml-1",
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+                                                                                        {
+                                                                                            "id":  "xaml-30",
+                                                                                            "index":  0,
+                                                                                            "same_parent_object":  true
+                                                                                        }
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     }
+                      },
+                      {
+                          "id":  "xaml-30",
+                          "type":  "ContentPresenter",
+                          "parent":  "xaml-29",
+                          "render_sibling_order":  0,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-30",
+                                                         "runtime_type":  "Microsoft.UI.Xaml.Controls.ContentPresenter",
+                                                         "own_paint_contract":  "native-presenter-fill-border-and-content",
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  false,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-30",
+                                                                                              "xaml-29",
+                                                                                              "xaml-28",
+                                                                                              "xaml-1",
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+                                                                                        {
+                                                                                            "id":  "xaml-31",
+                                                                                            "index":  0,
+                                                                                            "same_parent_object":  true
+                                                                                        }
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     }
+                      },
+                      {
+                          "id":  "xaml-31",
+                          "type":  "NativeLabel",
+                          "parent":  "xaml-30",
+                          "render_sibling_order":  0,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-31",
+                                                         "runtime_type":  "Relic.NativeLabel",
+                                                         "own_paint_contract":  null,
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  false,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-31",
+                                                                                              "xaml-30",
+                                                                                              "xaml-29",
+                                                                                              "xaml-28",
+                                                                                              "xaml-1",
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+                                                                                        {
+                                                                                            "id":  "xaml-32",
+                                                                                            "index":  0,
+                                                                                            "same_parent_object":  true
+                                                                                        }
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     }
+                      },
+                      {
+                          "id":  "xaml-32",
+                          "type":  "Image",
+                          "parent":  "xaml-31",
+                          "render_sibling_order":  0,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-32",
+                                                         "runtime_type":  "Microsoft.UI.Xaml.Controls.Image",
+                                                         "own_paint_contract":  "native-image-content",
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  false,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-32",
+                                                                                              "xaml-31",
+                                                                                              "xaml-30",
+                                                                                              "xaml-29",
+                                                                                              "xaml-28",
+                                                                                              "xaml-1",
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     },
+                          "native_label_surface_evidence":  {
+                                                                "source":  "actual NativeLabel production Image object identity and SurfaceImageSource COM binding",
+                                                                "same_image_object":  true,
+                                                                "surface_binding_same_com_identity":  true,
+                                                                "source_type":  "Microsoft.UI.Xaml.Media.Imaging.SurfaceImageSource",
+                                                                "layout_revision":  7,
+                                                                "surface_revision":  1,
+                                                                "draw_ordinal":  4,
+                                                                "quantity":  "Ownership of the actual text paint surface; not independent image content or proof of final presentation",
+                                                                "owner_id":  "xaml-31"
+                                                            }
+                      }
+                  ]
+}

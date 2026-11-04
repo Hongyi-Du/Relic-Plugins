@@ -1,0 +1,186 @@
+{
+    "provenance":  {
+                       "commit":  "ca8d997",
+                       "scene":  "zh-CN-light-1440x900-group",
+                       "raw_file":  "visual-windows-zh-CN-light-1440x900/zh-CN-light-1440x900-group.xaml.json",
+                       "elements_file":  "visual-windows-zh-CN-light-1440x900/zh-CN-light-1440x900-group.elements.json",
+                       "selection":  "Actual nodes xaml-68 and xaml-118 and their actual first Run; unused geometry/style fields omitted",
+                       "receipt_status":  "This recording predates font_weight_configuration. Tests explicitly add synthetic version-1 receipts; those are not recorded CI measurements."
+                   },
+    "samples":  [
+                    {
+                        "node":  {
+                                     "id":  "xaml-68",
+                                     "parent":  "xaml-67",
+                                     "type":  "TextBlock",
+                                     "text":  "2",
+                                     "bounds":  {
+                                                    "x":  1282,
+                                                    "y":  5.5,
+                                                    "width":  5.751953125,
+                                                    "height":  15
+                                                },
+                                     "visible_bounds":  {
+                                                            "x":  1282,
+                                                            "y":  5.5,
+                                                            "width":  5.751953125,
+                                                            "height":  15
+                                                        },
+                                     "style":  {
+                                                   "font_weight":  700,
+                                                   "font_size":  10,
+                                                   "foreground":  [
+                                                                      255,
+                                                                      255,
+                                                                      255,
+                                                                      255
+                                                                  ]
+                                               }
+                                 },
+                        "run_index":  0,
+                        "run":  {
+                                    "type":  "Run",
+                                    "own_paint_evidence":  {
+                                                               "source":  "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                                                               "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                                                               "owner_id":  "xaml-68",
+                                                               "start_offset":  2,
+                                                               "end_offset":  3,
+                                                               "exact_run_type":  true
+                                                           },
+                                    "text":  "2",
+                                    "start_offset":  2,
+                                    "end_offset":  3,
+                                    "font_size":  10,
+                                    "font_weight":  700,
+                                    "foreground":  [
+                                                       255,
+                                                       255,
+                                                       255,
+                                                       255
+                                                   ],
+                                    "font_family":  "Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC",
+                                    "bounds":  [
+                                                   {
+                                                       "x":  1282.6240234375,
+                                                       "y":  6.87858772277832,
+                                                       "width":  5.751953125,
+                                                       "height":  13.30078125
+                                                   }
+                                               ],
+                                    "geometry_complete":  true,
+                                    "coordinate_space":  "content-window"
+                                },
+                        "canonical":  {
+                                          "id":  "xaml-66",
+                                          "kind":  "badge",
+                                          "text":  "2",
+                                          "style":  {
+                                                        "font_weight":  700
+                                                    }
+                                      },
+                        "text_run_source":  {
+                                                "owner":  "xaml-68",
+                                                "index":  0,
+                                                "start_offset":  2,
+                                                "end_offset":  3
+                                            },
+                        "projection":  {
+                                           "source":  "xaml-68:run:0",
+                                           "owner":  "xaml-66",
+                                           "element":  null,
+                                           "reason":  "single simple control label"
+                                       }
+                    },
+                    {
+                        "node":  {
+                                     "id":  "xaml-118",
+                                     "parent":  "xaml-1",
+                                     "type":  "TextBlock",
+                                     "text":  "秘书处 · 群聊",
+                                     "bounds":  {
+                                                    "x":  684,
+                                                    "y":  11,
+                                                    "width":  72.05810546875,
+                                                    "height":  16.6259765625
+                                                },
+                                     "visible_bounds":  {
+                                                            "x":  684,
+                                                            "y":  11,
+                                                            "width":  72.05810546875,
+                                                            "height":  16.6259765625
+                                                        },
+                                     "style":  {
+                                                   "font_weight":  400,
+                                                   "font_size":  12.5,
+                                                   "foreground":  [
+                                                                      143,
+                                                                      140,
+                                                                      134,
+                                                                      255
+                                                                  ]
+                                               }
+                                 },
+                        "run_index":  0,
+                        "run":  {
+                                    "type":  "Run",
+                                    "own_paint_evidence":  {
+                                                               "source":  "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                                                               "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                                                               "owner_id":  "xaml-118",
+                                                               "start_offset":  2,
+                                                               "end_offset":  10,
+                                                               "exact_run_type":  true
+                                                           },
+                                    "text":  "秘书处 · 群聊",
+                                    "start_offset":  2,
+                                    "end_offset":  10,
+                                    "font_size":  12.5,
+                                    "font_weight":  400,
+                                    "foreground":  [
+                                                       143,
+                                                       140,
+                                                       134,
+                                                       255
+                                                   ],
+                                    "font_family":  "Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC",
+                                    "bounds":  [
+                                                   {
+                                                       "x":  684,
+                                                       "y":  12.16748046875,
+                                                       "width":  72.05810546875,
+                                                       "height":  15.875244140625
+                                                   },
+                                                   {
+                                                       "x":  721.5,
+                                                       "y":  11.3740234375,
+                                                       "width":  9.55810546875,
+                                                       "height":  16.6259765625
+                                                   }
+                                               ],
+                                    "geometry_complete":  true,
+                                    "coordinate_space":  "content-window"
+                                },
+                        "canonical":  {
+                                          "id":  "xaml-118:run:0",
+                                          "kind":  "text",
+                                          "text":  "秘书处 · 群聊",
+                                          "style":  {
+                                                        "font_weight":  400
+                                                    }
+                                      },
+                        "text_run_source":  {
+                                                "owner":  "xaml-118",
+                                                "index":  0,
+                                                "start_offset":  2,
+                                                "end_offset":  10
+                                            },
+                        "projection":  {
+                                           "source":  "xaml-118:run:0",
+                                           "owner":  null,
+                                           "element":  "xaml-118:run:0",
+                                           "reason":  "visible rendered element"
+                                       }
+                    }
+                ]
+}

@@ -1,0 +1,2066 @@
+{
+  "provenance":  {
+    "commit":  "35ac04a",
+    "scene_id":  "zh-CN-light-1440x900-group",
+    "source_directory":  "S:\\Codex\\Outputs\\Relic-native-visual\\parity-35ac04a\\windows-uia-investigation",
+    "raw_file":  "zh-CN-light-1440x900-group.xaml.json",
+    "canonical_file":  "zh-CN-light-1440x900-group.elements.json",
+    "scope":  "Selected original fields from three actual CI SelectorBarItem captures and their canonical projections. Other paint, frame and geometry fields are omitted; this fixture claims no new capture or resolved-font measurement."
+  },
+  "samples":  [
+    {
+      "canonical":  {
+        "id":  "xaml-864",
+        "kind":  "tab",
+        "text":  "直接",
+        "style":  {
+          "font_weight":  400,
+          "rendered_fonts":  null
+        },
+        "evidence":  {
+          "type":  "SelectorBarItem",
+          "label_source":  "xaml-870:run:0",
+          "xaml_font_weight_configuration":  {
+            "version":  1,
+            "source":  "actual XAML text-owner FontWeight.Weight getter",
+            "property":  "Run.FontWeight.Weight",
+            "value":  400,
+            "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+            "source_id":  "xaml-870:run:0",
+            "owner_id":  "xaml-870",
+            "text":  "直接",
+            "raw_style_font_weight":  400,
+            "quantity":  "effective configured request; not resolved render-face weight",
+            "run_index":  0,
+            "start_offset":  2,
+            "end_offset":  4
+          },
+          "xaml_font_weight_binding":  {
+            "source":  "actual XAML text_source selected by existing projection",
+            "canonical_owner_id":  "xaml-864",
+            "source_id":  "xaml-870:run:0",
+            "source_type":  "Run",
+            "text":  "直接",
+            "style_font_weight":  400,
+            "text_run_source":  {
+              "owner":  "xaml-870",
+              "index":  0,
+              "start_offset":  2,
+              "end_offset":  4
+            },
+            "rich_text_runs":  [
+              {
+                "type":  "Run",
+                "own_paint_evidence":  {
+                  "source":  "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "owner_id":  "xaml-870",
+                  "start_offset":  2,
+                  "end_offset":  4,
+                  "exact_run_type":  true
+                },
+                "text":  "直接",
+                "start_offset":  2,
+                "end_offset":  4,
+                "font_size":  12,
+                "font_weight":  400,
+                "font_weight_configuration":  {
+                  "version":  1,
+                  "source":  "actual XAML text-owner FontWeight.Weight getter",
+                  "property":  "Run.FontWeight.Weight",
+                  "value":  400,
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "source_id":  "xaml-870:run:0",
+                  "owner_id":  "xaml-870",
+                  "text":  "直接",
+                  "raw_style_font_weight":  400,
+                  "quantity":  "effective configured request; not resolved render-face weight",
+                  "run_index":  0,
+                  "start_offset":  2,
+                  "end_offset":  4
+                },
+                "foreground":  [
+                  27,
+                  27,
+                  26,
+                  255
+                ],
+                "font_family":  "Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC",
+                "bounds":  [
+                  {
+                    "x":  1267,
+                    "y":  105.38959503173828,
+                    "width":  24,
+                    "height":  15.240234375
+                  }
+                ],
+                "caret_evidence":  [
+                  {
+                    "offset":  2,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1267,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1279,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1279,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  4,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1291,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  }
+                ],
+                "bounds_measurement":  "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
+                "coordinate_space":  "content-window",
+                "geometry_complete":  true
+              }
+            ],
+            "ownership":  {
+              "source_id":  "xaml-870:run:0",
+              "owner_id":  "xaml-864",
+              "reason":  "actual current SelectorBarItem content label"
+            }
+          },
+          "selector_content_label":  {
+            "evidence":  {
+              "contract":  "selectorbar-current-content-label-v1",
+              "source":  "Actual SelectorBarItem.Tag and current ContentPresenter.Content object identity",
+              "owner_id":  "xaml-864",
+              "owner_runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+              "tag_content_id":  "xaml-867",
+              "ui_thread_access":  true,
+              "template_present":  true,
+              "status":  "measured",
+              "errors":  [
+                
+              ],
+              "presenter_ids":  [
+                "xaml-866"
+              ],
+              "actual_subtree":  [
+                {
+                  "id":  "xaml-864",
+                  "parent_id":  null,
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-865",
+                  "parent_id":  "xaml-864",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-866",
+                  "parent_id":  "xaml-865",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.ContentPresenter",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-867",
+                  "parent_id":  "xaml-866",
+                  "child_index":  0,
+                  "runtime_type":  "Relic.NativeShadowPanel",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-868",
+                  "parent_id":  "xaml-867",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-869",
+                  "parent_id":  "xaml-867",
+                  "child_index":  1,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-870",
+                  "parent_id":  "xaml-869",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+                  "captured_parent_matches":  true
+                }
+              ],
+              "text_sources":  [
+                {
+                  "id":  "xaml-870",
+                  "text":  "直接",
+                  "captured_text_matches":  true,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock"
+                }
+              ],
+              "same_subtree_after":  true,
+              "same_tag_after":  true,
+              "same_template_after":  true,
+              "same_presenter_content_after":  true,
+              "tag_in_actual_subtree":  true,
+              "captured_subtree_complete":  true,
+              "paint_surface":  {
+                "contract":  "selectorbar-current-paint-surface-v1",
+                "source":  "Actual Tag Border or exact NativeShadowPanel.Surface and Border.Child object identities",
+                "status":  "measured",
+                "owner_id":  "xaml-864",
+                "content_form":  "shadow-surface",
+                "tag_content_id":  "xaml-867",
+                "surface_id":  "xaml-869",
+                "surface_runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                "shadow_id":  "xaml-867",
+                "shadow_runtime_type":  "Relic.NativeShadowPanel",
+                "label_id":  "xaml-870",
+                "surface_child_is_unique_label":  true,
+                "current_child_parent_matches":  true,
+                "same_surface_after":  true,
+                "same_child_after":  true,
+                "errors":  [
+                  
+                ]
+              }
+            },
+            "status":  "measured",
+            "source_id":  "xaml-870",
+            "text":  "直接"
+          }
+        }
+      },
+      "raw_nodes":  [
+        {
+          "id":  "xaml-864",
+          "parent":  "xaml-863",
+          "type":  "SelectorBarItem",
+          "text":  "直接",
+          "visible_bounds":  {
+            "x":  1258,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  true,
+            "control_template_present":  true,
+            "source":  "Actual runtime XAML base types"
+          },
+          "selector_content_evidence":  {
+            "contract":  "selectorbar-current-content-label-v1",
+            "source":  "Actual SelectorBarItem.Tag and current ContentPresenter.Content object identity",
+            "owner_id":  "xaml-864",
+            "owner_runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+            "tag_content_id":  "xaml-867",
+            "ui_thread_access":  true,
+            "template_present":  true,
+            "status":  "measured",
+            "errors":  [
+              
+            ],
+            "presenter_ids":  [
+              "xaml-866"
+            ],
+            "actual_subtree":  [
+              {
+                "id":  "xaml-864",
+                "parent_id":  null,
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-865",
+                "parent_id":  "xaml-864",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-866",
+                "parent_id":  "xaml-865",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.ContentPresenter",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-867",
+                "parent_id":  "xaml-866",
+                "child_index":  0,
+                "runtime_type":  "Relic.NativeShadowPanel",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-868",
+                "parent_id":  "xaml-867",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-869",
+                "parent_id":  "xaml-867",
+                "child_index":  1,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-870",
+                "parent_id":  "xaml-869",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+                "captured_parent_matches":  true
+              }
+            ],
+            "text_sources":  [
+              {
+                "id":  "xaml-870",
+                "text":  "直接",
+                "captured_text_matches":  true,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock"
+              }
+            ],
+            "same_subtree_after":  true,
+            "same_tag_after":  true,
+            "same_template_after":  true,
+            "same_presenter_content_after":  true,
+            "tag_in_actual_subtree":  true,
+            "captured_subtree_complete":  true,
+            "paint_surface":  {
+              "contract":  "selectorbar-current-paint-surface-v1",
+              "source":  "Actual Tag Border or exact NativeShadowPanel.Surface and Border.Child object identities",
+              "status":  "measured",
+              "owner_id":  "xaml-864",
+              "content_form":  "shadow-surface",
+              "tag_content_id":  "xaml-867",
+              "surface_id":  "xaml-869",
+              "surface_runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+              "shadow_id":  "xaml-867",
+              "shadow_runtime_type":  "Relic.NativeShadowPanel",
+              "label_id":  "xaml-870",
+              "surface_child_is_unique_label":  true,
+              "current_child_parent_matches":  true,
+              "same_surface_after":  true,
+              "same_child_after":  true,
+              "errors":  [
+                
+              ]
+            }
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        },
+        {
+          "id":  "xaml-865",
+          "parent":  "xaml-864",
+          "type":  "Grid",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1258,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-866",
+          "parent":  "xaml-865",
+          "type":  "ContentPresenter",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1258,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        },
+        {
+          "id":  "xaml-867",
+          "parent":  "xaml-866",
+          "type":  "NativeShadowPanel",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1258,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "declared_content_owner":  "xaml-864",
+          "declared_content_source":  "FrameworkElement.Tag UIElement in the actual visual tree",
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-868",
+          "parent":  "xaml-867",
+          "type":  "Grid",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1258,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-869",
+          "parent":  "xaml-867",
+          "type":  "Border",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1258,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-870",
+          "parent":  "xaml-869",
+          "type":  "TextBlock",
+          "text":  "直接",
+          "visible_bounds":  {
+            "x":  1267,
+            "y":  102,
+            "width":  24,
+            "height":  19.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "font_weight_configuration":  {
+            "version":  1,
+            "source":  "actual XAML text-owner FontWeight.Weight getter",
+            "property":  "TextBlock.FontWeight.Weight",
+            "value":  400,
+            "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+            "source_id":  "xaml-870",
+            "owner_id":  "xaml-870",
+            "text":  "直接",
+            "raw_style_font_weight":  400,
+            "quantity":  "effective configured request; not resolved render-face weight"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              {
+                "type":  "Run",
+                "own_paint_evidence":  {
+                  "source":  "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "owner_id":  "xaml-870",
+                  "start_offset":  2,
+                  "end_offset":  4,
+                  "exact_run_type":  true
+                },
+                "text":  "直接",
+                "start_offset":  2,
+                "end_offset":  4,
+                "font_size":  12,
+                "font_weight":  400,
+                "font_weight_configuration":  {
+                  "version":  1,
+                  "source":  "actual XAML text-owner FontWeight.Weight getter",
+                  "property":  "Run.FontWeight.Weight",
+                  "value":  400,
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "source_id":  "xaml-870:run:0",
+                  "owner_id":  "xaml-870",
+                  "text":  "直接",
+                  "raw_style_font_weight":  400,
+                  "quantity":  "effective configured request; not resolved render-face weight",
+                  "run_index":  0,
+                  "start_offset":  2,
+                  "end_offset":  4
+                },
+                "foreground":  [
+                  27,
+                  27,
+                  26,
+                  255
+                ],
+                "font_family":  "Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC",
+                "bounds":  [
+                  {
+                    "x":  1267,
+                    "y":  105.38959503173828,
+                    "width":  24,
+                    "height":  15.240234375
+                  }
+                ],
+                "caret_evidence":  [
+                  {
+                    "offset":  2,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1267,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1279,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1279,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  4,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1291,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  }
+                ],
+                "bounds_measurement":  "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
+                "coordinate_space":  "content-window",
+                "geometry_complete":  true
+              }
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        }
+      ]
+    },
+    {
+      "canonical":  {
+        "id":  "xaml-871",
+        "kind":  "tab",
+        "text":  "透明",
+        "style":  {
+          "font_weight":  400,
+          "rendered_fonts":  null
+        },
+        "evidence":  {
+          "type":  "SelectorBarItem",
+          "label_source":  "xaml-877:run:0",
+          "xaml_font_weight_configuration":  {
+            "version":  1,
+            "source":  "actual XAML text-owner FontWeight.Weight getter",
+            "property":  "Run.FontWeight.Weight",
+            "value":  400,
+            "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+            "source_id":  "xaml-877:run:0",
+            "owner_id":  "xaml-877",
+            "text":  "透明",
+            "raw_style_font_weight":  400,
+            "quantity":  "effective configured request; not resolved render-face weight",
+            "run_index":  0,
+            "start_offset":  2,
+            "end_offset":  4
+          },
+          "xaml_font_weight_binding":  {
+            "source":  "actual XAML text_source selected by existing projection",
+            "canonical_owner_id":  "xaml-871",
+            "source_id":  "xaml-877:run:0",
+            "source_type":  "Run",
+            "text":  "透明",
+            "style_font_weight":  400,
+            "text_run_source":  {
+              "owner":  "xaml-877",
+              "index":  0,
+              "start_offset":  2,
+              "end_offset":  4
+            },
+            "rich_text_runs":  [
+              {
+                "type":  "Run",
+                "own_paint_evidence":  {
+                  "source":  "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "owner_id":  "xaml-877",
+                  "start_offset":  2,
+                  "end_offset":  4,
+                  "exact_run_type":  true
+                },
+                "text":  "透明",
+                "start_offset":  2,
+                "end_offset":  4,
+                "font_size":  12,
+                "font_weight":  400,
+                "font_weight_configuration":  {
+                  "version":  1,
+                  "source":  "actual XAML text-owner FontWeight.Weight getter",
+                  "property":  "Run.FontWeight.Weight",
+                  "value":  400,
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "source_id":  "xaml-877:run:0",
+                  "owner_id":  "xaml-877",
+                  "text":  "透明",
+                  "raw_style_font_weight":  400,
+                  "quantity":  "effective configured request; not resolved render-face weight",
+                  "run_index":  0,
+                  "start_offset":  2,
+                  "end_offset":  4
+                },
+                "foreground":  [
+                  90,
+                  88,
+                  83,
+                  255
+                ],
+                "font_family":  "Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC",
+                "bounds":  [
+                  {
+                    "x":  1311,
+                    "y":  105.38959503173828,
+                    "width":  24,
+                    "height":  15.240234375
+                  }
+                ],
+                "caret_evidence":  [
+                  {
+                    "offset":  2,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1311,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1323,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1323,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  4,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1335,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  }
+                ],
+                "bounds_measurement":  "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
+                "coordinate_space":  "content-window",
+                "geometry_complete":  true
+              }
+            ],
+            "ownership":  {
+              "source_id":  "xaml-877:run:0",
+              "owner_id":  "xaml-871",
+              "reason":  "actual current SelectorBarItem content label"
+            }
+          },
+          "selector_content_label":  {
+            "evidence":  {
+              "contract":  "selectorbar-current-content-label-v1",
+              "source":  "Actual SelectorBarItem.Tag and current ContentPresenter.Content object identity",
+              "owner_id":  "xaml-871",
+              "owner_runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+              "tag_content_id":  "xaml-874",
+              "ui_thread_access":  true,
+              "template_present":  true,
+              "status":  "measured",
+              "errors":  [
+                
+              ],
+              "presenter_ids":  [
+                "xaml-873"
+              ],
+              "actual_subtree":  [
+                {
+                  "id":  "xaml-871",
+                  "parent_id":  null,
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-872",
+                  "parent_id":  "xaml-871",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-873",
+                  "parent_id":  "xaml-872",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.ContentPresenter",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-874",
+                  "parent_id":  "xaml-873",
+                  "child_index":  0,
+                  "runtime_type":  "Relic.NativeShadowPanel",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-875",
+                  "parent_id":  "xaml-874",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-876",
+                  "parent_id":  "xaml-874",
+                  "child_index":  1,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-877",
+                  "parent_id":  "xaml-876",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+                  "captured_parent_matches":  true
+                }
+              ],
+              "text_sources":  [
+                {
+                  "id":  "xaml-877",
+                  "text":  "透明",
+                  "captured_text_matches":  true,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock"
+                }
+              ],
+              "same_subtree_after":  true,
+              "same_tag_after":  true,
+              "same_template_after":  true,
+              "same_presenter_content_after":  true,
+              "tag_in_actual_subtree":  true,
+              "captured_subtree_complete":  true,
+              "paint_surface":  {
+                "contract":  "selectorbar-current-paint-surface-v1",
+                "source":  "Actual Tag Border or exact NativeShadowPanel.Surface and Border.Child object identities",
+                "status":  "measured",
+                "owner_id":  "xaml-871",
+                "content_form":  "shadow-surface",
+                "tag_content_id":  "xaml-874",
+                "surface_id":  "xaml-876",
+                "surface_runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                "shadow_id":  "xaml-874",
+                "shadow_runtime_type":  "Relic.NativeShadowPanel",
+                "label_id":  "xaml-877",
+                "surface_child_is_unique_label":  true,
+                "current_child_parent_matches":  true,
+                "same_surface_after":  true,
+                "same_child_after":  true,
+                "errors":  [
+                  
+                ]
+              }
+            },
+            "status":  "measured",
+            "source_id":  "xaml-877",
+            "text":  "透明"
+          }
+        }
+      },
+      "raw_nodes":  [
+        {
+          "id":  "xaml-871",
+          "parent":  "xaml-863",
+          "type":  "SelectorBarItem",
+          "text":  "透明",
+          "visible_bounds":  {
+            "x":  1302,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  true,
+            "control_template_present":  true,
+            "source":  "Actual runtime XAML base types"
+          },
+          "selector_content_evidence":  {
+            "contract":  "selectorbar-current-content-label-v1",
+            "source":  "Actual SelectorBarItem.Tag and current ContentPresenter.Content object identity",
+            "owner_id":  "xaml-871",
+            "owner_runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+            "tag_content_id":  "xaml-874",
+            "ui_thread_access":  true,
+            "template_present":  true,
+            "status":  "measured",
+            "errors":  [
+              
+            ],
+            "presenter_ids":  [
+              "xaml-873"
+            ],
+            "actual_subtree":  [
+              {
+                "id":  "xaml-871",
+                "parent_id":  null,
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-872",
+                "parent_id":  "xaml-871",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-873",
+                "parent_id":  "xaml-872",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.ContentPresenter",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-874",
+                "parent_id":  "xaml-873",
+                "child_index":  0,
+                "runtime_type":  "Relic.NativeShadowPanel",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-875",
+                "parent_id":  "xaml-874",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-876",
+                "parent_id":  "xaml-874",
+                "child_index":  1,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-877",
+                "parent_id":  "xaml-876",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+                "captured_parent_matches":  true
+              }
+            ],
+            "text_sources":  [
+              {
+                "id":  "xaml-877",
+                "text":  "透明",
+                "captured_text_matches":  true,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock"
+              }
+            ],
+            "same_subtree_after":  true,
+            "same_tag_after":  true,
+            "same_template_after":  true,
+            "same_presenter_content_after":  true,
+            "tag_in_actual_subtree":  true,
+            "captured_subtree_complete":  true,
+            "paint_surface":  {
+              "contract":  "selectorbar-current-paint-surface-v1",
+              "source":  "Actual Tag Border or exact NativeShadowPanel.Surface and Border.Child object identities",
+              "status":  "measured",
+              "owner_id":  "xaml-871",
+              "content_form":  "shadow-surface",
+              "tag_content_id":  "xaml-874",
+              "surface_id":  "xaml-876",
+              "surface_runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+              "shadow_id":  "xaml-874",
+              "shadow_runtime_type":  "Relic.NativeShadowPanel",
+              "label_id":  "xaml-877",
+              "surface_child_is_unique_label":  true,
+              "current_child_parent_matches":  true,
+              "same_surface_after":  true,
+              "same_child_after":  true,
+              "errors":  [
+                
+              ]
+            }
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        },
+        {
+          "id":  "xaml-872",
+          "parent":  "xaml-871",
+          "type":  "Grid",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1302,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-873",
+          "parent":  "xaml-872",
+          "type":  "ContentPresenter",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1302,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        },
+        {
+          "id":  "xaml-874",
+          "parent":  "xaml-873",
+          "type":  "NativeShadowPanel",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1302,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "declared_content_owner":  "xaml-871",
+          "declared_content_source":  "FrameworkElement.Tag UIElement in the actual visual tree",
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-875",
+          "parent":  "xaml-874",
+          "type":  "Grid",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1302,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-876",
+          "parent":  "xaml-874",
+          "type":  "Border",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1302,
+            "y":  100,
+            "width":  42,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-877",
+          "parent":  "xaml-876",
+          "type":  "TextBlock",
+          "text":  "透明",
+          "visible_bounds":  {
+            "x":  1311,
+            "y":  102,
+            "width":  24,
+            "height":  19.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "font_weight_configuration":  {
+            "version":  1,
+            "source":  "actual XAML text-owner FontWeight.Weight getter",
+            "property":  "TextBlock.FontWeight.Weight",
+            "value":  400,
+            "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+            "source_id":  "xaml-877",
+            "owner_id":  "xaml-877",
+            "text":  "透明",
+            "raw_style_font_weight":  400,
+            "quantity":  "effective configured request; not resolved render-face weight"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              {
+                "type":  "Run",
+                "own_paint_evidence":  {
+                  "source":  "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "owner_id":  "xaml-877",
+                  "start_offset":  2,
+                  "end_offset":  4,
+                  "exact_run_type":  true
+                },
+                "text":  "透明",
+                "start_offset":  2,
+                "end_offset":  4,
+                "font_size":  12,
+                "font_weight":  400,
+                "font_weight_configuration":  {
+                  "version":  1,
+                  "source":  "actual XAML text-owner FontWeight.Weight getter",
+                  "property":  "Run.FontWeight.Weight",
+                  "value":  400,
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "source_id":  "xaml-877:run:0",
+                  "owner_id":  "xaml-877",
+                  "text":  "透明",
+                  "raw_style_font_weight":  400,
+                  "quantity":  "effective configured request; not resolved render-face weight",
+                  "run_index":  0,
+                  "start_offset":  2,
+                  "end_offset":  4
+                },
+                "foreground":  [
+                  90,
+                  88,
+                  83,
+                  255
+                ],
+                "font_family":  "Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC",
+                "bounds":  [
+                  {
+                    "x":  1311,
+                    "y":  105.38959503173828,
+                    "width":  24,
+                    "height":  15.240234375
+                  }
+                ],
+                "caret_evidence":  [
+                  {
+                    "offset":  2,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1311,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1323,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1323,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  4,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1335,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  }
+                ],
+                "bounds_measurement":  "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
+                "coordinate_space":  "content-window",
+                "geometry_complete":  true
+              }
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        }
+      ]
+    },
+    {
+      "canonical":  {
+        "id":  "xaml-878",
+        "kind":  "tab",
+        "text":  "秘书优先",
+        "style":  {
+          "font_weight":  400,
+          "rendered_fonts":  null
+        },
+        "evidence":  {
+          "type":  "SelectorBarItem",
+          "label_source":  "xaml-884:run:0",
+          "xaml_font_weight_configuration":  {
+            "version":  1,
+            "source":  "actual XAML text-owner FontWeight.Weight getter",
+            "property":  "Run.FontWeight.Weight",
+            "value":  400,
+            "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+            "source_id":  "xaml-884:run:0",
+            "owner_id":  "xaml-884",
+            "text":  "秘书优先",
+            "raw_style_font_weight":  400,
+            "quantity":  "effective configured request; not resolved render-face weight",
+            "run_index":  0,
+            "start_offset":  2,
+            "end_offset":  6
+          },
+          "xaml_font_weight_binding":  {
+            "source":  "actual XAML text_source selected by existing projection",
+            "canonical_owner_id":  "xaml-878",
+            "source_id":  "xaml-884:run:0",
+            "source_type":  "Run",
+            "text":  "秘书优先",
+            "style_font_weight":  400,
+            "text_run_source":  {
+              "owner":  "xaml-884",
+              "index":  0,
+              "start_offset":  2,
+              "end_offset":  6
+            },
+            "rich_text_runs":  [
+              {
+                "type":  "Run",
+                "own_paint_evidence":  {
+                  "source":  "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "owner_id":  "xaml-884",
+                  "start_offset":  2,
+                  "end_offset":  6,
+                  "exact_run_type":  true
+                },
+                "text":  "秘书优先",
+                "start_offset":  2,
+                "end_offset":  6,
+                "font_size":  12,
+                "font_weight":  400,
+                "font_weight_configuration":  {
+                  "version":  1,
+                  "source":  "actual XAML text-owner FontWeight.Weight getter",
+                  "property":  "Run.FontWeight.Weight",
+                  "value":  400,
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "source_id":  "xaml-884:run:0",
+                  "owner_id":  "xaml-884",
+                  "text":  "秘书优先",
+                  "raw_style_font_weight":  400,
+                  "quantity":  "effective configured request; not resolved render-face weight",
+                  "run_index":  0,
+                  "start_offset":  2,
+                  "end_offset":  6
+                },
+                "foreground":  [
+                  90,
+                  88,
+                  83,
+                  255
+                ],
+                "font_family":  "Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC",
+                "bounds":  [
+                  {
+                    "x":  1355,
+                    "y":  105.38959503173828,
+                    "width":  48,
+                    "height":  15.240234375
+                  }
+                ],
+                "caret_evidence":  [
+                  {
+                    "offset":  2,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1355,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1367,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1367,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  4,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1379,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  4,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1379,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  5,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1391,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  5,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1391,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  6,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1403,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  }
+                ],
+                "bounds_measurement":  "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
+                "coordinate_space":  "content-window",
+                "geometry_complete":  true
+              }
+            ],
+            "ownership":  {
+              "source_id":  "xaml-884:run:0",
+              "owner_id":  "xaml-878",
+              "reason":  "actual current SelectorBarItem content label"
+            }
+          },
+          "selector_content_label":  {
+            "evidence":  {
+              "contract":  "selectorbar-current-content-label-v1",
+              "source":  "Actual SelectorBarItem.Tag and current ContentPresenter.Content object identity",
+              "owner_id":  "xaml-878",
+              "owner_runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+              "tag_content_id":  "xaml-881",
+              "ui_thread_access":  true,
+              "template_present":  true,
+              "status":  "measured",
+              "errors":  [
+                
+              ],
+              "presenter_ids":  [
+                "xaml-880"
+              ],
+              "actual_subtree":  [
+                {
+                  "id":  "xaml-878",
+                  "parent_id":  null,
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-879",
+                  "parent_id":  "xaml-878",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-880",
+                  "parent_id":  "xaml-879",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.ContentPresenter",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-881",
+                  "parent_id":  "xaml-880",
+                  "child_index":  0,
+                  "runtime_type":  "Relic.NativeShadowPanel",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-882",
+                  "parent_id":  "xaml-881",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-883",
+                  "parent_id":  "xaml-881",
+                  "child_index":  1,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                  "captured_parent_matches":  true
+                },
+                {
+                  "id":  "xaml-884",
+                  "parent_id":  "xaml-883",
+                  "child_index":  0,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+                  "captured_parent_matches":  true
+                }
+              ],
+              "text_sources":  [
+                {
+                  "id":  "xaml-884",
+                  "text":  "秘书优先",
+                  "captured_text_matches":  true,
+                  "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock"
+                }
+              ],
+              "same_subtree_after":  true,
+              "same_tag_after":  true,
+              "same_template_after":  true,
+              "same_presenter_content_after":  true,
+              "tag_in_actual_subtree":  true,
+              "captured_subtree_complete":  true,
+              "paint_surface":  {
+                "contract":  "selectorbar-current-paint-surface-v1",
+                "source":  "Actual Tag Border or exact NativeShadowPanel.Surface and Border.Child object identities",
+                "status":  "measured",
+                "owner_id":  "xaml-878",
+                "content_form":  "shadow-surface",
+                "tag_content_id":  "xaml-881",
+                "surface_id":  "xaml-883",
+                "surface_runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                "shadow_id":  "xaml-881",
+                "shadow_runtime_type":  "Relic.NativeShadowPanel",
+                "label_id":  "xaml-884",
+                "surface_child_is_unique_label":  true,
+                "current_child_parent_matches":  true,
+                "same_surface_after":  true,
+                "same_child_after":  true,
+                "errors":  [
+                  
+                ]
+              }
+            },
+            "status":  "measured",
+            "source_id":  "xaml-884",
+            "text":  "秘书优先"
+          }
+        }
+      },
+      "raw_nodes":  [
+        {
+          "id":  "xaml-878",
+          "parent":  "xaml-863",
+          "type":  "SelectorBarItem",
+          "text":  "秘书优先",
+          "visible_bounds":  {
+            "x":  1346,
+            "y":  100,
+            "width":  66,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  true,
+            "control_template_present":  true,
+            "source":  "Actual runtime XAML base types"
+          },
+          "selector_content_evidence":  {
+            "contract":  "selectorbar-current-content-label-v1",
+            "source":  "Actual SelectorBarItem.Tag and current ContentPresenter.Content object identity",
+            "owner_id":  "xaml-878",
+            "owner_runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+            "tag_content_id":  "xaml-881",
+            "ui_thread_access":  true,
+            "template_present":  true,
+            "status":  "measured",
+            "errors":  [
+              
+            ],
+            "presenter_ids":  [
+              "xaml-880"
+            ],
+            "actual_subtree":  [
+              {
+                "id":  "xaml-878",
+                "parent_id":  null,
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.SelectorBarItem",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-879",
+                "parent_id":  "xaml-878",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-880",
+                "parent_id":  "xaml-879",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.ContentPresenter",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-881",
+                "parent_id":  "xaml-880",
+                "child_index":  0,
+                "runtime_type":  "Relic.NativeShadowPanel",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-882",
+                "parent_id":  "xaml-881",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Grid",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-883",
+                "parent_id":  "xaml-881",
+                "child_index":  1,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+                "captured_parent_matches":  true
+              },
+              {
+                "id":  "xaml-884",
+                "parent_id":  "xaml-883",
+                "child_index":  0,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+                "captured_parent_matches":  true
+              }
+            ],
+            "text_sources":  [
+              {
+                "id":  "xaml-884",
+                "text":  "秘书优先",
+                "captured_text_matches":  true,
+                "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock"
+              }
+            ],
+            "same_subtree_after":  true,
+            "same_tag_after":  true,
+            "same_template_after":  true,
+            "same_presenter_content_after":  true,
+            "tag_in_actual_subtree":  true,
+            "captured_subtree_complete":  true,
+            "paint_surface":  {
+              "contract":  "selectorbar-current-paint-surface-v1",
+              "source":  "Actual Tag Border or exact NativeShadowPanel.Surface and Border.Child object identities",
+              "status":  "measured",
+              "owner_id":  "xaml-878",
+              "content_form":  "shadow-surface",
+              "tag_content_id":  "xaml-881",
+              "surface_id":  "xaml-883",
+              "surface_runtime_type":  "Microsoft.UI.Xaml.Controls.Border",
+              "shadow_id":  "xaml-881",
+              "shadow_runtime_type":  "Relic.NativeShadowPanel",
+              "label_id":  "xaml-884",
+              "surface_child_is_unique_label":  true,
+              "current_child_parent_matches":  true,
+              "same_surface_after":  true,
+              "same_child_after":  true,
+              "errors":  [
+                
+              ]
+            }
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        },
+        {
+          "id":  "xaml-879",
+          "parent":  "xaml-878",
+          "type":  "Grid",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1346,
+            "y":  100,
+            "width":  66,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-880",
+          "parent":  "xaml-879",
+          "type":  "ContentPresenter",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1346,
+            "y":  100,
+            "width":  66,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        },
+        {
+          "id":  "xaml-881",
+          "parent":  "xaml-880",
+          "type":  "NativeShadowPanel",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1346,
+            "y":  100,
+            "width":  66,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "declared_content_owner":  "xaml-878",
+          "declared_content_source":  "FrameworkElement.Tag UIElement in the actual visual tree",
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-882",
+          "parent":  "xaml-881",
+          "type":  "Grid",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1346,
+            "y":  100,
+            "width":  66,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  true,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-883",
+          "parent":  "xaml-881",
+          "type":  "Border",
+          "text":  "",
+          "visible_bounds":  {
+            "x":  1346,
+            "y":  100,
+            "width":  66,
+            "height":  23.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              
+            ]
+          },
+          "style":  {
+            "font_weight":  null
+          }
+        },
+        {
+          "id":  "xaml-884",
+          "parent":  "xaml-883",
+          "type":  "TextBlock",
+          "text":  "秘书优先",
+          "visible_bounds":  {
+            "x":  1355,
+            "y":  102,
+            "width":  48,
+            "height":  19.199996948242188
+          },
+          "hidden_reason":  null,
+          "render_type_evidence":  {
+            "is_panel":  false,
+            "is_shape":  false,
+            "is_content_control":  false,
+            "is_control":  false,
+            "control_template_present":  null,
+            "source":  "Actual runtime XAML base types"
+          },
+          "font_weight_configuration":  {
+            "version":  1,
+            "source":  "actual XAML text-owner FontWeight.Weight getter",
+            "property":  "TextBlock.FontWeight.Weight",
+            "value":  400,
+            "runtime_type":  "Microsoft.UI.Xaml.Controls.TextBlock",
+            "source_id":  "xaml-884",
+            "owner_id":  "xaml-884",
+            "text":  "秘书优先",
+            "raw_style_font_weight":  400,
+            "quantity":  "effective configured request; not resolved render-face weight"
+          },
+          "layout":  {
+            "rich_text_runs":  [
+              {
+                "type":  "Run",
+                "own_paint_evidence":  {
+                  "source":  "actual TextElement runtime type and owner ContentStart/ContentEnd range",
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "owner_id":  "xaml-884",
+                  "start_offset":  2,
+                  "end_offset":  6,
+                  "exact_run_type":  true
+                },
+                "text":  "秘书优先",
+                "start_offset":  2,
+                "end_offset":  6,
+                "font_size":  12,
+                "font_weight":  400,
+                "font_weight_configuration":  {
+                  "version":  1,
+                  "source":  "actual XAML text-owner FontWeight.Weight getter",
+                  "property":  "Run.FontWeight.Weight",
+                  "value":  400,
+                  "runtime_type":  "Microsoft.UI.Xaml.Documents.Run",
+                  "source_id":  "xaml-884:run:0",
+                  "owner_id":  "xaml-884",
+                  "text":  "秘书优先",
+                  "raw_style_font_weight":  400,
+                  "quantity":  "effective configured request; not resolved render-face weight",
+                  "run_index":  0,
+                  "start_offset":  2,
+                  "end_offset":  6
+                },
+                "foreground":  [
+                  90,
+                  88,
+                  83,
+                  255
+                ],
+                "font_family":  "Segoe UI Variable Text, Segoe UI, PingFang SC, Microsoft YaHei UI, Noto Sans SC",
+                "bounds":  [
+                  {
+                    "x":  1355,
+                    "y":  105.38959503173828,
+                    "width":  48,
+                    "height":  15.240234375
+                  }
+                ],
+                "caret_evidence":  [
+                  {
+                    "offset":  2,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1355,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1367,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  3,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1367,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  4,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1379,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  4,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1379,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  5,
+                    "direction":  "Forward",
+                    "bounds":  {
+                      "x":  1391,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  5,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1391,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  },
+                  {
+                    "offset":  6,
+                    "direction":  "Backward",
+                    "bounds":  {
+                      "x":  1403,
+                      "y":  105.38959503173828,
+                      "width":  0,
+                      "height":  15.240234375
+                    }
+                  }
+                ],
+                "bounds_measurement":  "Per-line text advance envelope of actual forward/backward TextPointer caret rectangles including both Run boundaries",
+                "coordinate_space":  "content-window",
+                "geometry_complete":  true
+              }
+            ]
+          },
+          "style":  {
+            "font_weight":  400
+          }
+        }
+      ]
+    }
+  ]
+}

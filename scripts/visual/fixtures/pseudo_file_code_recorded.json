@@ -1,0 +1,31 @@
+{
+  "sources": {
+    "old_elements": "S:/Codex/Outputs/Relic-native-visual/parity-4e18fc3/reference-macos-en-US-light/en-US-light-1440x900-file-code.elements.json",
+    "current_dom": "S:/Codex/Outputs/Relic-native-visual/parity-2cb073c/reference-zh-CN-light/zh-CN-light-1440x900-file-code.dom.json",
+    "current_elements": "S:/Codex/Outputs/Relic-native-visual/parity-2cb073c/reference-zh-CN-light/zh-CN-light-1440x900-file-code.elements.json",
+    "producer": "https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/core/inspector/inspector_dom_snapshot_agent.cc#L649",
+    "text_box_offsets": "https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/core/layout/layout_text.cc#L326",
+    "string_code_units": "https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/platform/wtf/text/wtf_string.h#L174",
+    "quantity": "Selected original scalar records; indexes are original snapshot indexes, not a reconstructed browser capture. Text boxes are layout fragments, not glyph ink."
+  },
+  "old_elements": [
+    {"id":"dom-344:text-0","kind":"text","text":"def review(platform: str) -> str:","order":21,"region":"right-pane","parent":"dom-343","bounds":{"x":981,"y":173.9375,"width":238.421875,"height":14}},
+    {"id":"dom-344::before","kind":"text","text":"1","order":22,"region":"right-pane","parent":"dom-343","bounds":{"x":959.765625,"y":173.9375,"width":7.234375,"height":14}},
+    {"id":"dom-345","kind":"card","text":"","order":23,"region":"right-pane","parent":"dom-343","bounds":{"x":921,"y":191.125,"width":519,"height":19.1875}},
+    {"id":"dom-345:text-0","kind":"text","text":"    \"\"\"Keep evidence next to each decision.\"\"\"","order":24,"region":"right-pane","parent":"dom-345","bounds":{"x":981,"y":193.125,"width":332.34375,"height":14}},
+    {"id":"dom-345::before","kind":"text","text":"2","order":25,"region":"right-pane","parent":"dom-345","bounds":{"x":959.765625,"y":193.125,"width":7.234375,"height":14}},
+    {"id":"dom-346:text-0","kind":"text","text":"    return f\"Ready to review: {platform}\"","order":26,"region":"right-pane","parent":"dom-343","bounds":{"x":981,"y":212.3125,"width":296.21875,"height":14}},
+    {"id":"dom-346::before","kind":"text","text":"3","order":27,"region":"right-pane","parent":"dom-343","bounds":{"x":959.765625,"y":212.3125,"width":7.234375,"height":14}}
+  ],
+  "pseudo_node": {"index":508,"backend_node_id":513,"node_type":1,"node_name":"::before","parent_index":507},
+  "layout_rows": [
+    {"layout_index":402,"node_index":508,"bounds":[921,171.9375,60,19.1875],"text_index":-1,"text":null,"paint_order":103,"client_rect":[0,0,60,19],"offset_rect":[0,132,60,19],"scroll_rect":[0,0,60,19]},
+    {"layout_index":403,"node_index":508,"bounds":[959.765625,173.9375,7.234375,14],"text_index":123,"text":"1","paint_order":103,"client_rect":[0,0,60,19],"offset_rect":[0,132,60,19],"scroll_rect":[0,0,60,19]},
+    {"layout_index":404,"node_index":509,"bounds":[981,173.9375,238.421875,14],"text_index":401,"text":"def review(platform: str) -> str:","paint_order":103}
+  ],
+  "text_boxes": [
+    {"index":107,"layout_index":403,"bounds":[959.765625,173.9375,7.234375,14],"start":0,"length":1},
+    {"index":108,"layout_index":404,"bounds":[981,173.9375,238.421875,14],"start":0,"length":33}
+  ],
+  "prior_projection": {"bounds":null,"selected_layout_indices":[],"projection_reason":"unresolved-pseudo-layout","failure":"Actual pseudo layout has multiple distinct positive-area boxes; their union is not an independently measured pseudo rectangle."}
+}

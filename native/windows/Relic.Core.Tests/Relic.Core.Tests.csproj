@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0</TargetFramework><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Relic/NativePathLineBreaks.cs" Link="NativePathLineBreaks.cs" />
+    <Compile Include="../Relic/NativeGlyphBounds.cs" Link="NativeGlyphBounds.cs" />
+    <Compile Include="../Relic/NativePathCoordinates.cs" Link="NativePathCoordinates.cs" />
+    <Compile Include="../Relic/NativeSidebarOrganization.cs" Link="NativeSidebarOrganization.cs" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <ProjectReference Include="../Relic.Core/Relic.Core.csproj" />
+  </ItemGroup>
+</Project>

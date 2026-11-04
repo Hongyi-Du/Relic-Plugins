@@ -1,0 +1,61 @@
+name: Native adaptive windows
+on:
+  push:
+    branches: [native-apps, native-macos]
+    paths:
+      - 'native/**'
+      - 'scripts/visual/titlebar_capture.py'
+      - '.github/workflows/native-window.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: window-sizing-${{ github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pillow
+      - run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
+      - name: Prepare the CI desktop
+        run: |
+          Set-TimeZone -Id UTC
+          ./scripts/visual/windows-display.ps1
+      - name: Capture four complete windows including native caption buttons
+        run: python -X utf8 scripts/visual/titlebar_capture.py --client windows --exe native-build/windows/Relic.exe --window-sizing --output visual/window-windows
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Relic-window-Windows
+          path: visual/window-windows
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pillow
+      - run: swift build --package-path native/macos -c release --arch arm64
+      - run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output native-build/window-macos
+      - name: Capture four complete macOS windows with screencapture
+        shell: bash
+        run: |
+          for binary in native-build/window-macos/*/Relic.app/Contents/MacOS/Relic; do
+            python3 scripts/visual/titlebar_capture.py --client macos --exe "$binary" --window-sizing --output visual/window-macos
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Relic-window-macOS
+          path: visual/window-macos

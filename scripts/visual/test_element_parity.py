@@ -1,0 +1,850 @@
+"""Pure fixture tests for the strict element gate. Run in CI only.
+
+No subprocess, UI, application server, network or desktop automation is used.
+"""
+from copy import deepcopy
+import ast
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from element_parity import (CATEGORIES, STATE_FIELDS, compare_elements, delta_e,
+                            expected_cases, geometry_tolerance, image_info, match_elements,
+                            outlines, run, validate_capture, has_font_glyph)
+from image_paint import decode_svg_bytes
+
+
+def with_weight_measurements(item, configured=400, resolved=400):
+    item["evidence"]["font_weight_quantities"] = {
+        "version": 1, "applicable": bool(item["text"]) or item["kind"] == "text" or has_font_glyph(item), "owner": item["id"],
+        "legacy": {"value": item["style"]["font_weight"], "quantity": "fixture provider value"},
+        "configured": {"value": configured, "source": "independent test fixture request", "raw": {"weight": configured}},
+        "resolved": {"source_span_complete": True, "faces": [
+            {"family_name": font["family_name"], "postscript_name": font.get("postscript_name"),
+             "value": resolved, "source": "independent test fixture actual face", "raw": {"measured_wght": resolved}}
+            for font in item["style"]["rendered_fonts"]]}}
+    return item
+
+
+def element(eid="r0", text="今天 11:00", order=0, kind="text", region="conversation"):
+    return with_weight_measurements({"id": eid, "parent": None, "region": region, "order": order, "kind": kind,
+            "text": text, "name": "", "bounds": {"x": 10., "y": 12., "width": 100., "height": 20.},
+            "style": {"font_size": 13., "font_weight": 400, "foreground": [27, 27, 26, 255],
+                      "background": [0, 0, 0, 0], "border_color": [0, 0, 0, 0], "border_width": 0, "corner_radius": 0,
+                      "border_widths": [0, 0, 0, 0], "border_colors": [[0, 0, 0, 0] for _ in range(4)], "corner_radii": [0, 0, 0, 0],
+                      "border_styles": ["none"] * 4,
+                      "opacity": 1, "background_image": "none", "shadow": [], "outline": "none",
+                      "rendered_fonts": [{"family_name": "Fixture Sans", "postscript_name": "FixtureSans-Regular", "glyph_count": 8, "is_custom_font": False}]},
+            "state": {key: None for key in STATE_FIELDS},
+            "layout": {"wrap": "none", "truncation": "none", "line_count": 1, "break_strategy_version": 1,
+                       "normal_break_strategy": "none" if text or kind == "text" else None,
+                       "emergency_break_strategy": "none" if text or kind == "text" else None}, "icon": None,
+            "evidence": {"source": "test-only fixture", "outline": {"absence_proven": True, "source": "synthetic fixture with no outline"},
+                         "line_break_configuration": {"source": "synthetic independently measured no-wrap fixture", "owner": eid,
+                                                      "raw": {"fixture_policy": "NoWrap"}, "applicable": bool(text) or kind == "text",
+                                                      "reason": "Fixture text ownership follows the unchanged text predicate."},
+                         "text_bounds": [{"x": 10., "y": 12., "width": 100., "height": 20.}]}})
+
+
+def capture(client="reference", elements=None, scene="zh-CN-light-1440x900-group", viewport=None):
+    elements = elements if elements is not None else [element()]
+    data = {"schema_version": 1, "client": "reference" if client == "reference-macos" else client, "scene_id": scene,
+            "viewport": viewport or {"width": 1440, "height": 900, "scale": 1},
+            "extraction_errors": [], "coverage": {"raw_nodes": len(elements), "emitted_elements": len(elements), "unmeasured": []},
+            "elements": elements}
+    if client in ("reference", "reference-macos"):
+        data["reference_environment"] = {"platform": "macos" if client == "reference-macos" else "windows",
+                                         "browser": {"name": "fixture-browser", "version": "1"}, "fonts": ["fixture font evidence"]}
+    return data
+
+
+def vector_image_fixture():
+    # Synthetic independently captured content, not an approved icon mapping.
+    return decode_svg_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">'
+                            b'<rect width="20" height="20" rx="3" fill="#123456"/>'
+                            b'<path d="M1 2L3 4Z" fill="#ffffff"/>'
+                            b'<circle cx="12" cy="13" r="2" fill="#abcdef"/></svg>')
+
+
+class ElementComparisonTests(unittest.TestCase):
+    def test_unknown_glyph_bounds_show_only_a_dashed_audit_envelope(self):
+        item = element()
+        item["bounds"] = {axis: None for axis in ("x", "y", "width", "height")}
+        item["evidence"]["clipped_range_envelope"] = {"x": 10, "y": 12, "width": 80, "height": 20}
+        rendered = outlines([item], {}, {"width": 1440, "height": 900}, None, "Reference")
+        self.assertIn('stroke-dasharray="5 3"', rendered)
+        self.assertIn("UNMEASURED", rendered)
+        self.assertIn("not actual glyph bounds", rendered)
+        self.assertTrue(compare_elements([item], [element("native")])["geometry_out_of_tolerance"])
+        self.assertTrue(validate_capture(capture(elements=[item]), "reference", "zh-CN-light-1440x900-group", {"width": 1440, "height": 900, "scale": 1}))
+
+    def test_identical_independent_ids_match(self):
+        a, b = element(), element("unrelated-native-id")
+        result = compare_elements([a], [b])
+        self.assertEqual(result["matched_elements"], 1)
+        self.assertTrue(all(not result[key] for key in CATEGORIES))
+
+    def test_missing_extra_and_duplicate_text_are_one_to_one(self):
+        refs = [element("r0", "same", 0), element("r1", "same", 1), element("r2", "third", 2)]
+        natives = [element("n0", "same", 0)]
+        pairs, missing, extra = match_elements(refs, natives)
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(len(missing), 2)
+        self.assertEqual(extra, [])
+        result = compare_elements(natives, refs)
+        self.assertEqual(len(result["extra"]), 2)
+
+    def test_exact_text_not_whitespace_or_date_normalized(self):
+        for changed in ("今天  11:00", "2026/10/29 11:00", "今天 11:00 ", "Today 11:00"):
+            with self.subTest(changed=changed):
+                result = compare_elements([element()], [element("n", changed)])
+                self.assertTrue(result["text_mismatch"])
+                self.assertEqual(result["matched_elements"], 0)
+
+    def test_accessible_name_preserved(self):
+        a, b = element(), element("n")
+        a["name"], b["name"] = "Send", "Submit"
+        self.assertTrue(compare_elements([a], [b])["text_mismatch"])
+
+    def test_small_geometry_inclusive_threshold(self):
+        a, b = element(), element("n")
+        b["bounds"]["x"] += 4
+        self.assertFalse(compare_elements([a], [b])["geometry_out_of_tolerance"])
+        b["bounds"]["x"] += .001
+        self.assertTrue(compare_elements([a], [b])["geometry_out_of_tolerance"])
+
+    def test_large_geometry_uses_reference_axis_not_native_axis(self):
+        a, b = element(), element("n")
+        a["bounds"]["width"] = b["bounds"]["width"] = 200
+        b["bounds"]["x"] += 6
+        self.assertFalse(compare_elements([a], [b])["geometry_out_of_tolerance"])
+        b["bounds"]["x"] += .001
+        self.assertTrue(compare_elements([a], [b])["geometry_out_of_tolerance"])
+        self.assertEqual(geometry_tolerance(130), 4)
+        self.assertAlmostEqual(geometry_tolerance(131), 3.93)
+
+    def test_font_radius_and_weight_thresholds(self):
+        a, b = element(), element("n")
+        b["style"]["font_size"] += .5
+        b["style"]["corner_radius"] += 1
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["font_size"] += .001
+        b["style"]["corner_radius"] += .001
+        b["style"]["font_weight"] += 1
+        with_weight_measurements(b, configured=401)
+        result = compare_elements([a], [b])
+        self.assertEqual({x["field"] for x in result["style_out_of_tolerance"]}, {"font_size", "corner_radius", "font_weight.configured"})
+
+    def test_lab_distance_known_endpoints_and_alpha_not_ignored(self):
+        self.assertAlmostEqual(delta_e([0, 0, 0, 255], [255, 255, 255, 255]), 100, places=3)
+        self.assertEqual(delta_e([12, 30, 200, 255], [12, 30, 200, 255]), 0)
+        a, b = element(), element("n")
+        b["style"]["foreground"][3] = 254
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["foreground"] = [255, 255, 255, 255]
+        self.assertGreater(compare_elements([a], [b])["style_out_of_tolerance"][0]["delta_e_76"], 3)
+
+    def test_color_distance_boundary(self):
+        a, b = element(), element("n")
+        a["style"]["foreground"] = [0, 0, 0, 255]
+        # A neutral sRGB channel yielding Lab L*=3 sits exactly at DeltaE=3.
+        # Solve using bisection against the actual sRGB matrix, then test both
+        # sides independently of comparison's pass/fail decision.
+        low, high = 0., 255.
+        for _ in range(50):
+            mid = (low + high) / 2
+            if delta_e([0, 0, 0, 255], [mid, mid, mid, 255]) < 3: low = mid
+            else: high = mid
+        b["style"]["foreground"] = [low - .0001] * 3 + [255]
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["foreground"] = [high + .0001] * 3 + [255]
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_states_and_layout_are_exact(self):
+        for field in STATE_FIELDS:
+            with self.subTest(state=field):
+                a, b = element(), element("n")
+                a["state"][field], b["state"][field] = False, True
+                self.assertTrue(compare_elements([a], [b])["state_mismatch"])
+        for field, changed in (("normal_break_strategy", "word"), ("emergency_break_strategy", "break-unbreakable"),
+                               ("truncation", "ellipsis"), ("line_count", 2)):
+            a, b = element(), element("n"); b["layout"][field] = changed
+            self.assertTrue(compare_elements([a], [b])["layout_mismatch"])
+
+    def test_region_kind_and_order_cannot_pass_by_text(self):
+        a, b = element(), element("n", region="sidebar")
+        self.assertTrue(compare_elements([a], [b])["region_mismatch"])
+        b["region"], b["kind"] = "conversation", "link"
+        self.assertTrue(compare_elements([a], [b])["kind_mismatch"])
+        refs = [element("r0", "first", 0), element("r1", "second", 1)]
+        natives = [element("n0", "second", 0), element("n1", "first", 1)]
+        self.assertEqual(len(compare_elements(refs, natives)["order_mismatch"]), 2)
+
+    def test_unapproved_icon_difference_fails(self):
+        a, b = element(), element("n")
+        a["icon"] = {"source": "svg", "glyph": "M0,0L10,10"}
+        b["icon"] = {"source": "font", "glyph": "E123"}
+        self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_vector_image_key_order_is_not_a_paint_difference(self):
+        a, b = element(), element("n")
+        a["icon"] = vector_image_fixture()
+        def reversed_keys(value):
+            if isinstance(value, dict):
+                return {key: reversed_keys(item) for key, item in reversed(list(value.items()))}
+            return [reversed_keys(item) for item in value] if isinstance(value, list) else value
+        b["icon"] = reversed_keys(a["icon"])
+        self.assertFalse(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_vector_image_layer_color_and_path_changes_are_exact_mismatches(self):
+        a, b = element(), element("n")
+        a["icon"] = vector_image_fixture()
+        changed = deepcopy(a["icon"]); changed["glyph"]["layers"].reverse()
+        color = deepcopy(a["icon"]); color["glyph"]["layers"][0]["fill"]["color"][0] += 1
+        path = deepcopy(a["icon"]); path["glyph"]["layers"][1]["d"] = "M1 2L3 5Z"
+        for altered in (changed, color, path):
+            b["icon"] = altered
+            self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_measured_icon_anchors_stop_shift_after_a_missing_toolbar_glyph(self):
+        def icon_item(eid, order, path):
+            item = element(eid, text="", order=order, kind="icon", region="header")
+            item["icon"] = {"source": "svg", "glyph": json.dumps({"tag": "path", "attributes": {"d": path}, "children": []})}
+            return item
+        refs = [icon_item("sidebar", 0, "M1 1L2 2"), icon_item("back", 1, "M2 1L1 2"), icon_item("forward", 2, "M1 2L2 1")]
+        natives = [icon_item("native-back", 0, "M2 1L1 2"), icon_item("native-forward", 1, "M1 2L2 1")]
+        result = compare_elements(refs, natives)
+        self.assertEqual([("back", "native-back"), ("forward", "native-forward")], [(p["reference"], p["native"]) for p in result["pairs"]])
+        self.assertEqual(["sidebar"], [row["reference"] for row in result["missing"]])
+        self.assertFalse(result["extra"])
+        self.assertFalse(result["icon_mismatch"])
+
+    def test_repeated_icon_anchors_keep_reading_order_and_report_real_differences(self):
+        refs = [element("r0", text="", order=0, kind="image"), element("r1", text="", order=1, kind="image")]
+        natives = [element("n0", text="", order=0, kind="image"), element("n1", text="", order=1, kind="image")]
+        for item in refs + natives: item["icon"] = vector_image_fixture()
+        natives[0]["bounds"]["x"] += 10
+        natives[1]["style"]["opacity"] = .5
+        pairs, missing, extra = match_elements(refs, natives)
+        self.assertEqual([(0, 0), (1, 1)], pairs)
+        self.assertFalse(missing); self.assertFalse(extra)
+        result = compare_elements(refs, natives)
+        self.assertTrue(result["geometry_out_of_tolerance"])
+        self.assertTrue(result["style_out_of_tolerance"])
+
+    def test_icon_anchors_retain_swap_order_kind_and_text_failures(self):
+        a, b = element("a", text="", order=0, kind="image"), element("b", text="", order=1, kind="image")
+        a["icon"] = vector_image_fixture(); b["icon"] = vector_image_fixture()
+        b["icon"]["glyph"]["layers"][2]["radius"] = 3
+        nb, na = deepcopy(b), deepcopy(a)
+        nb.update(id="nb", order=0, name="actual other name", kind="icon")
+        na.update(id="na", order=1)
+        result = compare_elements([a, b], [nb, na])
+        self.assertEqual(2, len(result["order_mismatch"]))
+        self.assertTrue(result["kind_mismatch"])
+        self.assertTrue(result["text_mismatch"])
+
+    def test_invalid_or_transport_only_icons_cannot_anchor_pairing(self):
+        from element_parity import measured_icon_anchor
+        for icon in ({"source": "image", "glyph": "same-url.svg"},
+                     {"source": "font", "glyph": "E123"},
+                     {"source": "svg", "glyph": "unparsed"},
+                     {"source": "vector-image-v1", "glyph": {}}):
+            item = element(text="", kind="icon"); item["icon"] = icon
+            self.assertIsNone(measured_icon_anchor(item))
+        first, second = element(text="", region="header"), element(text="", region="sidebar")
+        first["icon"] = vector_image_fixture(); second["icon"] = vector_image_fixture()
+        self.assertNotEqual(measured_icon_anchor(first), measured_icon_anchor(second))
+
+    def test_icon_anchor_never_equates_boolean_and_numeric_values(self):
+        from element_parity import measured_icon_anchor
+        numeric, boolean = element(text=""), element(text="")
+        tree = {"tag": "circle", "attributes": {"r": 1}, "children": []}
+        numeric["icon"] = {"source": "svg", "glyph": json.dumps(tree)}
+        tree["attributes"]["r"] = True
+        boolean["icon"] = {"source": "svg", "glyph": json.dumps(tree)}
+        self.assertIsNotNone(measured_icon_anchor(numeric))
+        self.assertIsNone(measured_icon_anchor(boolean))
+        boolean["icon"] = vector_image_fixture()
+        boolean["icon"]["glyph"]["layers"][2]["radius"] = True
+        self.assertIsNone(measured_icon_anchor(boolean))
+
+    def test_svg_identity_compares_parsed_tree_without_json_serialization_noise(self):
+        a, b = element(), element("n")
+        shape = {"tag": "svg", "attributes": {"viewBox": "0 0 24 24", "data-label": "<>&中文"},
+                 "children": [{"tag": "path", "attributes": {"d": "M4 5h16v14H4z"}, "children": []}]}
+        a["icon"] = {"source": "svg", "glyph": json.dumps(shape, ensure_ascii=False, separators=(",", ":"))}
+        serialized = json.dumps(shape, ensure_ascii=True, sort_keys=True, indent=2).replace("<", "\\u003C").replace(">", "\\u003E").replace("&", "\\u0026")
+        b["icon"] = {"source": "svg", "glyph": serialized}
+        result = compare_elements([a], [b])
+        self.assertFalse(result["icon_mismatch"])
+        self.assertEqual(result["matched_elements"], 1)
+        self.assertEqual(a["icon"]["glyph"], json.dumps(shape, ensure_ascii=False, separators=(",", ":")))
+        self.assertEqual(b["icon"]["glyph"], serialized)  # Source evidence is not rewritten.
+
+    def test_svg_path_values_and_child_order_remain_exact(self):
+        a, b = element(), element("n")
+        shape = {"tag": "svg", "attributes": {"viewBox": "0 0 24 24"},
+                 "children": [{"tag": "path", "attributes": {"d": "M0 0L1 1"}, "children": []},
+                              {"tag": "circle", "attributes": {"r": "2"}, "children": []}]}
+        a["icon"] = {"source": "svg", "glyph": json.dumps(shape)}
+        changed = deepcopy(shape); changed["children"][0]["attributes"]["d"] = "M0 0L2 2"
+        b["icon"] = {"source": "svg", "glyph": json.dumps(changed)}
+        self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+        changed = deepcopy(shape); changed["children"].reverse()
+        b["icon"]["glyph"] = json.dumps(changed)
+        self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+        b["icon"] = {"source": "font", "glyph": a["icon"]["glyph"]}
+        self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_invisible_rgb_and_unpainted_border_color_do_not_create_false_mismatches(self):
+        a, b = element(), element("n")
+        b["style"]["background"] = [255, 255, 255, 0]
+        b["style"]["border_color"] = [255, 0, 0, 255]
+        b["style"]["border_colors"] = [[255, 0, 0, 255] for _ in range(4)]
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        # Even one alpha unit remains observable and cannot use that rule.
+        b["style"]["background"][3] = 1
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_border_directions_and_corner_positions_cannot_hide_behind_scalar_maximum(self):
+        a, b = element(), element("n")
+        a["style"]["border_width"] = b["style"]["border_width"] = 1
+        a["style"]["border_color"] = b["style"]["border_color"] = [0, 0, 0, 255]
+        a["style"]["border_colors"] = b["style"]["border_colors"] = [[0, 0, 0, 255] for _ in range(4)]
+        a["style"]["border_widths"] = [1, 0, 0, 0]
+        b["style"]["border_widths"] = [0, 0, 1, 0]
+        a["style"]["corner_radius"] = b["style"]["corner_radius"] = 8
+        a["style"]["corner_radii"] = [8, 0, 0, 0]
+        b["style"]["corner_radii"] = [0, 8, 0, 0]
+        fields = {entry["field"] for entry in compare_elements([a], [b])["style_out_of_tolerance"]}
+        self.assertIn("border_widths[0]", fields)
+        self.assertIn("border_widths[2]", fields)
+        self.assertIn("corner_radii[0]", fields)
+        self.assertIn("corner_radii[1]", fields)
+
+    def test_opacity_shadow_and_stroke_differences_are_checked(self):
+        a, b = element(), element("n")
+        b["style"]["opacity"] = .5
+        a["style"]["stroke_width"], b["style"]["stroke_width"] = 1.2, 2.0
+        shadow = {"inset": True, "offset_x": 3, "offset_y": 0, "blur_radius": 0, "spread_radius": 0, "color": [168, 148, 224, 255]}
+        a["style"]["shadow"] = [deepcopy(shadow)]
+        b["style"]["shadow"] = [deepcopy(shadow)]
+        b["style"]["shadow"][0]["color"] = [0, 0, 0, 255]
+        fields = {entry["field"] for entry in compare_elements([a], [b])["style_out_of_tolerance"]}
+        self.assertTrue({"opacity", "stroke_width", "shadow[0].color"}.issubset(fields))
+
+    def test_gradient_stops_are_not_ignored_or_compared_as_a_css_string(self):
+        a, b = element(), element("n")
+        gradient = {"kind": "conic-gradient", "repeating": True, "angle": 0, "center": [8, 8],
+                    "size": [16, 16], "position": [0, 0], "repeat": ["repeat", "repeat"],
+                    "stops": [{"position": 0, "color": [27, 27, 26, 255]}, {"position": .5, "color": [0, 0, 0, 0]}]}
+        a["style"]["background_image"] = deepcopy(gradient)
+        b["style"]["background_image"] = deepcopy(gradient)
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["background_image"]["stops"][0]["color"] = [255, 255, 255, 255]
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_unused_container_text_properties_are_not_rendered_text(self):
+        a, b = element(text="", kind="code"), element("n", text="", kind="code")
+        a["layout"] = {"wrap": "word", "truncation": "none", "line_count": 0}
+        b["layout"] = {"wrap": None, "truncation": None, "line_count": None}
+        b["style"]["font_size"] = b["style"]["font_weight"] = b["style"]["foreground"] = None
+        result = compare_elements([a], [b])
+        self.assertEqual(result["matched_elements"], 1)
+        # The separately emitted real text still must match exactly.
+        b["text"] = "visible child text incorrectly folded into parent"
+        self.assertTrue(compare_elements([a], [b])["text_mismatch"])
+
+    def test_text_alignment_checks_actual_lines_inside_equal_control_boxes(self):
+        a, b = element(kind="button"), element("n", kind="button")
+        b["evidence"]["text_bounds"][0]["x"] += 20
+        result = compare_elements([a], [b])
+        self.assertTrue(any(entry["field"] == "text_bounds[0].x" for entry in result["geometry_out_of_tolerance"]))
+        b["evidence"].pop("text_bounds")
+        self.assertTrue(compare_elements([a], [b])["layout_mismatch"])
+
+    def test_rich_text_fragments_form_same_line_without_changing_reading_order(self):
+        a, b = element(), element("n")
+        a["evidence"]["text_bounds"] = [{"x": 10, "y": 12, "width": 40, "height": 20}, {"x": 50, "y": 12, "width": 60, "height": 20}]
+        self.assertEqual(compare_elements([a], [b])["matched_elements"], 1)
+
+    def test_indeterminate_check_state_is_not_equivalent_to_unchecked(self):
+        a, b = element(kind="checkbox"), element("n", kind="checkbox")
+        a["state"]["checked"] = b["state"]["checked"] = False
+        a["state"]["indeterminate"], b["state"]["indeterminate"] = False, True
+        self.assertTrue(compare_elements([a], [b])["state_mismatch"])
+
+    def test_actual_fonts_compare_identity_not_provider_glyph_counter_or_loading_mode(self):
+        a, b = element(), element("n")
+        b["style"]["rendered_fonts"][0].update(glyph_count=30, is_custom_font=True)
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["rendered_fonts"][0]["postscript_name"] = None
+        with_weight_measurements(b)
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["rendered_fonts"][0]["family_name"] = "Different Actual Font"
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+        b["style"]["rendered_fonts"][0].update(family_name="Fixture Sans", postscript_name="FixtureSans-OtherFace")
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_actual_postscript_face_is_independent_of_localized_family_spelling(self):
+        a, b = element(), element("n")
+        a["style"]["rendered_fonts"] = [{"family_name": "蘋方-簡", "postscript_name": "PingFangSC-Semibold"}]
+        b["style"]["rendered_fonts"] = [{"family_name": "PingFang SC", "postscript_name": "PingFangSC-Semibold"}]
+        with_weight_measurements(a); with_weight_measurements(b)
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        # This is face identity, not a weight substitution or a family alias.
+        b["style"]["font_weight"] = 600
+        with_weight_measurements(b, configured=600)
+        self.assertEqual({item["field"] for item in compare_elements([a], [b])["style_out_of_tolerance"]}, {"font_weight.configured"})
+        b["style"]["font_weight"] = 400
+        b["style"]["rendered_fonts"][0]["postscript_name"] = "PingFangSC-Regular"
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_actual_font_fallback_faces_cannot_disappear_from_identity(self):
+        a, b = element(), element("n")
+        b["style"]["rendered_fonts"].append({"family_name": "Fallback", "postscript_name": "Fallback-Regular"})
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+        # An unknown face cannot be paired through a different localized family.
+        b["style"]["rendered_fonts"] = [{"family_name": "Localized Fixture", "postscript_name": None}]
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+
+    def test_requested700_is_not_compared_to_resolved600_and_unknown_still_fails(self):
+        a, b = element(), element("native")
+        a["style"]["font_weight"], b["style"]["font_weight"] = 700, 600
+        with_weight_measurements(a, configured=700, resolved=600)
+        with_weight_measurements(b, configured=700, resolved=600)
+        a["evidence"]["font_weight_quantities"]["resolved"] = {"source_span_complete": False, "faces": None,
+            "reason": "Actual CDP records expose identity but no weight axis"}
+        result = compare_elements([a], [b])
+        self.assertEqual({item["field"] for item in result["style_out_of_tolerance"]}, {"font_weight.resolved"})
+        self.assertTrue(any("font_weight.resolved" in item["reason"] for item in validate_capture(
+            capture(elements=[a]), "reference", "zh-CN-light-1440x900-group", {"width": 1440, "height": 900, "scale": 1})))
+        self.assertEqual((a["style"]["font_weight"], b["style"]["font_weight"]), (700, 600))
+
+    def test_missing_both_weight_quantities_cannot_pass_by_matching_legacy_numbers(self):
+        a, b = element(), element("native")
+        for item in (a, b): item["evidence"].pop("font_weight_quantities")
+        self.assertEqual({item["field"] for item in compare_elements([a], [b])["style_out_of_tolerance"]},
+                         {"font_weight.configured", "font_weight.resolved"})
+
+    def test_visible_stroke_pattern_and_phase_are_required_and_exact(self):
+        a, b = element(), element("n")
+        for item in (a, b):
+            item["style"].update(stroke_width=1, stroke_dash=[4, 3], stroke_dash_offset=0, stroke_linecap="round", stroke_linejoin="round")
+        self.assertFalse(compare_elements([a], [b])["style_out_of_tolerance"])
+        for field, value in (("stroke_dash", [4, 4]), ("stroke_dash_offset", .1), ("stroke_linecap", "butt"), ("stroke_linejoin", "miter")):
+            changed = deepcopy(b); changed["style"][field] = value
+            self.assertTrue(any(row["field"].startswith(field) for row in compare_elements([a], [changed])["style_out_of_tolerance"]))
+        del a["style"]["stroke_dash"]; del b["style"]["stroke_dash"]
+        self.assertTrue(compare_elements([a], [b])["style_out_of_tolerance"])
+        self.assertTrue(validate_capture(capture(elements=[a]), "reference", "zh-CN-light-1440x900-group", {"width": 1440, "height": 900, "scale": 1}))
+
+    def test_positive_border_style_is_not_erased_by_same_color(self):
+        a, b = element(), element("n")
+        for item in (a, b):
+            item["style"].update(border_width=1, border_widths=[1] * 4, border_styles=["solid"] * 4)
+        b["style"]["border_styles"][0] = "dashed"
+        self.assertTrue(any(row["field"] == "border_styles[0]" for row in compare_elements([a], [b])["style_out_of_tolerance"]))
+
+    def test_chart_current_is_separate_from_selection(self):
+        a, b = element(kind="chart-node"), element("n", kind="chart-node")
+        a["state"]["current"], b["state"]["current"] = True, False
+        self.assertTrue(any(row["field"] == "current" for row in compare_elements([a], [b])["state_mismatch"]))
+
+
+class ExtractionContractTests(unittest.TestCase):
+    def validate(self, data):
+        return validate_capture(data, "reference", data["scene_id"], {"width": 1440, "height": 900, "scale": 1})
+
+    def test_complete_capture_is_valid(self):
+        self.assertEqual(self.validate(capture()), [])
+
+    def test_strict_vector_image_glyph_is_accepted_without_font_measurements(self):
+        item = element(text="", kind="icon")
+        item["icon"] = vector_image_fixture()
+        item["style"]["font_size"] = item["style"]["font_weight"] = None
+        item["style"]["rendered_fonts"] = None
+        item["layout"].update(wrap=None, truncation=None, line_count=None)
+        self.assertFalse(has_font_glyph(item))
+        self.assertEqual([], self.validate(capture(elements=[item])))
+        item["icon"] = {"source": "font", "glyph": "E123"}
+        self.assertTrue(has_font_glyph(item))
+        self.assertTrue(any("Font glyph" in error["reason"] for error in self.validate(capture(elements=[item]))))
+
+    def test_invalid_vector_descriptions_fail_validation_and_even_equal_pairing(self):
+        valid = vector_image_fixture()
+        missing = deepcopy(valid); del missing["glyph"]["view_box"]
+        unknown = deepcopy(valid); unknown["glyph"]["layers"][0]["shadow"] = "unmeasured"
+        nonfinite = deepcopy(valid); nonfinite["glyph"]["layers"][2]["radius"] = float("inf")
+        malformed_path = deepcopy(valid); malformed_path["glyph"]["layers"][1]["d"] = "M1 2C3"
+        bad_source = deepcopy(valid); bad_source["expected_uri"] = "reference-icon.svg"
+        for icon in (missing, unknown, nonfinite, malformed_path, bad_source,
+                     {"source": "vector-image-v1", "glyph": "not a structured resource"},
+                     {"source": "vector-image-v1", "glyph": {}}):
+            a, b = element(), element("native")
+            a["icon"] = deepcopy(icon); b["icon"] = deepcopy(icon)
+            with self.subTest(icon=icon):
+                self.assertTrue(any("vector-image-v1" in error["reason"] for error in self.validate(capture(elements=[a]))))
+                self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+
+    def test_arbitrary_dict_glyphs_are_not_accepted_for_other_icon_sources(self):
+        for source in ("image", "font", "geometry", "path", "unknown-source"):
+            item = element(); item["icon"] = {"source": source, "glyph": vector_image_fixture()["glyph"]}
+            with self.subTest(source=source):
+                self.assertTrue(any("Invalid icon identity" in error["reason"] for error in self.validate(capture(elements=[item]))))
+
+    def test_missing_measurements_even_on_both_clients_are_errors(self):
+        for field in ("font_size", "font_weight", "foreground"):
+            data = capture(); data["elements"][0]["style"][field] = None
+            self.assertTrue(self.validate(data))
+        data = capture(); del data["elements"][0]["style"]["border_color"]
+        self.assertTrue(self.validate(data))
+        data = capture(); data["elements"][0]["layout"]["line_count"] = None
+        self.assertTrue(self.validate(data))
+
+    def test_coverage_unknown_measurements_and_extractor_errors_fail(self):
+        data = capture(); data["coverage"]["unmeasured"] = ["opaque overlay intersection"]
+        self.assertTrue(self.validate(data))
+        data = capture(); data["extraction_errors"] = ["UIA unavailable"]
+        self.assertTrue(self.validate(data))
+        data = capture(); data.pop("coverage")
+        self.assertTrue(self.validate(data))
+
+    def test_empty_or_malformed_arrays_do_not_pass(self):
+        data = capture(elements=[])
+        self.assertTrue(self.validate(data))
+        data["elements"] = None
+        self.assertTrue(self.validate(data))
+        data = capture(); data["elements"] = ["bad-node"]
+        self.assertTrue(self.validate(data))
+
+    def test_duplicate_ids_invalid_parent_or_invalid_order_fail(self):
+        for mutation in ("duplicate", "parent", "order"):
+            data = capture(elements=[element("r0", "first", 0), element("r1", "second", 1)])
+            if mutation == "duplicate": data["elements"][1]["id"] = "r0"
+            if mutation == "parent": data["elements"][1]["parent"] = "missing"
+            if mutation == "order": data["elements"][1]["order"] = 4
+            self.assertTrue(self.validate(data))
+
+    def test_interactive_state_unknown_fails(self):
+        for kind, state in (("button", "enabled"), ("input", "focused"), ("tab", "selected"), ("checkbox", "checked"), ("toggle", "checked")):
+            data = capture(elements=[element(kind=kind)])
+            errors = self.validate(data)
+            self.assertTrue(any(state in e["reason"] for e in errors))
+
+    def test_unmeasured_paint_fonts_lines_and_unparsed_css_cannot_pass(self):
+        for field in ("background", "border_width", "corner_radius", "border_widths", "border_colors", "corner_radii", "opacity", "shadow", "background_image", "rendered_fonts"):
+            with self.subTest(field=field):
+                data = capture(); data["elements"][0]["style"][field] = None
+                self.assertTrue(self.validate(data))
+        for field, raw_css in (("shadow", "rgba(0,0,0,.1) 0px 1px 2px"), ("background_image", "linear-gradient(red,blue)")):
+            data = capture(); data["elements"][0]["style"][field] = raw_css
+            self.assertTrue(self.validate(data))
+        data = capture(); data["elements"][0]["evidence"].pop("text_bounds")
+        self.assertTrue(self.validate(data))
+
+    def test_missing_glyphs_cannot_pass_as_empty_icons_or_icon_buttons(self):
+        for kind in ("icon", "chart-edge", "image", "icon-button"):
+            data = capture(elements=[element(text="", kind=kind)])
+            data["elements"][0]["state"]["enabled"] = True
+            self.assertTrue(any("identity" in error["reason"] or "owned icon" in error["reason"] for error in self.validate(data)))
+
+    def test_unparseable_svg_does_not_pass_even_if_both_bad_strings_are_equal(self):
+        a, b = element(), element("n")
+        for value in ("not JSON", '{"tag":"path","attributes":{"d":"M0 0"}}'):
+            a["icon"] = b["icon"] = {"source": "svg", "glyph": value}
+            self.assertTrue(compare_elements([a], [b])["icon_mismatch"])
+            self.assertTrue(any("SVG glyph" in error["reason"] for error in self.validate(capture(elements=[a]))))
+
+    def test_textless_code_container_does_not_require_nonexistent_font_or_lines(self):
+        item = element(text="", kind="code")
+        item["style"]["font_size"] = item["style"]["font_weight"] = item["style"]["foreground"] = None
+        item["layout"].update(wrap=None, truncation=None, line_count=None)
+        item["evidence"].pop("text_bounds")
+        self.assertEqual(self.validate(capture(elements=[item])), [])
+
+    def test_actual_scroll_parts_are_valid_but_unknown_range_state_still_fails(self):
+        for kind in ("scrollbar", "scrollbar-thumb"):
+            item = element(text="", kind=kind)
+            item["style"]["font_size"] = item["style"]["font_weight"] = item["style"]["foreground"] = None
+            item["layout"].update(wrap=None, truncation=None, line_count=None)
+            item["evidence"].pop("text_bounds")
+            item["state"].update(enabled=True, orientation="vertical", scroll_position=.25)
+            self.assertEqual(self.validate(capture(elements=[item])), [])
+            other = deepcopy(item); other["id"] = "native-scroll"
+            self.assertFalse(compare_elements([item], [other])["state_mismatch"])
+            for key, bad in (("orientation", None), ("orientation", "diagonal"),
+                             ("scroll_position", None), ("scroll_position", True),
+                             ("scroll_position", -1), ("scroll_position", 1.01)):
+                invalid = deepcopy(item); invalid["state"][key] = bad
+                self.assertTrue(any(key in failure["reason"] for failure in self.validate(capture(elements=[invalid]))))
+                self.assertTrue(compare_elements([item], [invalid])["state_mismatch"])
+            other["state"]["scroll_position"] = .2501
+            self.assertTrue(compare_elements([item], [other])["state_mismatch"])
+
+
+class MatrixReportTests(unittest.TestCase):
+    def test_fully_transparent_png_cannot_stand_in_for_a_visible_scene(self):
+        from PIL import Image
+        viewport = {"width": 20, "height": 20}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "actual.png"
+            for hidden_rgb in ((0, 0, 0, 0), (255, 255, 255, 0)):
+                Image.new("RGBA", (20, 20), hidden_rgb).save(path)
+                errors = image_info(path, "macos", viewport)
+                self.assertEqual(1, len(errors))
+                self.assertIn("fully transparent", errors[0]["reason"])
+            # Opaque dark content and partially transparent window edges are
+            # separate cases; neither is silently reclassified as an empty PNG.
+            Image.new("RGB", (20, 20), "black").save(path)
+            self.assertEqual([], image_info(path, "windows", viewport))
+            partial = Image.new("RGBA", (20, 20), (0, 0, 0, 0))
+            partial.putpixel((10, 10), (27, 27, 26, 255)); partial.save(path)
+            self.assertEqual([], image_info(path, "macos", viewport))
+
+    def test_full_matrix_requires_exact_672_cases(self):
+        spec = json.loads((Path(__file__).parent / "scenes.json").read_text(encoding="utf-8"))
+        cases = expected_cases(spec, "full")
+        self.assertEqual(len(cases), 672)
+        self.assertIn("en-US-dark-1024x700-settings-navigation-hover", cases)
+        self.assertIn("en-US-dark-1024x700-menu-help", cases)
+        self.assertIn("zh-CN-light-1440x900-quick-start", cases)
+        self.assertIn("en-US-dark-1024x700-member-host-model-suggestions", cases)
+        self.assertIn("zh-CN-light-1440x900-member-existing-seat-suggestions", cases)
+        self.assertIn("en-US-dark-1024x700-live-busy", cases)
+        self.assertIn("zh-CN-light-1440x900-live-tool-output", cases)
+        self.assertIn("en-US-light-1280x800-live-typing", cases)
+        self.assertIn("en-US-dark-1024x700-member-card-rename", cases)
+        self.assertIn("zh-CN-light-1440x900-member-card-model", cases)
+        self.assertIn("en-US-light-1280x800-member-card-avatar-hover", cases)
+        self.assertIn("en-US-dark-1024x700-message-hover", cases)
+        self.assertIn("zh-CN-light-1440x900-message-copy-toast", cases)
+        self.assertIn("en-US-dark-1024x700-new-org-textarea-resized", cases)
+        self.assertIn("en-US-dark-1024x700-panel-resize-hover", cases)
+        self.assertIn("zh-CN-light-1280x800-panel-resized", cases)
+        smoke = expected_cases(spec, "smoke")
+        self.assertEqual(len(smoke), 22)
+        self.assertIn("zh-CN-light-1440x900-file-markdown", smoke)
+        original_smoke = ("group", "private", "overview", "settings-appearance", "settings-navigation-hover", "new-org", "copies", "chart",
+                          "menu-file", "file-code", "live-tool-output", "live-typing")
+        added = ("member-card-rename", "member-card-model", "member-card-avatar-hover", "message-hover", "message-copy-toast", "new-org-textarea-resized", "panel-resize-hover", "panel-resized")
+        smoke_scenes = original_smoke + added + ("recipients", "file-markdown")
+        self.assertEqual(list(smoke), ["zh-CN-light-1440x900-" + scene for scene in smoke_scenes])
+        self.assertTrue(set(smoke).issubset(cases))
+        # Inspect the CLI's actual selection without importing or running its
+        # process/browser entry point. Both producers must retain the old order.
+        capture_source = ast.parse((Path(__file__).parent / "capture.py").read_text(encoding="utf-8"))
+        capture_main = next(node for node in capture_source.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+        capture_call = next(node.value for node in ast.walk(capture_main) if isinstance(node, ast.Assign)
+                              and any(isinstance(target, ast.Name) and target.id == "scenes" for target in node.targets))
+        self.assertIsInstance(capture_call, ast.Call)
+        self.assertEqual(capture_call.func.id, "capture_scenes")
+        self.assertEqual([ast.unparse(argument) for argument in capture_call.args],
+                         ["spec", "args.matrix", "args.diagnostic_scene"])
+        capture_selector = next(node for node in capture_source.body
+                                if isinstance(node, ast.FunctionDef) and node.name == "capture_scenes")
+        self.assertEqual(ast.literal_eval(capture_selector.args.defaults[-1]), "all")
+        capture_selection = next(node.value for node in capture_selector.body if isinstance(node, ast.Return))
+        self.assertIsInstance(capture_selection, ast.IfExp)
+        self.assertEqual(ast.literal_eval(capture_selection.orelse), list(smoke_scenes))
+        self.assertEqual(ast.unparse(capture_selection.body), "spec['scenes']")
+
+    def test_missing_native_capture_writes_failure_report_and_html(self):
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); output = root / "report"
+            result = run(root / "source", output, spec=spec)
+            self.assertFalse(result["passed"])
+            self.assertEqual(result["summary"]["macos"]["scenes_checked"], 0)
+            self.assertEqual(result["summary"]["macos"]["scenes_with_both_artifact_sets"], 0)
+            self.assertEqual(result["summary"]["macos"]["scenes_with_pairs"], 0)
+            self.assertGreater(result["summary"]["macos"]["counts"]["extraction_errors"], 0)
+            self.assertTrue((output / "parity-report.json").exists())
+            self.assertTrue((output / "en-US-dark-20x20-group-windows.html").exists())
+            self.assertTrue((output / "en-US-dark-20x20-group-macos.html").exists())
+            self.assertEqual(result["exceptions"], [])
+
+    def test_complete_fixture_reports_success_but_truncated_matrix_fails(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                item = element(client); item["bounds"] = {"x": 1, "y": 1, "width": 10, "height": 10}
+                data = capture(client, [item], scene, viewport)
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white").save(path / f"{scene}.png")
+            result = run(source, root / "complete", spec=spec)
+            self.assertTrue(result["passed"])
+            self.assertEqual(result["summary"]["windows"]["matched_elements"], 1)
+            self.assertEqual(result["summary"]["windows"]["scenes_with_both_artifact_sets"], 1)
+            self.assertEqual(result["summary"]["windows"]["scenes_with_pairs"], 1)
+            self.assertEqual(result["scenes"][0]["platforms"]["windows"]["pixel_difference"]["changed_pixels"], 0)
+            self.assertTrue((root / "complete" / "images" / "windows" / f"{scene}.png").exists())
+            expanded = deepcopy(spec); expanded["scenes"].append("private")
+            result = run(source, root / "truncated", spec=expanded)
+            self.assertFalse(result["passed"])
+            self.assertEqual(result["summary"]["windows"]["scenes_expected"], 2)
+            self.assertEqual(result["summary"]["windows"]["scenes_passed"], 1)
+            self.assertEqual(result["summary"]["windows"]["scenes_with_both_artifact_sets"], 1)
+            self.assertEqual(result["summary"]["windows"]["scenes_with_pairs"], 1)
+
+    def test_existing_artifacts_and_pairs_do_not_claim_measured_or_passing_scenes(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                item = element(client); item["bounds"] = {"x": 1, "y": 1, "width": 10, "height": 10}
+                data = capture(client, [item], scene, viewport)
+                if client in ("windows", "macos"):
+                    data["errors"] = ["Synthetic fixture: an actual required measurement is unavailable"]
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white").save(path / f"{scene}.png")
+            result = run(source, root / "report", spec=spec)
+            self.assertFalse(result["passed"])
+            for platform in ("windows", "macos"):
+                summary = result["summary"][platform]
+                self.assertEqual(summary["scenes_with_both_artifact_sets"], 1)
+                self.assertEqual(summary["scenes_with_pairs"], 1)
+                self.assertEqual(summary["scenes_checked"], 0)
+                self.assertEqual(summary["scenes_passed"], 0)
+                self.assertEqual(summary["matched_elements"], 0)
+                self.assertGreater(summary["counts"]["extraction_errors"], 0)
+
+    def test_raw_tree_sidecars_are_copied_next_to_element_json(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"; output = root / "report"
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                data = capture(client, [element(client)], scene, viewport)
+                if client == "windows":
+                    data["raw_evidence"] = {kind: f"{scene}.{kind}.json" for kind in ("uia", "xaml", "dom", "ax", "input-text")}
+                    for kind, filename in data["raw_evidence"].items():
+                        (path / filename).write_text(json.dumps({"tree_kind": kind, "raw_nodes": ["independent capture"]}), encoding="utf-8")
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white").save(path / f"{scene}.png")
+            # An independently saved sidecar must survive even if an extractor
+            # has not yet added a raw_evidence key to its projected JSON.
+            raw_dom = source / "reference" / f"{scene}.dom.json"
+            raw_dom.write_text('{"documents": ["unprojected reference"]}', encoding="utf-8")
+            result = run(source, output, spec=spec)
+            self.assertTrue(result["passed"])
+            copied_json = output / "elements" / "windows" / f"{scene}.elements.json"
+            references = json.loads(copied_json.read_text(encoding="utf-8"))["raw_evidence"]
+            for filename in references.values():
+                self.assertEqual((copied_json.parent / filename).read_bytes(), (source / "windows" / filename).read_bytes())
+                self.assertTrue((copied_json.parent / filename).samefile(source / "windows" / filename))
+            self.assertEqual((output / "elements" / "reference" / raw_dom.name).read_bytes(), raw_dom.read_bytes())
+            self.assertTrue((output / "elements" / "reference" / raw_dom.name).samefile(raw_dom))
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                for target_folder, suffix in (("elements", ".elements.json"), ("images", ".png")):
+                    original = source / client / (scene + suffix)
+                    retained = output / target_folder / client / original.name
+                    self.assertTrue(retained.samefile(original))
+                    self.assertEqual(retained.read_bytes(), original.read_bytes())
+            # Re-running into the same report reuses immutable inputs; only
+            # generated comparison reports are rewritten.
+            self.assertEqual(run(source, output, spec=spec), result)
+            # A dangling raw evidence reference fails even when the projected
+            # elements and screenshots otherwise all match.
+            (source / "windows" / f"{scene}.uia.json").unlink()
+            result = run(source, root / "missing-sidecar", spec=spec)
+            self.assertFalse(result["passed"])
+            errors = result["scenes"][0]["platforms"]["windows"]["extraction_errors"]
+            self.assertTrue(any(f"{scene}.uia.json" in error["reason"] for error in errors))
+
+    def test_raw_invalid_native_elements_are_counted_and_reported(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"; output = root / "report"
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                items = [element(client)]
+                if client == "macos":
+                    items = [{"legacy_text": "First extracted element"}, {"legacy_text": "Second extracted element"}]
+                data = capture(client, items, scene, viewport)
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white").save(path / f"{scene}.png")
+            result = run(source, output, spec=spec)
+            self.assertFalse(result["passed"])
+            for values in (result["summary"]["macos"], result["scenes"][0]["platforms"]["macos"]):
+                self.assertEqual(values["raw_native_elements"], 2)
+                self.assertEqual(values["valid_native_elements"], 0)
+                self.assertEqual(values["invalid_native_elements"], 2)
+                self.assertEqual(values["native_elements"], 0)  # backward-compatible field
+                self.assertGreater(values["counts"]["extraction_errors"], 0)
+            self.assertEqual(result["summary"]["windows"]["raw_native_elements"], 1)
+            self.assertEqual(result["summary"]["windows"]["valid_native_elements"], 1)
+            self.assertEqual(result["summary"]["windows"]["invalid_native_elements"], 0)
+            scene_html = (output / f"{scene}-macos.html").read_text(encoding="utf-8")
+            self.assertIn("2 raw elements; 0 structurally comparable; 2 unusable", scene_html)
+            copied = json.loads((output / "elements" / "macos" / f"{scene}.elements.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(copied["elements"]), 2)
+
+    def test_lightweight_reports_preserve_full_report_values_and_failures(self):
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group", "private"]}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); output = root / "report"
+            result = run(root / "source", output, spec=spec)
+            complete = json.loads((output / "parity-report.json").read_text(encoding="utf-8"))
+            summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(complete, result)
+            self.assertEqual(summary, {key: value for key, value in complete.items() if key != "scenes"})
+            self.assertFalse(summary["passed"])
+            self.assertEqual(summary["expected_scenes_per_platform"], 2)
+            self.assertEqual(summary["reported_scenes"], 2)
+            self.assertEqual(summary["expected_platform_comparisons"], 4)
+            self.assertEqual(summary["reported_platform_comparisons"], 4)
+            self.assertNotIn("scenes", summary)
+            self.assertIn('href="summary.json"', (output / "index.html").read_text(encoding="utf-8"))
+            for scene in complete["scenes"]:
+                filename = scene["scene_id"] + ".parity.json"
+                self.assertEqual(json.loads((output / filename).read_text(encoding="utf-8")), scene)
+                for suffix in ("", "-windows", "-macos"):
+                    page = (output / (scene["scene_id"] + suffix + ".html")).read_text(encoding="utf-8")
+                    self.assertIn(f'href="{filename}"', page)
+                    self.assertIn('href="summary.json"', page)
+
+    def test_each_platform_uses_its_actual_reference_without_key_normalization(self):
+        from PIL import Image
+        spec = {"languages": ["en-US"], "themes": ["dark"], "sizes": [[20, 20]], "scenes": ["group"]}
+        scene = "en-US-dark-20x20-group"; viewport = {"width": 20, "height": 20, "scale": 1}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root / "source"; output = root / "report"
+            for client in ("reference", "reference-macos", "windows", "macos"):
+                path = source / client; path.mkdir(parents=True)
+                mac = client in ("reference-macos", "macos")
+                data = capture(client, [element(client, "⌘B" if mac else "Ctrl+B")], scene, viewport)
+                (path / f"{scene}.elements.json").write_text(json.dumps(data), encoding="utf-8")
+                Image.new("RGB", (20, 20), "white" if mac else "black").save(path / f"{scene}.png")
+            result = run(source, output, spec=spec, reference_root=source / "reference", macos_reference_root=source / "reference-macos")
+            self.assertTrue(result["passed"])
+            platforms = result["scenes"][0]["platforms"]
+            self.assertEqual(platforms["macos"]["reference_platform"], "macos")
+            self.assertEqual(platforms["windows"]["reference_platform"], "windows")
+            self.assertEqual(platforms["macos"]["pixel_difference"]["changed_pixels"], 0)
+            self.assertEqual(platforms["windows"]["pixel_difference"]["changed_pixels"], 0)
+            self.assertTrue((output / "elements" / "reference-macos" / f"{scene}.elements.json").exists())
+            self.assertIn("images/reference-macos/", (output / f"{scene}-macos.html").read_text(encoding="utf-8"))
+            (source / "reference-macos" / f"{scene}.elements.json").unlink()
+            result = run(source, root / "missing-mac", spec=spec)
+            self.assertFalse(result["passed"])
+            self.assertGreater(result["summary"]["macos"]["counts"]["extraction_errors"], 0)
+            self.assertEqual(result["summary"]["macos"]["raw_reference_elements"], 0)
+            self.assertEqual(result["summary"]["windows"]["scenes_passed"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

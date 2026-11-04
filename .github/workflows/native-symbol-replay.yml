@@ -1,0 +1,224 @@
+name: Native symbol replay
+run-name: Native symbol replay - run ${{ inputs.source_run || '41546004847' }} - ${{ inputs.profile || 'person-shape' }}
+on:
+  push:
+    branches: [native-apps]
+    paths: [.github/workflows/native-symbol-replay.yml]
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: Completed Native responsiveness run containing retained diagnostic stacks
+        type: string
+        default: '41546004847'
+        required: true
+      profile:
+        description: Synthetic fixture artifact to resolve without launching the App
+        type: choice
+        options: [large, person-shape]
+        default: person-shape
+permissions:
+  actions: read
+  contents: read
+jobs:
+  replay:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate the source run and download its synthetic diagnostic artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELIC_SOURCE_RUN: ${{ inputs.source_run || '41546004847' }}
+          RELIC_SOURCE_PROFILE: ${{ inputs.profile || 'person-shape' }}
+        run: |
+          if ($env:RELIC_SOURCE_RUN -notmatch '^[1-9][0-9]{0,19}$') { throw 'source_run must contain a positive numeric run ID' }
+          $source = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:RELIC_SOURCE_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the source run' }
+          if ($source.path -ne '.github/workflows/native-responsiveness.yml') { throw 'Source must be the synthetic Native responsiveness workflow' }
+          if ($source.status -ne 'completed') { throw 'Source run must have completed before replay' }
+          New-Item -ItemType Directory -Force replay-input, replay-evidence | Out-Null
+          [ordered]@{ source_run=$source.id; source_url=$source.html_url; source_commit=$source.head_sha; source_workflow=$source.path; profile=$env:RELIC_SOURCE_PROFILE; replay_commit=$env:GITHUB_SHA; acceptance_eligible=$false; app_launched=$false } |
+            ConvertTo-Json | Set-Content -Encoding utf8 replay-evidence/source.json
+          gh run download $env:RELIC_SOURCE_RUN --repo $env:GITHUB_REPOSITORY --name "Relic-responsiveness-Windows-$env:RELIC_SOURCE_PROFILE-candidate-diagnostic" --dir replay-input
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download the exact diagnostic artifact' }
+      - name: Build the offline native resolver
+        run: |
+          cmake -S native/windows/Relic.Diagnostics -B native-build/diagnostics-native -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Resolver configuration failed' }
+          cmake --build native-build/diagnostics-native --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Resolver build failed' }
+      - name: Build the client only to obtain its original WinUI DLLs
+        # Keep the original capture's output path. Relic.exe is never executed.
+        run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/performance-windows
+      - name: Preserve raw text and require identical captured DLL identities
+        id: identities
+        run: |
+          @'
+          import importlib.util
+          import json
+          from pathlib import Path
+          import shutil
+
+          spec = importlib.util.spec_from_file_location("resolver", "scripts/performance/resolve_symbols.py")
+          resolver = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(resolver)
+          source = Path("replay-input")
+          evidence = Path("replay-evidence")
+          phases = []
+          errors = []
+          allowed = {"open-every-chat", "switch-chats", "idle", "workflows", "history", "monkey"}
+          for stacks in sorted(source.rglob("stacks")):
+              if not stacks.is_dir():
+                  continue
+              phase = stacks.parent.name
+              if phase not in allowed or any(item["phase"] == phase for item in phases):
+                  errors.append(f"Unexpected or repeated captured phase: {phase}")
+                  continue
+              output = evidence / phase
+              (output / "stacks").mkdir(parents=True)
+              phase_info = {"phase": phase, "source": str(stacks.parent), "modules": []}
+              phases.append(phase_info)
+              for original in sorted(stacks.iterdir()):
+                  if original.is_file() and original.suffix.lower() in {".txt", ".json"}:
+                      if original.stat().st_size > 16 * 1024 * 1024:
+                          errors.append(f"Unexpectedly large stack text: {phase}/{original.name}")
+                          continue
+                      shutil.copyfile(original, output / "stacks" / original.name)
+              report = stacks.parent / "resolved-symbols.json"
+              if not report.is_file():
+                  errors.append(f"Missing original CodeView identity report: {phase}")
+                  continue
+              shutil.copyfile(report, output / "original-resolved-symbols.json")
+              old = json.loads(report.read_text(encoding="utf-8-sig"))
+              if not old.get("modules"):
+                  errors.append(f"No captured target DLL identities: {phase}")
+              for module in old.get("modules", []):
+                  image = Path(module["image"])
+                  entry = {"image": str(image), "original_identity": module.get("codeview_identity"),
+                           "original_pdb": module.get("pdb"), "matched": False}
+                  phase_info["modules"].append(entry)
+                  try:
+                      if image.stem.lower() not in resolver.TARGET_MODULES:
+                          raise ValueError("Unexpected target image")
+                      name, identity = resolver.codeview_identity(image.read_bytes())
+                      entry.update(current_identity=identity, current_pdb=name)
+                      if not module.get("codeview_identity") or not module.get("pdb"):
+                          raise ValueError("Original report did not retain the actual CodeView identity")
+                      if identity != module["codeview_identity"] or name.lower() != module["pdb"].lower():
+                          raise ValueError("Current DLL differs from the captured DLL; do not resolve it as the old image")
+                      entry["matched"] = True
+                  except Exception as error:
+                      entry["error"] = str(error)
+                      errors.append(f"{phase}/{image.name}: {error}")
+          if not phases:
+              errors.append("No captured phase stacks were found")
+          result = {"acceptance_eligible": False, "app_launched": False, "passed": not errors,
+                    "phases": phases, "errors": errors}
+          (evidence / "identity-verification.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+          for error in errors:
+              print(error)
+          if errors:
+              raise SystemExit("Captured DLL identity validation failed")
+          '@ | python -X utf8 -
+      - name: Resolve the retained offsets without starting any App process
+        run: |
+          $failed = @()
+          Get-ChildItem replay-evidence -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'stacks') } | ForEach-Object {
+            python -X utf8 scripts/performance/resolve_symbols.py --exe native-build/diagnostics-native/Release/Relic.NativeStack.exe --output $_.FullName
+            if ($LASTEXITCODE -ne 0) { $failed += $_.Name }
+          }
+          if ($failed.Count -gt 0) { throw "Resolver process failed in: $($failed -join ', ')" }
+      - name: Reject missing symbols, export fallback, or changed identities
+        if: ${{ always() && steps.identities.outcome == 'success' }}
+        run: |
+          @'
+          import importlib.util
+          import json
+          from pathlib import Path
+          import uuid
+
+          spec = importlib.util.spec_from_file_location("resolver", "scripts/performance/resolve_symbols.py")
+          resolver = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(resolver)
+          evidence = Path("replay-evidence")
+          before = json.loads((evidence / "identity-verification.json").read_text(encoding="utf-8"))
+          errors = []
+          phases = []
+          for saved in before["phases"]:
+              phase = saved["phase"]
+              folder = evidence / phase
+              checked = {"phase": phase, "modules": [], "errors": []}
+              phases.append(checked)
+              def fail(message):
+                  checked["errors"].append(message)
+                  errors.append(f"{phase}: {message}")
+              try:
+                  old = json.loads((folder / "original-resolved-symbols.json").read_text(encoding="utf-8-sig"))
+                  new = json.loads((folder / "resolved-symbols.json").read_text(encoding="utf-8-sig"))
+                  old_modules = {item["image"].lower(): item for item in old["modules"]}
+                  new_modules = {item["image"].lower(): item for item in new["modules"]}
+                  if not old_modules or old_modules.keys() != new_modules.keys() or len(new_modules) != len(new["modules"]):
+                      fail("Resolved report does not contain exactly the captured target modules")
+                  for key, original in old_modules.items():
+                      module = new_modules.get(key)
+                      if module is None:
+                          continue
+                      image = Path(original["image"])
+                      name, identity = resolver.codeview_identity(image.read_bytes())
+                      if (identity != original["codeview_identity"] or identity != module.get("codeview_identity")
+                              or name.lower() != original["pdb"].lower() or name.lower() != module.get("pdb", "").lower()):
+                          fail(f"DLL CodeView identity changed before/after resolution: {image.name}")
+                      requested = {int(offset, 16) for offset in original["offsets"]}
+                      symbols = module.get("symbols", [])
+                      observed = [int(item["module_offset"], 16) for item in symbols]
+                      if (not requested or set(observed) != requested or len(observed) != len(requested)
+                              or {int(offset, 16) for offset in module.get("offsets", [])} != requested):
+                          fail(f"Missing, duplicate or changed requested offsets: {image.name}")
+                      if module.get("error") or module.get("returncode") != 0 or module.get("unresolved_offsets"):
+                          fail(f"Resolver reported unresolved frames: {image.name}: {module.get('error', module.get('unresolved_offsets'))}")
+                      for item in symbols:
+                          pdb_identity = uuid.UUID(item["pdb_guid"]).hex.upper() + format(int(item["pdb_age"]), "X")
+                          if (item.get("resolved") is not True or item.get("pdb_matched") is not True
+                                  or item.get("pdb_unmatched") or item.get("dbg_unmatched")
+                                  or item.get("symbol_type") not in (3, 7) or int(item.get("symbol_flags", 0)) & 0x200
+                                  or not item.get("symbol") or pdb_identity != identity):
+                              fail(f"Frame lacks a matching real PDB symbol: {image.name}+{item['module_offset']}")
+                          address = int(item.get("symbol_address", "0"), 16)
+                          displacement = int(item.get("symbol_displacement") or "0", 16)
+                          if address + displacement != int(item["module_base"], 16) + int(item["module_offset"], 16):
+                              fail(f"Symbol address does not explain the captured offset: {image.name}+{item['module_offset']}")
+                      checked["modules"].append({"image": str(image), "codeview_identity": identity,
+                                                 "requested_offsets": len(requested), "symbol_rows": len(symbols)})
+                  source = Path(saved["source"]) / "stacks"
+                  for copied in (folder / "stacks").iterdir():
+                      if copied.read_bytes() != (source / copied.name).read_bytes():
+                          fail(f"Original stack text changed: {copied.name}")
+              except Exception as error:
+                  fail(f"Cannot validate the complete symbol report: {error}")
+              checked["passed"] = not checked["errors"]
+          result = {"acceptance_eligible": False, "app_launched": False,
+                    "passed": not errors, "phases": phases, "errors": errors}
+          (evidence / "replay-verification.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+          for error in errors:
+              print(error)
+          if errors:
+              raise SystemExit("Native symbol replay failed strict identity/symbol verification")
+          '@ | python -X utf8 -
+      - name: Upload only original stacks and old/new text reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Relic-symbol-replay-${{ inputs.source_run || '41546004847' }}-${{ inputs.profile || 'person-shape' }}
+          path: |
+            replay-evidence/*.json
+            replay-evidence/*/original-resolved-symbols.json
+            replay-evidence/*/resolved-symbols.json
+            replay-evidence/*/stacks/*.txt
+            replay-evidence/*/stacks/*.json
+          if-no-files-found: error
