@@ -378,7 +378,7 @@ public sealed partial class MainWindow
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tab, "settings-nav-" + key);
             tab.PointerEntered += (_, _) => { if (hoveredNavigationItems.Add(tab)) PaintNavigation(); };
             tab.PointerExited += (_, _) => { if (hoveredNavigationItems.Remove(tab)) PaintNavigation(); };
-            navigationBar.SizeChanged += (_, args) => tab.Width = args.NewSize.Width;
+            navigationBar.SizeChanged += (_, args) => { LayoutFeedback.Note("settings.tab_width", args.NewSize.Width, args.PreviousSize.Width); tab.Width = args.NewSize.Width; };
         }
         // One real selection model owns all navigation rows. Seven independent
         // one-item SelectorBars let modal initial focus select Profile and

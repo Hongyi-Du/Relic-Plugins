@@ -215,6 +215,7 @@ public sealed partial class MainWindow
         }
         void CardSizeChanged(object sender, SizeChangedEventArgs args)
         {
+            LayoutFeedback.Note("members.card", args.NewSize.Width, args.NewSize.Height);
             // Flyout recalculates its default anchor when model editing changes
             // the content size. Restore this card's opening anchor after that
             // real layout pass, without running a continuous layout correction.

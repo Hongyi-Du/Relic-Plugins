@@ -18,10 +18,19 @@ on:
         options: [all, open-every-chat, switch-chats, idle, workflows, history, monkey]
         default: all
       client:
-        description: Choose a client for feedback; final acceptance still requires both platforms
+        description: Choose a client for feedback; since 2026-11-03 acceptance requires Windows only (the person's decision)
         type: choice
         options: [both, windows, macos]
         default: both
+      scale:
+        description: Windows display scale; the person's laptop runs at 150%, where layout rounding differs
+        type: choice
+        options: ['100', '150']
+        default: '100'
+      layout_trace:
+        description: Turn on WinUI layout cycle tracing and keep the app's debug output and private memory in a crash dump
+        type: boolean
+        default: false
   push:
     branches: [native-apps, native-macos]
     paths:
@@ -71,7 +80,7 @@ jobs:
       - name: Build the native client
         run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/performance-windows
       - name: Prepare the isolated CI desktop
-        run: ./scripts/visual/windows-display.ps1
+        run: ./scripts/visual/windows-display.ps1 -Scale ${{ inputs.scale || '100' }}
       - name: Keep a full dump if the native client crashes
         # A stowed WinUI exception leaves only an exit code; the dump is analysed
         # on this runner after a failure and is never uploaded.
@@ -82,10 +91,19 @@ jobs:
           # Custom dump: thread stacks, the memory they point to and handles. A full
           # dump took long enough that the harness ended the process mid-write.
           New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 0 -Force | Out-Null
-          New-ItemProperty -Path $key -Name CustomDumpFlags -PropertyType DWord -Value 0x1965 -Force | Out-Null
+          # With layout tracing, private memory too: the stacks WinUI stowed for
+          # each element of a layout cycle live there (scripts/performance/stowed_stacks.py).
+          $flags = if ('${{ inputs.layout_trace }}' -eq 'true') { 0x1B65 } else { 0x1965 }
+          New-ItemProperty -Path $key -Name CustomDumpFlags -PropertyType DWord -Value $flags -Force | Out-Null
           New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 2 -Force | Out-Null
+      - name: Keep the app's debug output for layout cycle tracing
+        if: ${{ inputs.layout_trace == true }}
+        run: |
+          New-Item -ItemType Directory -Force performance/windows | Out-Null
+          Start-Process python -WindowStyle Hidden -ArgumentList @('-X', 'utf8', 'scripts/performance/debug_output.py', '--output', 'performance/windows/debug-output.txt', '--stop', "$env:RUNNER_TEMP/debug-output.stop")
       - name: Measure exhaustive and seeded interaction against synthetic large data
         env:
+          RELIC_LAYOUT_CYCLE_TRACING: ${{ inputs.layout_trace && '1' || '' }}
           RELIC_PERF_DIAGNOSTIC: ${{ inputs.diagnostic && 'true' || 'false' }}
           RELIC_PERF_PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'all' }}
           RELIC_DOTNET_STACK: ${{ github.workspace }}/native-build/diagnostics/dotnet-stack.exe
@@ -96,6 +114,11 @@ jobs:
           $phaseArgs = @()
           if ($env:RELIC_PERF_PHASE -ne 'all') { $phaseArgs += @('--phase', $env:RELIC_PERF_PHASE) }
           python -X utf8 scripts/performance/run.py --client windows --exe native-build/performance-windows/Relic.exe --output performance/windows --profile ${{ matrix.profile }} --mode ${{ inputs.mode || 'candidate' }} @diagnosticArgs @phaseArgs
+      - name: Stop keeping the app's debug output
+        if: ${{ always() && inputs.layout_trace == true }}
+        run: |
+          New-Item -ItemType File -Force "$env:RUNNER_TEMP/debug-output.stop" | Out-Null
+          Start-Sleep -Seconds 2
       - name: Resolve retained native frames with matching Microsoft symbols after measurement
         if: ${{ always() && inputs.diagnostic == true }}
         continue-on-error: true
@@ -126,6 +149,16 @@ jobs:
             if (Test-Path $cdb) {
               & $cdb -y 'srv*c:\symcache*https://msdl.microsoft.com/download/symbols' -z $_.FullName -c '!analyze -v; .ecxr; kb 60; ~*kb 30; q' 2>&1 |
                 Out-File -Encoding utf8 (Join-Path 'performance/windows' ($_.BaseName + '-analyze.txt'))
+            }
+          }
+          # A layout cycle stows one stack per invalidated element; name them all.
+          if ((Test-Path $cdb) -and (Get-ChildItem performance/crash-dumps -Filter *.dmp -ErrorAction SilentlyContinue)) {
+            dotnet tool install dotnet-sos --tool-path native-build/diagnostics-sos --version '8.*' 2>&1 | Out-Null
+            & native-build/diagnostics-sos/dotnet-sos install 2>&1 | Out-Null
+            $sos = Join-Path $env:USERPROFILE '.dotnet\sos\sos.dll'
+            Get-ChildItem performance/crash-dumps -Filter *.dmp | Select-Object -First 2 | ForEach-Object {
+              python -X utf8 scripts/performance/stowed_stacks.py --dump $_.FullName --cdb $cdb --sos $sos --output (Join-Path 'performance/windows' ($_.BaseName + '-stowed.txt')) 2>&1 |
+                Out-File -Encoding utf8 -Append performance/windows/crash-events.txt
             }
           }
           # Name the faulting function from the event even without a usable dump:

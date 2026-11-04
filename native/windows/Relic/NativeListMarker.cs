@@ -52,7 +52,7 @@ internal sealed class NativeListMarker : Panel
             if (!IsLoaded || XamlRoot?.Content is not UIElement root) return;
             var origin = TransformToVisual(root).TransformPoint(new Point(0, 0));
             var current = (origin.X, origin.Y, XamlRoot.RasterizationScale);
-            if (snappedAt != current) InvalidateArrange();
+            if (snappedAt != current) { LayoutFeedback.Note("marker.snap_again", current.Item1 - (snappedAt?.Item1 ?? double.NaN), current.Item2 - (snappedAt?.Item2 ?? double.NaN)); InvalidateArrange(); }
         };
     }
 
