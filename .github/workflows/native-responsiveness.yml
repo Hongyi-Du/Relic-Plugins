@@ -23,7 +23,7 @@ on:
         options: [both, windows, macos]
         default: both
       scale:
-        description: Windows display scale; the person's laptop runs at 150%, where layout rounding differs
+        description: Run every Windows set at 150% (by default large runs at 100% and person-shape at both 100% and 150%)
         type: choice
         options: ['100', '150']
         default: '100'
@@ -57,8 +57,14 @@ jobs:
       fail-fast: false
       matrix:
         profile: [large, person-shape]
+        scale: ['100']
+        # The person's laptop runs at 150%, where layout rounding differs: the
+        # banner's layout cycle (2026-11-04) only happened there.
+        include:
+          - profile: person-shape
+            scale: '150'
     concurrency:
-      group: native-responsiveness-windows-${{ matrix.profile }}-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.phase || 'all' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
+      group: native-responsiveness-windows-${{ matrix.profile }}-${{ inputs.scale == '150' && '150' || matrix.scale }}-${{ github.ref_name }}-${{ inputs.mode || 'candidate' }}-${{ inputs.phase || 'all' }}-${{ inputs.diagnostic && 'diagnostic' || 'acceptance' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +86,7 @@ jobs:
       - name: Build the native client
         run: dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/performance-windows
       - name: Prepare the isolated CI desktop
-        run: ./scripts/visual/windows-display.ps1 -Scale ${{ inputs.scale || '100' }}
+        run: ./scripts/visual/windows-display.ps1 -Scale ${{ inputs.scale == '150' && '150' || matrix.scale }}
       - name: Keep a full dump if the native client crashes
         # A stowed WinUI exception leaves only an exit code; the dump is analysed
         # on this runner after a failure and is never uploaded.
@@ -177,7 +183,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Relic-responsiveness-Windows-${{ matrix.profile }}-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
+          name: Relic-responsiveness-Windows-${{ matrix.profile }}-${{ inputs.scale == '150' && '150' || matrix.scale }}-${{ inputs.mode || 'candidate' }}${{ inputs.diagnostic && '-diagnostic' || '' }}
           path: |
             performance/windows
             !performance/windows/**/symbol-cache/**

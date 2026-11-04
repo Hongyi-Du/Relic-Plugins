@@ -45,7 +45,9 @@ jobs:
           New-Item -ItemType Directory -Force replay-input, replay-evidence | Out-Null
           [ordered]@{ source_run=$source.id; source_url=$source.html_url; source_commit=$source.head_sha; source_workflow=$source.path; profile=$env:RELIC_SOURCE_PROFILE; replay_commit=$env:GITHUB_SHA; acceptance_eligible=$false; app_launched=$false } |
             ConvertTo-Json | Set-Content -Encoding utf8 replay-evidence/source.json
-          gh run download $env:RELIC_SOURCE_RUN --repo $env:GITHUB_REPOSITORY --name "Relic-responsiveness-Windows-$env:RELIC_SOURCE_PROFILE-candidate-diagnostic" --dir replay-input
+          # Runs since 2026-11-04 name their artifact with the display scale.
+          gh run download $env:RELIC_SOURCE_RUN --repo $env:GITHUB_REPOSITORY --name "Relic-responsiveness-Windows-$env:RELIC_SOURCE_PROFILE-100-candidate-diagnostic" --dir replay-input
+          if ($LASTEXITCODE -ne 0) { gh run download $env:RELIC_SOURCE_RUN --repo $env:GITHUB_REPOSITORY --name "Relic-responsiveness-Windows-$env:RELIC_SOURCE_PROFILE-candidate-diagnostic" --dir replay-input }
           if ($LASTEXITCODE -ne 0) { throw 'Cannot download the exact diagnostic artifact' }
       - name: Build the offline native resolver
         run: |
