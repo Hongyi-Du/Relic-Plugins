@@ -99,8 +99,8 @@ jobs:
       - name: Keep the app's debug output for layout cycle tracing
         if: ${{ inputs.layout_trace == true }}
         run: |
-          New-Item -ItemType Directory -Force performance/windows | Out-Null
-          Start-Process python -WindowStyle Hidden -ArgumentList @('-X', 'utf8', 'scripts/performance/debug_output.py', '--output', 'performance/windows/debug-output.txt', '--stop', "$env:RUNNER_TEMP/debug-output.stop")
+          # run.py creates performance/windows itself; keep the output aside until it ends.
+          Start-Process python -WindowStyle Hidden -ArgumentList @('-X', 'utf8', 'scripts/performance/debug_output.py', '--output', "$env:RUNNER_TEMP/debug-output.txt", '--stop', "$env:RUNNER_TEMP/debug-output.stop")
       - name: Measure exhaustive and seeded interaction against synthetic large data
         env:
           RELIC_LAYOUT_CYCLE_TRACING: ${{ inputs.layout_trace && '1' || '' }}
@@ -119,6 +119,8 @@ jobs:
         run: |
           New-Item -ItemType File -Force "$env:RUNNER_TEMP/debug-output.stop" | Out-Null
           Start-Sleep -Seconds 2
+          New-Item -ItemType Directory -Force performance/windows | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/debug-output.txt" performance/windows/ -ErrorAction SilentlyContinue
       - name: Resolve retained native frames with matching Microsoft symbols after measurement
         if: ${{ always() && inputs.diagnostic == true }}
         continue-on-error: true
