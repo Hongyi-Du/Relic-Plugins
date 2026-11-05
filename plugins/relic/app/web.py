@@ -24,7 +24,7 @@ from relic_core.store import OrgError, Store, data_home, person_language
 
 from . import harness as harnesses
 from . import hub as hubs
-from . import explain, files, naming, prefs, views
+from . import explain, files, naming, overview, prefs, views
 from .processes import ProcessRegistry
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -626,6 +626,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
                     return self._error(403, "missing token")
                 return self._json(monitor.snapshot(self.app.store))
+            if api == ["overview"]:  # every organization: what it does, its open tasks, its members and what starts them
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                return self._json(overview.overview(self.app.store, self.app.hub, self.app.lang()))
             if api == ["usage"]:  # tokens per period and cumulative, by session, agent or organization
                 if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
                     return self._error(403, "missing token")
@@ -807,6 +811,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"avatar": prefs.avatar_url(a.get("org"), a.get("member"))})
             if len(api) == 3 and api[0] == "harnesses" and api[2] == "install":
                 return self._json(app.install(api[1]))
+            if api == ["monitor", "automation"]:  # the person pauses or resumes one Codex automation
+                result = monitor.set_automation(str(a.get("id") or ""), str(a.get("status") or ""))
+                app.bus.publish({"type": "monitor"})
+                return self._json(result)
             if len(api) == 2 and api[0] == "monitor" and api[1] in ("stop", "resume"):
                 key = str(a.get("key") or "")
                 if not a.get("all") and not key:
@@ -891,6 +899,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(app.set_model(org_id, a))
                 if action == "auto_wake":
                     store.set_auto_wake(org_id, bool(a.get("on")))
+                    return self._json({"ok": True})
+                if action == "seat_auto_wake":  # one seat's switch, from the overview
+                    store.set_seat_auto_wake(org_id, str(a.get("member") or ""), bool(a.get("on")),
+                                             reason="set by the person in the Relic App")
                     return self._json({"ok": True})
                 if action == "cancel":
                     hub.cancel(org_id, a["member"])

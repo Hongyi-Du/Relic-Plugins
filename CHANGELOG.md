@@ -49,6 +49,18 @@
   below marked Ex officio. One with organizations below it starts unfolded, any other folded. Folding adds or
   removes only the rows under that organization; the list is no longer drawn again. `GET /api/orgs` gives each
   organization's `roster`. The title bar's count badges are no longer clipped, and count digits sit in the middle.
+- An overview of the whole organization tree in the native Windows app (toolbar, next to the Monitor). For every
+  organization: its purpose, latest message and latest action, open tasks with owner and status, each member's state
+  (working, working in another organization, idle, stopped, no session) with its last activity, and what starts its
+  members on their own: auto-wake for the organization and each seat (and whether Relic can start the seat at all),
+  the Codex automations that start a member, and the Claude desktop app's scheduled tasks with their switch and time.
+  - From there the person turns auto-wake on or off for an organization or a seat, pauses or resumes a Codex
+    automation, stops or resumes a member (the Monitor's Stop) and opens a chat.
+  - Each refresh reads the organizations once plus a few grouped queries, nothing per member; the latest message and
+    action are read incrementally. API: `GET /api/overview`, `POST /api/org/<org>/seat_auto_wake`,
+    `POST /api/monitor/automation`.
+  - 原生 Windows App 的工具栏新增「总览」：整棵组织树一页看完，每个组织在做什么、未完成的任务、谁在干活、什么能让成员
+    自己开工；能直接开关自动唤醒、暂停或恢复 Codex 定时任务、停止或恢复成员、跳到群聊或私聊。
 
 自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
 没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。

@@ -797,7 +797,8 @@ public sealed partial class MainWindow
                 case "dialog":
                     var dialog = step.Text("name") switch { "settings" => Settings(), "about" => SettingsScreen("about"),
                         "neworg" => CreateOrg(), "member" => AddMember(), "tasks" => Details("tasks"),
-                        "protocols" => Details("protocols"), _ => throw new InvalidOperationException("Unknown dialog") };
+                        "protocols" => Details("protocols"), "overview" => OpenOrgOverview(),
+                        _ => throw new InvalidOperationException("Unknown dialog") };
                     // Preparation can include several HTTP requests. Waiting on
                     // the dialog task before it has opened instead waits for a
                     // user dismissal forever. Also, Hide before Opened can be

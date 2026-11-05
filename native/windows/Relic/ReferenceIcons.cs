@@ -59,6 +59,7 @@ public sealed partial class MainWindow
         ["minus"] = "M5 12h14",
         ["fit"] = "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
         ["chart"] = "M9 3h6v5H9zM3 16h6v5H3zM15 16h6v5h-6zM12 8v4M6 16v-4h12v4",
+        ["overview"] = "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
     });
 
     public static IReadOnlyCollection<string> SupportedNames { get; } = ReferenceIconPaths.Keys.ToArray();
