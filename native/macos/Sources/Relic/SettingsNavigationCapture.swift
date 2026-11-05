@@ -53,7 +53,8 @@ struct SettingsContentProbe: NSViewRepresentable {
                     if let text = view as? NSTextView {
                         row["text"] = text.string; row["selected_range"] = [text.selectedRange().location, text.selectedRange().length]; content.append(row)
                     } else if let control = view as? NSControl {
-                        row["text"] = control.stringValue; row["enabled"] = control.isEnabled
+                        // A secure field holds a secret (the Slack token): its text is never recorded.
+                        row["text"] = control is NSSecureTextField ? "" : control.stringValue; row["enabled"] = control.isEnabled
                         if let button = control as? NSButton { row["selected"] = button.state.rawValue }
                         content.append(row)
                     }
@@ -132,7 +133,7 @@ struct SettingsContentProbe: NSViewRepresentable {
             receipt["status"] = "failed"; throw RelicError.message("Settings navigation did not retain its actual hover and Appearance selection")
         }
         let rows = actual["buttons"] as? [[String: Any]] ?? [], pages = actual["pages"] as? [[String: Any]] ?? []
-        guard rows.count == 7, rows.allSatisfy({ ($0["paint_surfaces"] as? [[String: Any]])?.count == 1 }),
+        guard rows.count == 8, rows.allSatisfy({ ($0["paint_surfaces"] as? [[String: Any]])?.count == 1 }),
               pages.count == 1, (pages.first?["native_content"] as? [[String: Any]])?.isEmpty == false else {
             receipt["status"] = "failed"; throw RelicError.message("Settings hover has incomplete actual navigation paint or native page content")
         }
