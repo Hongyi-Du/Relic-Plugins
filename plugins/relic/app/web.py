@@ -18,7 +18,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from relic_core import __version__, i18n, monitor, platform_support, runner, usage, wake
+from relic_core import __version__, i18n, monitor, platform_support, runner, slack, usage, wake
 from relic_core.sessions import actor_for, all_sessions
 from relic_core.store import OrgError, Store, data_home, person_language
 
@@ -633,6 +633,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(monitor.report(self.app.store, span=q.get("span") or "7d", group=q.get("group") or "agent",
                                                  org=("" if org == "-" else org), agent=q.get("agent"),
                                                  bucket=q.get("bucket")))
+            if api and api[0] == "slack":  # the person's Slack (relic_core/slack.py); the token is never sent back
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                if api == ["slack"]:
+                    return self._json(slack.status(self.app.store))
+                if api == ["slack", "conversations"]:
+                    try:
+                        return self._json(slack.picker(self.app.store))
+                    except ValueError as error:
+                        return self._error(400, str(error))
+                return self._error(404, "not found")
             if api == ["cc"]:  # what was copied to the person
                 return self._json(views.copies(self.app.store, self.app.lang()))
             if api == ["harnesses"]:
@@ -808,6 +819,17 @@ class Handler(BaseHTTPRequestHandler):
                     result = monitor.resume_all(store) if a.get("all") else monitor.resume(store, key)
                 app.bus.publish({"type": "monitor"})
                 return self._json(result)
+            if len(api) == 2 and api[0] == "slack":  # connect with a pasted token, disconnect, or who may read what
+                if api[1] == "connect":
+                    result = slack.connect(store, a.get("token"))
+                elif api[1] == "disconnect":
+                    result = slack.disconnect(store)
+                elif api[1] == "scope":
+                    result = slack.set_scope(store, str(a.get("org") or ""), a.get("mode"), a.get("conversations"),
+                                             a.get("dms"))
+                else:
+                    return self._error(404, "not found")
+                return self._json(result)  # no event: the settings page redraws from this answer; windows ignore it
             if len(api) == 3 and api[0] == "cc" and api[2] in ("read", "retire"):
                 cid = int(api[1])
                 return self._json(app.read_copy(cid) if api[2] == "read" else app.retire_copy(cid))

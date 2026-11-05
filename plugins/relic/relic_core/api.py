@@ -7,7 +7,7 @@ subagent making the call. Agents never need to pass it themselves.
 import os
 import time
 
-from . import wake
+from . import slack, wake
 from .context import render, render_below, render_messages, render_seats
 from .store import OrgError
 
@@ -179,8 +179,18 @@ TOOLS = [
     tool("review", "Peer review required by strong protocols. op=list shows pending requests; op=approve "
          "{request_id, note} approves another member's exact action after you checked it.",
          {"op": {"enum": ["list", "approve"]}, "request_id": S, "note": S, "org": SEAT}, ["op"]),
+    tool("slack", "Read the person's Slack, read-only, once the person has connected it in the Relic App (Settings, "
+         "Slack): the background the person would otherwise have to explain. op=search {query, limit?, cursor?} finds "
+         "messages (a question in plain words, or key words; at most 20 a call, cursor pages on); op=history {channel, "
+         "limit?, oldest?, latest?} reads a conversation, oldest first (channel: an id like C0123ABCD, #name, or "
+         "@person for a direct message; oldest and latest: a Slack ts or a date like 2026-11-05); op=thread {channel, "
+         "ts} reads a thread; op=channels {query?} lists the conversations your organization may read. The person "
+         "decides what each organization may read, and every read is logged with your seat. You cannot post to Slack; "
+         "do not repeat what you read to anyone outside this work.",
+         {"op": {"enum": ["search", "history", "thread", "channels"]}, "query": S, "channel": S, "ts": S,
+          "limit": {"type": "integer"}, "cursor": S, "oldest": S, "latest": S, "org": SEAT}, ["op"]),
 ]
-SEATED_ONLY = {"inbox", "episode", "review", "trajectory"}  # org names a seat of the caller, nothing else
+SEATED_ONLY = {"inbox", "episode", "review", "trajectory", "slack"}  # org names a seat of the caller, nothing else
 KNOWN = {t["name"] for t in TOOLS}
 
 
@@ -331,6 +341,8 @@ def handle_call(store, name, args, actor):
         if op == "list":
             return store.trajectory_requests(actor)
         raise OrgError("trajectory ops: request, answer, list.")
+    if name == "slack":
+        return slack.tool_call(store, actor, args)
     raise OrgError("Unknown tool " + name)
 
 

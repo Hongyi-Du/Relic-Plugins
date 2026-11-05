@@ -2,6 +2,23 @@
 
 ## Unreleased / 未发布
 
+- The person's Slack, read-only, as background for every member. In the Relic App (Settings, Slack) the person creates
+  an internal Slack app of their own from the manifest shown there (read scopes only, no bot user, nothing that
+  posts), installs it and pastes its User OAuth Token. The token is kept encrypted for the Windows user (DPAPI; a file
+  only the user can read elsewhere) and never sent back.
+  - Members get a `slack` tool: `search` (Slack's Real-Time Search API, with the legacy `search.messages` for tokens
+    that only have `search:read`), `history`, `thread` and `channels`. Messages are fetched when asked and never
+    stored.
+  - The person chooses per organization what it may read: everything, every channel without direct messages, a list
+    of conversations, or nothing. An organization without its own choice follows the nearest one above it, then the
+    default (everything).
+  - Every read is logged with the seat, what it asked for and how many messages came back (90 days, no message
+    text). The settings page shows the latest reads. The context of an organization that may read Slack says so.
+  - API: `GET /api/slack`, `GET /api/slack/conversations`, `POST /api/slack/connect|disconnect|scope`.
+  - 成员可以只读地查看人的 Slack 作为背景。人在 Relic App 的「设置 → Slack」里用页面给出的配置建一个自己的
+    Slack 应用（只有读取权限），装到工作区后把 User OAuth Token 贴进来；令牌按 Windows 账号加密保存，不再显示。
+    成员用 `slack` 工具搜索、读频道、读线程、列会话；能读什么由人按组织设定，没设定的跟上级组织；每次读取都会记录
+    （不存消息内容）。
 - Auto-wake carries the exact triggering message ids and a bounded message preview in the turn prompt, with
   explicit inbox-by-id and task checks even when hooks have already marked the messages read.
 - Runner and App receipts quote only the member's new replies in the triggering threads, separately for each

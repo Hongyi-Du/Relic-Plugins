@@ -31,7 +31,7 @@ from relic_core.store import Store  # noqa: E402
 
 # reload order: every module after the modules it takes names from
 MODULES = ("relic_core", "relic_core.platform_support", "relic_core.paths", "relic_core.checker",
-           "relic_core.store", "relic_core.context", "relic_core.trajectory", "relic_core.sessions",
+           "relic_core.store", "relic_core.slack", "relic_core.context", "relic_core.trajectory", "relic_core.sessions",
            "relic_core.runner", "relic_core.desktop", "relic_core.wake", "relic_core.api")
 
 CODE = threading.RLock()  # relic_core runs under it and a reload takes it, so modules never change under a call
@@ -135,6 +135,8 @@ def send(message, stop=None):
 
 
 def ok_result(data):
+    if isinstance(data, dict) and data.get("text_only"):  # text meant to be read as it is (slack): no JSON copy of it
+        return {"content": [{"type": "text", "text": str(data.get("text") or "")}]}
     text = data.get("context") or data.get("text") if isinstance(data, dict) else None
     body = json.dumps(data, ensure_ascii=False, indent=1)
     return {"content": [{"type": "text", "text": text + "\n\n" + body if text else body}]}
