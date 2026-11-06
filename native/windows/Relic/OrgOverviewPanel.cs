@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Relic.Core;
+using System.Globalization;
 using System.Text.Json.Nodes;
 
 namespace Relic;
@@ -12,6 +13,11 @@ namespace Relic;
 // (auto-wake, Codex automations, the Claude app's scheduled tasks). The person adjusts from here: auto-wake for an
 // organization or a seat, pausing or resuming an automation, stopping or resuming a member's session (the monitor's
 // Stop and Resume), and opening a chat. Refreshes every 5 s while open; reads nothing while closed.
+//
+// Each card is a run of rows in a VirtualRows list (its header, what it does, each task, each member, its end), so only
+// the rows in view are built: a large tree opens without holding the UI thread (CI measured 255-460 ms when every
+// expanded card was built at once). A refresh replaces only the rows whose content changed; a row's key carries its
+// content, and times are clock times, so an unchanged row stays as it is.
 public sealed partial class MainWindow
 {
     private JsonNode orgOverviewData = new JsonObject();
@@ -19,10 +25,12 @@ public sealed partial class MainWindow
     private long orgOverviewDrawnAt, orgOverviewArmedAt;
     private bool orgOverviewTimerWired, orgOverviewPointerOver, orgOverviewPending;
     private readonly DispatcherTimer orgOverviewTimer = new() { Interval = TimeSpan.FromSeconds(5) };
-    private StackPanel? orgOverviewBody;
+    private VirtualRows? orgOverviewBody;
     private readonly Dictionary<string, bool> orgOverviewOpen = new();
     private readonly HashSet<string> orgOverviewEverything = new();  // organizations showing every task and member
+    private readonly Dictionary<string, string> orgOverviewOrgNames = new();
     private const int OrgOverviewTaskRows = 8, OrgOverviewMemberRows = 40;
+    private static readonly string OrgOverviewFolded = ((char)0xE76C).ToString(), OrgOverviewUnfolded = ((char)0xE70D).ToString();
 
     private async Task OpenOrgOverview()
     {
@@ -32,27 +40,27 @@ public sealed partial class MainWindow
             orgOverviewTimerWired = true;
             orgOverviewTimer.Tick += (_, _) => { if (orgOverviewBody != null) _ = ReadOrgOverview(); };
         }
-        // Transparent, not null: the whole panel reports the pointer, so a refresh can wait while it is over the rows.
-        orgOverviewBody = new StackPanel { Spacing = 10, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-        AutomationProperties.SetAutomationId(orgOverviewBody, "org-overview");
-        orgOverviewPointerOver = orgOverviewPending = false;
-        orgOverviewBody.PointerEntered += (_, _) => orgOverviewPointerOver = true;
-        orgOverviewBody.PointerExited += (_, _) =>
+        // Transparent, not null: the whole list reports the pointer, so a refresh can wait while it is over the rows.
+        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        AutomationProperties.SetAutomationId(body, "org-overview");
+        body.PointerEntered += (_, _) => orgOverviewPointerOver = true;
+        body.PointerExited += (_, _) =>
         {
             orgOverviewPointerOver = false;
-            if (orgOverviewPending) { orgOverviewPending = false; orgOverviewDrawn = orgOverviewLatest; DrawOrgOverview(); }
+            if (orgOverviewPending && orgOverviewBody == body) { orgOverviewPending = false; orgOverviewDrawn = orgOverviewLatest; DrawOrgOverview(); }
         };
-        orgOverviewDrawn = "";
+        orgOverviewBody = body; orgOverviewPointerOver = orgOverviewPending = false; orgOverviewDrawn = "";
         DrawOrgOverview();
         orgOverviewTimer.Start();
         _ = ReadOrgOverview();
-        try { await Show(T("ov.title"), orgOverviewBody, 1100); }
-        finally { orgOverviewTimer.Stop(); orgOverviewBody = null; }
+        try { await Show(T("ov.title"), body, 1100); }
+        // A panel opened meanwhile (the dialog that replaced this one) keeps its own list and timer.
+        finally { if (orgOverviewBody == body) { orgOverviewTimer.Stop(); orgOverviewBody = null; } }
     }
 
-    // Redraws only when something it shows changed (and once a minute for the "minutes ago" texts). A redraw replaces
-    // the rows, and a click pressed on one in between would be lost, so while the pointer is over the panel a change
-    // waits until it leaves (at most 30 s). The person's own changes redraw at once.
+    // Draws again only when something it shows changed. A redraw replaces the changed rows, and a click pressed on one
+    // in between would be lost, so while the pointer is over the panel a change waits until it leaves (at most 30 s).
+    // The person's own changes redraw at once.
     private async Task ReadOrgOverview(bool redraw = false)
     {
         if (api == null) return;
@@ -64,13 +72,10 @@ public sealed partial class MainWindow
             if (shown is JsonObject stamped) stamped.Remove("at");
             var text = shown.ToJsonString();
             orgOverviewData = data; orgOverviewLatest = text;
-            if (orgOverviewBody != null && (redraw || text != orgOverviewDrawn || Environment.TickCount64 - orgOverviewDrawnAt > 60000))
-            {
-                if (!redraw && orgOverviewPointerOver && Environment.TickCount64 - orgOverviewDrawnAt < 30000) { orgOverviewPending = true; return; }
-                orgOverviewPending = false;
-                orgOverviewDrawn = text;
-                DrawOrgOverview();
-            }
+            if (orgOverviewBody == null || (!redraw && text == orgOverviewDrawn)) return;
+            if (!redraw && orgOverviewPointerOver && Environment.TickCount64 - orgOverviewDrawnAt < 30000) { orgOverviewPending = true; return; }
+            orgOverviewPending = false; orgOverviewDrawn = text;
+            DrawOrgOverview();
         }
         catch (Exception ex)
         {
@@ -85,11 +90,16 @@ public sealed partial class MainWindow
         var body = orgOverviewBody;
         if (body == null) return;
         orgOverviewDrawnAt = Environment.TickCount64;
-        body.Children.Clear();
-        body.Children.Add(Quiet(T("ov.intro"), 12.5));
+        var rows = new List<VirtualRows.Row>();
+        // Today's date is part of every key: a clock time shown without its date stays right only on the same day.
+        var day = DateTime.Today.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        void Add(string key, double estimate, Func<UIElement> build) => rows.Add(new VirtualRows.Row(build, estimate, key + "#" + day));
+        Add("intro", 40, () => OrgOverviewTop(Quiet(T("ov.intro"), 12.5)));
         if (orgOverviewData["orgs"] is not JsonArray orgs)
         {
-            body.Children.Add(Quiet(orgOverviewError.Length > 0 ? T("common.load_failed", ("error", orgOverviewError)) : T("common.loading")));
+            var wait = orgOverviewError.Length > 0 ? T("common.load_failed", ("error", orgOverviewError)) : T("common.loading");
+            Add("wait:" + wait, 30, () => OrgOverviewTop(Quiet(wait)));
+            body.Reconcile(rows);
             return;
         }
         var totals = orgOverviewData["totals"];
@@ -102,24 +112,27 @@ public sealed partial class MainWindow
         summary.Add(T("ov.sum_wake", ("on", (int)Num(totals, "orgs_auto_wake")), ("n", (int)Num(totals, "orgs"))));
         summary.Add(T("mon.codex_automations", ("on", (int)Num(totals, "automations_on")), ("n", (int)Num(totals, "automations"))));
         summary.Add(T("ov.sum_claude", ("on", (int)Num(totals, "claude_tasks_on")), ("n", (int)Num(totals, "claude_tasks"))));
-        var line = Heading(string.Join(" · ", summary), 13.5);
-        body.Children.Add(line);
-        if (orgOverviewData.Flag("stopped_all")) body.Children.Add(OrgOverviewWarning(T("ov.stopped_all")));
-        if (orgOverviewData.Flag("scanning")) body.Children.Add(Quiet(T("ov.scanning")));
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        actions.Children.Add(Button(T("ov.expand_all"), () => OrgOverviewFold(orgs, true)));
-        actions.Children.Add(Button(T("ov.collapse_all"), () => OrgOverviewFold(orgs, false)));
-        body.Children.Add(actions);
+        var line = string.Join(" · ", summary);
+        Add("summary:" + line, 30, () => OrgOverviewTop(Heading(line, 13.5)));
+        if (orgOverviewData.Flag("stopped_all")) Add("stopped-all", 30, () => OrgOverviewTop(OrgOverviewWarning(T("ov.stopped_all"))));
+        if (orgOverviewData.Flag("scanning")) Add("scanning", 26, () => OrgOverviewTop(Quiet(T("ov.scanning"))));
+        Add("fold-all", 42, () =>
+        {
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            actions.Children.Add(Button(T("ov.expand_all"), () => OrgOverviewFold(true)));
+            actions.Children.Add(Button(T("ov.collapse_all"), () => OrgOverviewFold(false)));
+            return OrgOverviewTop(actions);
+        });
         orgOverviewOrgNames.Clear();
         foreach (var o in orgs) orgOverviewOrgNames[o.Text("id")] = o.Text("name");
-        foreach (var o in orgs) body.Children.Add(OrgOverviewCard(o));
-        OrgOverviewSchedules(body);
+        foreach (var o in orgs) OrgOverviewCard(Add, o);
+        OrgOverviewSchedules(Add);
+        body.Reconcile(rows);
     }
-    private readonly Dictionary<string, string> orgOverviewOrgNames = new();
 
-    private Task OrgOverviewFold(JsonArray orgs, bool open)
+    private Task OrgOverviewFold(bool open)
     {
-        foreach (var o in orgs) orgOverviewOpen[o.Text("id")] = open;
+        foreach (var o in orgOverviewData.Rows("orgs")) orgOverviewOpen[o.Text("id")] = open;
         DrawOrgOverview();
         return Task.CompletedTask;
     }
@@ -129,14 +142,40 @@ public sealed partial class MainWindow
         var warning = Text(text, 12.5); warning.Foreground = Paint("B26A00", "E0A030"); return warning;
     }
 
-    // ---------------- one organization ----------------
-    private UIElement OrgOverviewCard(JsonNode? o)
+    private static Border OrgOverviewTop(UIElement child) => new() { Child = child, Margin = new Thickness(0, 0, 0, 10) };
+
+    // One piece of an organization's card: the pieces in a run draw one bordered card, its first piece with the top
+    // edge and corners, its last with the bottom ones. Indented by the organization's depth in the tree.
+    private Border OrgOverviewPart(UIElement child, double depth, bool accent, bool top = false, bool bottom = false, double indent = 40)
+        => new()
+        {
+            Child = child,
+            Margin = new Thickness(Math.Min(6, depth) * 22, 0, 0, bottom ? 10 : 0),
+            Padding = new Thickness(top || bottom ? 12 : 12 + indent, top ? 12 : bottom ? 0 : 3, 12, bottom ? 8 : 3),
+            Background = Paint("FFFFFF", "252523"), BorderBrush = accent ? Accent : Line,
+            BorderThickness = new Thickness(1, top ? 1 : 0, 1, bottom ? 1 : 0),
+            CornerRadius = new CornerRadius(top ? 10 : 0, top ? 10 : 0, bottom ? 10 : 0, bottom ? 10 : 0)
+        };
+
+    private static string OrgOverviewWhen(double epochSeconds)
+    {
+        var at = DateTimeOffset.FromUnixTimeSeconds((long)epochSeconds).ToLocalTime();
+        return at.Date == DateTime.Today ? at.ToString("HH:mm", CultureInfo.InvariantCulture) : at.ToString("M/d HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    private static string OrgOverviewHash(params string?[] parts) => string.Join("\u001f", parts).GetHashCode().ToString(CultureInfo.InvariantCulture);
+
+    // ---------------- one organization: its rows ----------------
+    private void OrgOverviewCard(Action<string, double, Func<UIElement>> add, JsonNode? o)
     {
         var id = o.Text("id");
         var counts = o?["counts"];
         var working = (int)Num(counts, "working");
         var openTasks = (int)Num(counts, "open_tasks");
         if (!orgOverviewOpen.TryGetValue(id, out var open)) open = orgOverviewOpen[id] = working > 0 || openTasks > 0;
+        var depth = Num(o, "depth");
+        var accent = working > 0;
+        var card = id + ":" + (accent ? "a" : "n") + depth.ToString(CultureInfo.InvariantCulture);
         var names = new Dictionary<string, string>();
         foreach (var m in o.Rows("members")) names[m.Text("name")] = m.Text("display").Length > 0 ? m.Text("display") : m.Text("name");
         string Who(string name)
@@ -149,13 +188,56 @@ public sealed partial class MainWindow
                 ? T("common.member_of_org", ("member", name[(slash + 1)..]), ("org", place)) : name;
         }
 
-        var content = new StackPanel { Spacing = 10 };
+        var head = OrgOverviewHash(o.Text("name"), o.Text("kind"), o.Text("cabinet"), o.Text("auto_wake"), o.Text("starts_itself"),
+            counts?.ToJsonString(), open ? "open" : "folded");
+        add("head:" + card + ":" + head, o.Flag("starts_itself") ? 66 : 88, () => OrgOverviewPart(OrgOverviewHeader(o, id, open, working, openTasks), depth, accent, top: true));
+        if (open)
+        {
+            var doing = OrgOverviewHash(o.Text("purpose"), o?["latest_message"]?.ToJsonString(), o?["latest_action"]?.ToJsonString(),
+                string.Join(",", names.Select(pair => pair.Key + "=" + pair.Value)));
+            add("doing:" + card + ":" + doing, 110, () => OrgOverviewPart(OrgOverviewDoing(o, Who), depth, accent));
+            var tasks = o.Rows("tasks");
+            var done = (int)Num(o, "done");
+            add("tasks:" + card + ":" + tasks.Count + ":" + done, 34, () =>
+            {
+                var heading = TwoColumns(Heading(T("ov.tasks", ("n", tasks.Count)), 13), Quiet(done > 0 ? T("ov.done_tasks", ("n", done)) : "", 12));
+                heading.Margin = new Thickness(0, 8, 0, 0);
+                return OrgOverviewPart(heading, depth, accent);
+            });
+            if (tasks.Count == 0) add("no-tasks:" + card, 26, () => OrgOverviewPart(Quiet(T("ov.no_open_tasks"), 12.5), depth, accent));
+            var everything = orgOverviewEverything.Contains(id);
+            foreach (var task in everything ? tasks : tasks.Take(OrgOverviewTaskRows))
+            {
+                var owner = task.Text("owner").Length > 0 ? Who(task.Text("owner")) : T("ov.unassigned");
+                add("task:" + card + ":" + task.Text("id") + ":" + OrgOverviewHash(task?.ToJsonString(), owner), 28,
+                    () => OrgOverviewPart(OrgOverviewTask(task, owner), depth, accent));
+            }
+            if (!everything && tasks.Count > OrgOverviewTaskRows)
+                add("more-tasks:" + card + ":" + tasks.Count, 34, () => OrgOverviewPart(QuietButton(T("common.more_items", ("n", tasks.Count - OrgOverviewTaskRows)), () => OrgOverviewShowAll(id)), depth, accent));
+            var members = o.Rows("members");
+            add("members:" + card + ":" + members.Count, 34, () =>
+            {
+                var heading = Heading(T("ov.members", ("n", members.Count)), 13); heading.Margin = new Thickness(0, 8, 0, 0);
+                return OrgOverviewPart(heading, depth, accent);
+            });
+            foreach (var m in everything ? members : members.Take(OrgOverviewMemberRows))
+                add("member:" + card + ":" + m.Text("name") + ":" + OrgOverviewHash(m?.ToJsonString()), 66 + 22 * m.Rows("automations").Count,
+                    () => OrgOverviewPart(OrgOverviewMember(m, id), depth, accent));
+            if (!everything && members.Count > OrgOverviewMemberRows)
+                add("more-members:" + card + ":" + members.Count, 34, () => OrgOverviewPart(QuietButton(T("common.more_items", ("n", members.Count - OrgOverviewMemberRows)), () => OrgOverviewShowAll(id)), depth, accent));
+        }
+        add("end:" + card, 18, () => OrgOverviewPart(new Border(), depth, accent, bottom: true));
+    }
+
+    private Grid OrgOverviewHeader(JsonNode? o, string id, bool open, int working, int openTasks)
+    {
+        var counts = o?["counts"];
         var header = new Grid { ColumnSpacing = 10 };
         header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        var fold = IconButton(open ? "\uE70D" : "\uE76C", "common.collapse", () =>
+        var fold = IconButton(open ? OrgOverviewUnfolded : OrgOverviewFolded, "common.collapse", () =>
         {
             orgOverviewOpen[id] = !open; DrawOrgOverview(); return Task.CompletedTask;
         }, open ? T("common.collapse") : T("ov.expand"), 14);
@@ -188,33 +270,21 @@ public sealed partial class MainWindow
         group.VerticalAlignment = VerticalAlignment.Top;
         AutomationProperties.SetAutomationId(group, "ov-group-" + id);
         Grid.SetColumn(group, 3); header.Children.Add(group);
-        content.Children.Add(header);
-        if (open)
-        {
-            var details = new StackPanel { Spacing = 14, Margin = new Thickness(40, 0, 0, 0) };
-            details.Children.Add(OrgOverviewDoing(o, Who));
-            details.Children.Add(OrgOverviewTasks(o, id, Who));
-            details.Children.Add(OrgOverviewMembers(o, id));
-            content.Children.Add(details);
-        }
-        var card = Card(content);
-        card.Margin = new Thickness(Math.Min(6, Num(o, "depth")) * 22, 0, 0, 0);
-        if (working > 0) card.BorderBrush = Accent;
-        return card;
+        return header;
     }
 
     private StackPanel OrgOverviewDoing(JsonNode? o, Func<string, string> who)
     {
-        var section = new StackPanel { Spacing = 4 };
+        var section = new StackPanel { Spacing = 4, Margin = new Thickness(0, 4, 0, 0) };
         section.Children.Add(Heading(T("ov.doing"), 13));
         if (o.Text("purpose").Length > 0) section.Children.Add(OrgOverviewLine(T("ov.purpose", ("text", o.Text("purpose"))), 2));
         var message = o?["latest_message"];
         var act = o?["latest_action"];
         if (message is JsonObject)
-            section.Children.Add(OrgOverviewLine(T("ov.latest_message", ("who", who(message.Text("from"))), ("when", Ago(Num(message, "at"))),
+            section.Children.Add(OrgOverviewLine(T("ov.latest_message", ("who", who(message.Text("from"))), ("when", OrgOverviewWhen(Num(message, "at"))),
                 ("text", message.Text("body"))), 2));
         if (act is JsonObject)
-            section.Children.Add(OrgOverviewLine(T("ov.latest_action", ("who", who(act.Text("member"))), ("when", Ago(Num(act, "at"))),
+            section.Children.Add(OrgOverviewLine(T("ov.latest_action", ("who", who(act.Text("member"))), ("when", OrgOverviewWhen(Num(act, "at"))),
                 ("text", (act.Text("tool") + " " + act.Text("summary")).Trim())), 1));
         if (message is not JsonObject && act is not JsonObject) section.Children.Add(Quiet(T("ov.no_activity"), 12.5));
         return section;
@@ -227,53 +297,29 @@ public sealed partial class MainWindow
         return block;
     }
 
-    private StackPanel OrgOverviewTasks(JsonNode? o, string id, Func<string, string> who)
+    private Grid OrgOverviewTask(JsonNode? task, string owner)
     {
-        var section = new StackPanel { Spacing = 4 };
-        var tasks = o.Rows("tasks");
-        var done = (int)Num(o, "done");
-        section.Children.Add(TwoColumns(Heading(T("ov.tasks", ("n", tasks.Count)), 13), Quiet(done > 0 ? T("ov.done_tasks", ("n", done)) : "", 12)));
-        if (tasks.Count == 0) { section.Children.Add(Quiet(T("ov.no_open_tasks"), 12.5)); return section; }
-        var everything = orgOverviewEverything.Contains(id);
-        foreach (var task in everything ? tasks : tasks.Take(OrgOverviewTaskRows))
-        {
-            var row = new Grid { ColumnSpacing = 10 };
-            row.ColumnDefinitions.Add(new() { Width = new GridLength(42) });
-            row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new() { Width = new GridLength(64) });
-            row.Children.Add(Quiet(task.Text("id"), 12.5));
-            var name = Text(task.Text("title"), 12.5); name.MaxLines = 2; name.TextTrimming = TextTrimming.CharacterEllipsis;
-            ToolTipService.SetToolTip(name, task.Text("title"));
-            Grid.SetColumn(name, 1); row.Children.Add(name);
-            var owner = Quiet(task.Text("owner").Length > 0 ? who(task.Text("owner")) : T("ov.unassigned"), 12.5);
-            Grid.SetColumn(owner, 2); row.Children.Add(owner);
-            var status = task.Text("status");
-            var state = Text(status switch { "working" => T("task.working"), "blocked" => T("task.blocked"), _ => T("task.open") }, 12.5);
-            state.Foreground = status switch { "working" => Paint("1E8E3E", "4CC26A"), "blocked" => Paint("C9372C", "E66767"), _ => Muted };
-            Grid.SetColumn(state, 3); row.Children.Add(state);
-            section.Children.Add(row);
-        }
-        if (!everything && tasks.Count > OrgOverviewTaskRows)
-            section.Children.Add(QuietButton(T("common.more_items", ("n", tasks.Count - OrgOverviewTaskRows)), () => OrgOverviewShowAll(id)));
-        return section;
+        var row = new Grid { ColumnSpacing = 10 };
+        row.ColumnDefinitions.Add(new() { Width = new GridLength(42) });
+        row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new() { Width = new GridLength(64) });
+        row.Children.Add(Quiet(task.Text("id"), 12.5));
+        var name = Text(task.Text("title"), 12.5); name.MaxLines = 2; name.TextTrimming = TextTrimming.CharacterEllipsis;
+        ToolTipService.SetToolTip(name, task.Text("title"));
+        Grid.SetColumn(name, 1); row.Children.Add(name);
+        var who = Quiet(owner, 12.5);
+        Grid.SetColumn(who, 2); row.Children.Add(who);
+        var status = task.Text("status");
+        var state = Text(status switch { "working" => T("task.working"), "blocked" => T("task.blocked"), _ => T("task.open") }, 12.5);
+        state.Foreground = status switch { "working" => Paint("1E8E3E", "4CC26A"), "blocked" => Paint("C9372C", "E66767"), _ => Muted };
+        Grid.SetColumn(state, 3); row.Children.Add(state);
+        return row;
     }
 
     private Task OrgOverviewShowAll(string id)
     {
         orgOverviewEverything.Add(id); DrawOrgOverview(); return Task.CompletedTask;
-    }
-
-    private StackPanel OrgOverviewMembers(JsonNode? o, string id)
-    {
-        var section = new StackPanel { Spacing = 6 };
-        var members = o.Rows("members");
-        section.Children.Add(Heading(T("ov.members", ("n", members.Count)), 13));
-        var everything = orgOverviewEverything.Contains(id);
-        foreach (var m in everything ? members : members.Take(OrgOverviewMemberRows)) section.Children.Add(OrgOverviewMember(m, id));
-        if (!everything && members.Count > OrgOverviewMemberRows)
-            section.Children.Add(QuietButton(T("common.more_items", ("n", members.Count - OrgOverviewMemberRows)), () => OrgOverviewShowAll(id)));
-        return section;
     }
 
     // ---------------- one member ----------------
@@ -317,7 +363,7 @@ public sealed partial class MainWindow
         // One line for when it last acted and what can start it; the note that nothing can is part of that line.
         var meta = new List<string>();
         var last = Num(m, "last_at");
-        if (last > 0) meta.Add(T("mon.last_active", ("when", Ago(last))));
+        if (last > 0) meta.Add(T("mon.last_active", ("when", OrgOverviewWhen(last))));
         if (m.Flag("released")) meta.Add(T("mon.state_released"));
         var wake = m.Text("wake");
         if (wake != "vacant")
@@ -397,28 +443,32 @@ public sealed partial class MainWindow
     }
 
     // ---------------- what starts sessions without a seat ----------------
-    private void OrgOverviewSchedules(StackPanel body)
+    private void OrgOverviewSchedules(Action<string, double, Func<UIElement>> add)
     {
         var loose = orgOverviewData.Rows("automations");
-        body.Children.Add(Heading(T("ov.loose"), 14));
-        body.Children.Add(Quiet(T("ov.loose_hint"), 12.5));
-        if (loose.Count == 0) body.Children.Add(Quiet(T("ov.none"), 12.5));
-        foreach (var automation in loose) body.Children.Add(OrgOverviewAutomation(automation));
+        add("loose", 30, () => { var h = Heading(T("ov.loose"), 14); h.Margin = new Thickness(0, 6, 0, 0); return h; });
+        add("loose-hint", 26, () => OrgOverviewTop(Quiet(T("ov.loose_hint"), 12.5)));
+        if (loose.Count == 0) add("loose-none", 26, () => OrgOverviewTop(Quiet(T("ov.none"), 12.5)));
+        foreach (var automation in loose)
+            add("loose:" + automation.Text("id") + ":" + OrgOverviewHash(automation?.ToJsonString()), 34, () => OrgOverviewTop(OrgOverviewAutomation(automation)));
         var tasks = orgOverviewData.Rows("claude_tasks");
-        body.Children.Add(Heading(T("ov.claude_tasks"), 14));
-        body.Children.Add(Quiet(T("ov.claude_hint"), 12.5));
-        if (tasks.Count == 0) body.Children.Add(Quiet(T("ov.none"), 12.5));
+        add("claude", 30, () => { var h = Heading(T("ov.claude_tasks"), 14); h.Margin = new Thickness(0, 6, 0, 0); return h; });
+        add("claude-hint", 26, () => OrgOverviewTop(Quiet(T("ov.claude_hint"), 12.5)));
+        if (tasks.Count == 0) add("claude-none", 26, () => OrgOverviewTop(Quiet(T("ov.none"), 12.5)));
         foreach (var task in tasks)
         {
-            var enabled = task?["enabled"]?.ToString();
-            var parts = new List<string> { task.Text("name") };
-            if (task.Text("schedule").Length > 0) parts.Add(task.Text("schedule"));
-            parts.Add(enabled == "true" ? T("mon.active") : enabled == "false" ? T("ov.off") : T("ov.switch_unknown"));
-            var item = new StackPanel { Spacing = 2 };
-            item.Children.Add(Text(string.Join(" · ", parts), 12.5));
-            if (task.Text("description").Length > 0) item.Children.Add(OrgOverviewLine(task.Text("description"), 2));
-            if (task.Text("cwd").Length > 0) item.Children.Add(Quiet(task.Text("cwd"), 12));
-            body.Children.Add(item);
+            add("claude:" + task.Text("id") + ":" + OrgOverviewHash(task?.ToJsonString()), 70, () =>
+            {
+                var enabled = task?["enabled"]?.ToString();
+                var parts = new List<string> { task.Text("name") };
+                if (task.Text("schedule").Length > 0) parts.Add(task.Text("schedule"));
+                parts.Add(enabled == "true" ? T("mon.active") : enabled == "false" ? T("ov.off") : T("ov.switch_unknown"));
+                var item = new StackPanel { Spacing = 2 };
+                item.Children.Add(Text(string.Join(" · ", parts), 12.5));
+                if (task.Text("description").Length > 0) item.Children.Add(OrgOverviewLine(task.Text("description"), 2));
+                if (task.Text("cwd").Length > 0) item.Children.Add(Quiet(task.Text("cwd"), 12));
+                return OrgOverviewTop(item);
+            });
         }
     }
 
