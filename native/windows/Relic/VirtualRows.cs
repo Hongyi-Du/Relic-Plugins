@@ -12,9 +12,14 @@ internal sealed class VirtualRows : Grid
     {
         public void Add(UIElement element) => Add(() => element);
         public void Add(Func<UIElement> build, double estimate = 40, string? key = null) { base.Add(new Row(build, estimate, key)); changed(); }
+        public new void Add(Row row) { base.Add(row); changed(); }
         public new void Clear() { base.Clear(); changed(); }
     }
     internal new RowCollection Children { get; }
+    // Commit hands the repeater a live collection instead of a copy, so that
+    // Reconcile can change one run of rows and leave the others mounted.
+    internal bool InPlace { get; set; }
+    private System.Collections.ObjectModel.ObservableCollection<Row>? live;
     // Observation only: the previous realized hosts and their Row keys still
     // exist here. Consumers must not mutate rows or force layout from this event.
     internal event Action? ItemsReplacing;
@@ -116,7 +121,8 @@ internal sealed class VirtualRows : Grid
             reading.Revision = committed;
         }
         ItemsReplacing?.Invoke();
-        repeater.ItemsSource = Children.ToArray();
+        live = InPlace ? new System.Collections.ObjectModel.ObservableCollection<Row>(Children) : null;
+        repeater.ItemsSource = live != null ? live : (object)Children.ToArray();
         hasSuggestedAnchor = false;
         if (reading != null)
         {
@@ -127,6 +133,38 @@ internal sealed class VirtualRows : Grid
             BringIndexIntoViewCore(index, 0, reading.Anchor.ViewportTop,
                 () => IsCurrent(reading), reading.IsContentReady);
         }
+    }
+    // Replace the rows with these, in place: every row whose key matches at the
+    // start and at the end keeps its Row, its realized element, focus and the
+    // scroll position; only the run between them is removed and inserted.
+    // Folding a sidebar organization used to replace ItemsSource: the repeater
+    // recycled every row, which were then rebuilt over the next frames, so the
+    // whole organization list vanished and came back.
+    internal void Reconcile(IReadOnlyList<Row> rows)
+    {
+        if (live == null || committed != revision || followingLast != null || restoringReading != null)
+        {
+            Children.Clear();
+            foreach (var row in rows) Children.Add(row);
+            Commit();
+            return;
+        }
+        var start = 0;
+        while (start < Children.Count && start < rows.Count && Children[start].Key is { } key && key == rows[start].Key) start++;
+        var end = 0;
+        while (end < Children.Count - start && end < rows.Count - start
+               && Children[Children.Count - 1 - end].Key is { } key && key == rows[rows.Count - 1 - end].Key) end++;
+        var removed = Children.Count - start - end; var inserted = rows.Count - start - end;
+        if (removed == 0 && inserted == 0) return;
+        using var timing = PerformanceTrace.Measure("rows.reconcile");
+        // Indices after the run shift: a request made for the old ones lapses.
+        CancelNativeBring(); pendingBring = null;
+        committed = ++revision;
+        Children.RemoveRange(start, removed);
+        Children.InsertRange(start, rows.Skip(start).Take(inserted));
+        for (var index = start + removed - 1; index >= start; index--) live.RemoveAt(index);
+        for (var index = 0; index < inserted; index++) live.Insert(start + index, rows[start + index]);
+        PerformanceTrace.Count(TraceName + ".reconcile", removed + inserted);
     }
     internal void FollowLastIntoView(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
     {

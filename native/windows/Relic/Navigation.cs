@@ -38,7 +38,7 @@ public sealed partial class MainWindow
         var state = new JsonObject { ["org"] = org, ["member"] = member, ["pane"] = pane == "thread" ? previousPane : pane,
             ["plain"] = plainMode, ["digest"] = digestOpen, ["side"] = sideOpen, ["panel"] = panelOpen,
             ["sideWidth"] = sideWidth, ["panelWidth"] = panelWidth, ["fileWidth"] = fileWidth, ["mode"] = viewMode, ["chartClosed"] = chartClosed, ["chartLinks"] = chartLinks,
-            ["folded"] = JsonSerializer.SerializeToNode(folded), ["drafts"] = JsonSerializer.SerializeToNode(drafts),
+            ["folded"] = JsonSerializer.SerializeToNode(folded), ["unfolded"] = JsonSerializer.SerializeToNode(unfolded), ["drafts"] = JsonSerializer.SerializeToNode(drafts),
             ["seen"] = JsonSerializer.SerializeToNode(seenMessages), ["chats"] = chatStates.DeepClone() };
         viewStateWriter.Queue(StatePath, state);
     }
@@ -69,6 +69,7 @@ public sealed partial class MainWindow
             chartClosed = state["chartClosed"] == null || state.Flag("chartClosed"); chartLinks = state["chartLinks"] == null || state.Flag("chartLinks");
             viewMode = state.Text("mode");
             foreach (var id in state.Rows("folded")) folded.Add(id.Text());
+            foreach (var id in state.Rows("unfolded")) unfolded.Add(id.Text());
             if (state["drafts"] is JsonObject saved) foreach (var pair in saved) drafts[pair.Key] = pair.Value.Text();
             if (state["seen"] is JsonObject seen) foreach (var pair in seen) seenMessages[pair.Key] = pair.Value.Text();
             if (state["chats"] is JsonObject chats) chatStates = chats.DeepClone().AsObject();

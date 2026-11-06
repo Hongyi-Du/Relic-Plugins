@@ -44,6 +44,11 @@
     organization's wake-ups.
   - Token statistics by session, agent or organization for today, 24 hours, 7, 30 or 90 days, per period and
     cumulative. API: `GET /api/monitor`, `GET /api/usage`, `POST /api/monitor/stop|resume`.
+- Windows App sidebar: every layer lists its own members. An organization that is not open lists them under it
+  once unfolded: its leader first, then its secretary, then the others, and a seat held as head of an organization
+  below marked Ex officio. One with organizations below it starts unfolded, any other folded. Folding adds or
+  removes only the rows under that organization; the list is no longer drawn again. `GET /api/orgs` gives each
+  organization's `roster`. The title bar's count badges are no longer clipped, and count digits sit in the middle.
 
 自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
 没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。
@@ -67,6 +72,10 @@
 - Windows: no accent-coloured border around the window when "Show accent colour on title bars and window borders"
   is on; Relic draws its own title bar, so Windows' border was the only coloured line (DWMWA_BORDER_COLOR = none).
   Windows 版窗口外不再有系统强调色的边框（「在标题栏和窗口边框上显示强调色」开着时也没有）。
+
+Windows 版侧栏：每一层都列出自己的成员。没打开的组织展开后也列出它的成员：先负责人，再秘书，再其他人；作为下级组织
+负责人坐的席位标「因职务」。有下级组织的默认展开，其他默认收起。展开、收起只增减这个组织下面的行，不再整列重画。
+`GET /api/orgs` 给出每个组织的 `roster`。标题栏的计数红点不再被裁掉，计数的数字居中。
 
 ## v0.7.1-beta.1 — 2026-10-29
 

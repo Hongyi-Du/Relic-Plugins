@@ -57,7 +57,7 @@ public sealed partial class MainWindow
                     AppWindow.Move(new Windows.Graphics.PointInt32(24, 24));
                     sideWidth = 276; panelWidth = 340; sideOpen = true; panelOpen = width / monitor.Scale > ResponsiveLayout.InspectorOverlayWidth;
                     pane = "overview"; threadId = ""; plainMode = false; digestOpen = false;
-                    folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote();
+                    folded.Clear(); unfolded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote();
                     await Select(prepared.Text("org")); LayoutColumns(); root.UpdateLayout();
                     var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
                     SetForegroundWindow(handle);
