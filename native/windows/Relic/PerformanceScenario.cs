@@ -745,6 +745,10 @@ public sealed partial class MainWindow
     private async Task RunPerformanceScenario()
     {
         var actions = new List<JsonObject>(); var errors = new List<string>();
+        // The toolbar's template clip must not move into its commands (see NativeToolbar): a delta cut the top of
+        // every command and count badge at every scale.
+        if (Math.Abs(toolbar.TemplateSettings.CompactVerticalDelta) > .5)
+            errors.Add("The toolbar clips its commands: CompactVerticalDelta " + toolbar.TemplateSettings.CompactVerticalDelta);
         var randomActions = 0; double randomSeconds = 0;
         var phase = performanceManifest!.Text("phase");
         var pointerRandom = new Random(int.Parse(performanceManifest!.Text("seed")));

@@ -14,10 +14,11 @@ namespace Relic;
 // organization or a seat, pausing or resuming an automation, stopping or resuming a member's session (the monitor's
 // Stop and Resume), and opening a chat. Refreshes every 5 s while open; reads nothing while closed.
 //
-// Each card is a run of rows in a VirtualRows list (its header, what it does, each task, each member, its end), so only
-// the rows in view are built: a large tree opens without holding the UI thread (CI measured 255-460 ms when every
-// expanded card was built at once). A refresh replaces only the rows whose content changed; a row's key carries its
-// content, and times are clock times, so an unchanged row stays as it is.
+// Each card is a run of rows in a VirtualRows list (its header, what it does, each task, each member, its end). Rows
+// are built a few at a time after the panel opens, so a large tree opens without holding the UI thread (CI measured
+// 255-460 ms when every expanded card was built at once), and they all stay realized while it is open: recycled rows
+// came back at their estimated height and the end of the list could not be reached. A refresh replaces only the rows
+// whose content changed; a row's key carries its content, and times are clock times, so an unchanged row stays.
 public sealed partial class MainWindow
 {
     private JsonNode orgOverviewData = new JsonObject();
@@ -41,7 +42,7 @@ public sealed partial class MainWindow
             orgOverviewTimer.Tick += (_, _) => { if (orgOverviewBody != null) _ = ReadOrgOverview(); };
         }
         // Transparent, not null: the whole list reports the pointer, so a refresh can wait while it is over the rows.
-        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, CacheLength = 1000, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         AutomationProperties.SetAutomationId(body, "org-overview");
         body.PointerEntered += (_, _) => orgOverviewPointerOver = true;
         body.PointerExited += (_, _) =>
@@ -55,7 +56,11 @@ public sealed partial class MainWindow
         _ = ReadOrgOverview();
         try { await Show(T("ov.title"), body, 1100); }
         // A panel opened meanwhile (the dialog that replaced this one) keeps its own list and timer.
-        finally { if (orgOverviewBody == body) { orgOverviewTimer.Stop(); orgOverviewBody = null; } }
+        finally
+        {
+            if (orgOverviewBody == body) { orgOverviewTimer.Stop(); orgOverviewBody = null; }
+            body.Children.Clear();  // rows still waiting to be built are dropped with their hosts
+        }
     }
 
     // Draws again only when something it shows changed. A redraw replaces the changed rows, and a click pressed on one
