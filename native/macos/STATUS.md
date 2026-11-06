@@ -1489,7 +1489,7 @@ Python 引擎、HTTP/SSE 契约与 `/api/i18n` 词库。没有浏览器或 WebVi
 | 19 | 白话、摘要、询问秘书 | `Conversation.swift`、`Model.swift`：批量异步白话、切换、摘要和后续消息数量 | 完成 |
 | 20 | 语音输入 | `NativeInput.swift`、`State.swift`：Apple Speech、显式授权、选区插入、临时/最终结果 | 完成 |
 | 21 | 任务/报告、文档/修订、协议、轨迹 | `Details.swift`：筛选、证据、修订内容、搜索与完整分页 | 完成 |
-| 22 | Settings 全部七节 | `Settings.swift`：个人、外观、语言、语音、通知、适配器、关于/诊断/路径与能力检查 | 完成 |
+| 22 | Settings 全部八节 | `Settings.swift`：个人、外观、语言、语音、通知、适配器、Slack（`SlackSettings.swift`：连接三步、谁能读什么、最近读取）、关于/诊断/路径与能力检查 | 完成 |
 | 23 | 原生安装替代浏览器安装 | `RelicApp.swift`、`Resources/Relic.icns` 和共享打包：arm64 Mach-O `.app`、图标、中英文元数据 | 完成 |
 | 24 | 选择文字后复制/引用 | `SelectableText.swift`、`Model.swift`：原生上下文菜单、Edit 引用、选区与作者 | 完成 |
 | 25 | Voice 支持、切换、停止 | `NativeInput.swift`：可用性/权限/偏好、单一录音器、发送/导航/退出时停止 | 完成 |

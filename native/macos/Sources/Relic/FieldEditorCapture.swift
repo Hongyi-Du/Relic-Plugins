@@ -15,6 +15,9 @@ import AppKit
                field.window === window, editor.window === window,
                NativeVisibility.screenClip(field).map({ !$0.isNull && !$0.isEmpty }) == true,
                NativeVisibility.screenClip(editor).map({ !$0.isNull && !$0.isEmpty }) == true {
+                // A secure field holds a secret (the Slack token): its text is never recorded.
+                let secure = field is NSSecureTextField
+                let ownerValue: String = secure ? "" : field.stringValue, editorValue: String = secure ? "" : editor.string
                 rows.append([
                     "contract": cell is MemberRenameField.PaddedCell ? "appkit-current-field-editor-v2" : "appkit-current-field-editor-v3",
                     "provider": "mounted NSTextFieldCell.controlView, NSTextField.currentEditor and NSWindow.firstResponder",
@@ -31,7 +34,7 @@ import AppKit
                     "window_identity": String(describing: ObjectIdentifier(window)),
                     "is_field_editor": editor.isFieldEditor, "same_window": editor.window === field.window,
                     "first_responder_is_editor": window.firstResponder === editor,
-                    "owner_value": field.stringValue, "editor_value": editor.string,
+                    "owner_value": ownerValue, "editor_value": editorValue,
                     "selection": ["location": editor.selectedRange().location, "length": editor.selectedRange().length],
                     "owner_ax_frame": ["source": "actual NSTextFieldCell.accessibilityFrame()",
                         "owner_identity": String(describing: ObjectIdentifier(cell)),

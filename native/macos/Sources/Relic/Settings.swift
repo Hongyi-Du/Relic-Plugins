@@ -8,7 +8,7 @@ struct SettingsView: View {
     @State private var voiceTest = ""
     /// 0: the dialog's frame and title, 1: its navigation, 2: the open page.
     @State private var stage = 0
-    private let sections = [("profile", "settings.profile"), ("appearance", "settings.appearance"), ("language", "settings.language.title"), ("voice", "common.voice_input"), ("notify", "settings.notify"), ("harness", "common.harness"), ("about", "settings.about")]
+    private let sections = [("profile", "settings.profile"), ("appearance", "settings.appearance"), ("language", "settings.language.title"), ("voice", "common.voice_input"), ("notify", "settings.notify"), ("harness", "common.harness"), ("slack", "slack.title"), ("about", "settings.about")]
     var body: some View {
         let _ = UIWorkTrace.count("body.settings")
         HStack(spacing: 0) {
@@ -34,6 +34,7 @@ struct SettingsView: View {
                     case "voice": voice
                     case "notify": notifications
                     case "harness": HarnessSettings()
+                    case "slack": SlackSettings()
                     default: about
                     }
                 }.padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 28).frame(maxWidth: .infinity, alignment: .topLeading)
@@ -43,7 +44,7 @@ struct SettingsView: View {
         }.onAppear { name = m.preferences["name"].text }
         .task { await DialogStages.admit(2, label: "settings") { stage = $0 } }
     }
-    private func sectionIcon(_ key: String) -> String { ["profile": "user", "appearance": "palette", "language": "globe", "voice": "mic", "notify": "bell", "harness": "plug", "about": "info"][key] ?? "gear" }
+    private func sectionIcon(_ key: String) -> String { ["profile": "user", "appearance": "palette", "language": "globe", "voice": "mic", "notify": "bell", "harness": "plug", "slack": "thread", "about": "info"][key] ?? "gear" }
     func preference(_ key: String) -> Binding<String> { Binding(get: { m.preferences[key].text }, set: { value in m.run { try await m.savePreferences([key: value]) } }) }
     func toggle(_ key: String) -> Binding<Bool> { Binding(get: { m.preferences[key].flag }, set: { value in m.run { try await m.savePreferences([key: value]) } }) }
     private var profile: some View {
@@ -123,7 +124,7 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsRow<Content: View>: View {
+struct SettingsRow<Content: View>: View {
     let title: String
     var hint = ""
     var last = false
