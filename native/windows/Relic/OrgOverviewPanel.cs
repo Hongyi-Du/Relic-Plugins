@@ -15,9 +15,9 @@ namespace Relic;
 public sealed partial class MainWindow
 {
     private JsonNode orgOverviewData = new JsonObject();
-    private string orgOverviewDrawn = "", orgOverviewError = "", orgOverviewArmed = "";
+    private string orgOverviewDrawn = "", orgOverviewLatest = "", orgOverviewError = "", orgOverviewArmed = "";
     private long orgOverviewDrawnAt, orgOverviewArmedAt;
-    private bool orgOverviewTimerWired;
+    private bool orgOverviewTimerWired, orgOverviewPointerOver, orgOverviewPending;
     private readonly DispatcherTimer orgOverviewTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private StackPanel? orgOverviewBody;
     private readonly Dictionary<string, bool> orgOverviewOpen = new();
@@ -32,8 +32,16 @@ public sealed partial class MainWindow
             orgOverviewTimerWired = true;
             orgOverviewTimer.Tick += (_, _) => { if (orgOverviewBody != null) _ = ReadOrgOverview(); };
         }
-        orgOverviewBody = new StackPanel { Spacing = 10 };
+        // Transparent, not null: the whole panel reports the pointer, so a refresh can wait while it is over the rows.
+        orgOverviewBody = new StackPanel { Spacing = 10, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         AutomationProperties.SetAutomationId(orgOverviewBody, "org-overview");
+        orgOverviewPointerOver = orgOverviewPending = false;
+        orgOverviewBody.PointerEntered += (_, _) => orgOverviewPointerOver = true;
+        orgOverviewBody.PointerExited += (_, _) =>
+        {
+            orgOverviewPointerOver = false;
+            if (orgOverviewPending) { orgOverviewPending = false; orgOverviewDrawn = orgOverviewLatest; DrawOrgOverview(); }
+        };
         orgOverviewDrawn = "";
         DrawOrgOverview();
         orgOverviewTimer.Start();
@@ -42,8 +50,9 @@ public sealed partial class MainWindow
         finally { orgOverviewTimer.Stop(); orgOverviewBody = null; }
     }
 
-    // Redraws only when something it shows changed (and once a minute for the "minutes ago" texts): a redraw replaces
-    // the rows, and a click pressed on one in between would be lost.
+    // Redraws only when something it shows changed (and once a minute for the "minutes ago" texts). A redraw replaces
+    // the rows, and a click pressed on one in between would be lost, so while the pointer is over the panel a change
+    // waits until it leaves (at most 30 s). The person's own changes redraw at once.
     private async Task ReadOrgOverview(bool redraw = false)
     {
         if (api == null) return;
@@ -54,9 +63,11 @@ public sealed partial class MainWindow
             var shown = data.DeepClone();
             if (shown is JsonObject stamped) stamped.Remove("at");
             var text = shown.ToJsonString();
-            orgOverviewData = data;
+            orgOverviewData = data; orgOverviewLatest = text;
             if (orgOverviewBody != null && (redraw || text != orgOverviewDrawn || Environment.TickCount64 - orgOverviewDrawnAt > 60000))
             {
+                if (!redraw && orgOverviewPointerOver && Environment.TickCount64 - orgOverviewDrawnAt < 30000) { orgOverviewPending = true; return; }
+                orgOverviewPending = false;
                 orgOverviewDrawn = text;
                 DrawOrgOverview();
             }
@@ -303,34 +314,36 @@ public sealed partial class MainWindow
             "elsewhere" => T("ov.state_elsewhere", ("org", (m?["working_in"]).Text("org_name"))), _ => T("mon.state_idle")
         }, 12.5));
         main.Children.Add(heading);
+        // One line for when it last acted and what can start it; the note that nothing can is part of that line.
         var meta = new List<string>();
         var last = Num(m, "last_at");
         if (last > 0) meta.Add(T("mon.last_active", ("when", Ago(last))));
         if (m.Flag("released")) meta.Add(T("mon.state_released"));
-        if (meta.Count > 0) main.Children.Add(Quiet(string.Join(" · ", meta), 12));
-        if (m.Text("doing").Length > 0) main.Children.Add(OrgOverviewLine(T("ov.doing_now", ("text", m.Text("doing"))), 1));
         var wake = m.Text("wake");
         if (wake != "vacant")
+            meta.Add(wake switch { "on" => T("ov.wake_on"), "off" => T("mon.wake_off"), "org_off" => T("ov.wake_org_off"), _ => T("ov.wake_cannot") });
+        var nothing = !m.Flag("starts_itself") && wake != "vacant";
+        if (meta.Count > 0 || nothing)
         {
-            var starts = Quiet(wake switch
-            {
-                "on" => T("ov.wake_on"), "off" => T("mon.wake_off"), "org_off" => T("ov.wake_org_off"), _ => T("ov.wake_cannot")
-            }, 12);
-            main.Children.Add(starts);
+            var facts = Quiet(string.Join(" · ", meta), 12);
+            if (nothing)
+                facts.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = (meta.Count > 0 ? " · " : "") + T("ov.nothing_starts"), Foreground = Paint("B26A00", "E0A030") });
+            main.Children.Add(facts);
         }
+        if (m.Text("doing").Length > 0) main.Children.Add(OrgOverviewLine(T("ov.doing_now", ("text", m.Text("doing"))), 1));
         foreach (var automation in m.Rows("automations")) main.Children.Add(OrgOverviewAutomation(automation));
-        if (!m.Flag("starts_itself") && wake != "vacant") main.Children.Add(OrgOverviewWarning(T("ov.nothing_starts")));
         Grid.SetColumn(main, 1); row.Children.Add(main);
 
-        var controls = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
+        // The seat's switch and its buttons on one line, so a member takes two or three lines.
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
         if (wake != "vacant")
         {
             var toggle = OverviewSwitch(T("ov.auto_wake"), true, m.Flag("auto_wake"), on =>
                 OrgOverviewChange(Client.Org(org, "/seat_auto_wake"), new { member = name, on }, T(on ? "ov.wake_set_on" : "ov.wake_set_off")));
             OrgOverviewName(toggle, "ov-wake-" + org + "-" + name, T("ov.seat_wake_name", ("member", display)));
-            controls.Children.Add(toggle);
+            toggle.Margin = new Thickness(0, 0, 6, 0); toggle.VerticalAlignment = VerticalAlignment.Center;
+            buttons.Children.Add(toggle);
         }
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
         var key = m.Text("session");
         if (m.Flag("stopped") && key.Length > 0)
         {
@@ -359,8 +372,7 @@ public sealed partial class MainWindow
         var chat = OverviewAction(T("ov.open_chat"), () => OrgOverviewJump(org, name));
         AutomationProperties.SetAutomationId(chat, "ov-chat-" + org + "-" + name);
         buttons.Children.Add(chat);
-        controls.Children.Add(buttons);
-        Grid.SetColumn(controls, 2); row.Children.Add(controls);
+        Grid.SetColumn(buttons, 2); row.Children.Add(buttons);
         return row;
     }
 
@@ -370,13 +382,18 @@ public sealed partial class MainWindow
         var paused = automation.Text("status") == "PAUSED";
         var line = Text(T("ov.automation", ("name", automation.Text("name")), ("schedule", automation.Text("schedule")),
             ("state", paused ? T("mon.paused") : T("mon.active"))), 12);
-        line.Foreground = paused ? Muted : Ink;
-        var action = QuietButton(paused ? T("mon.resume") : T("ov.pause"), () =>
+        line.Foreground = paused ? Muted : Ink; line.VerticalAlignment = VerticalAlignment.Center;
+        var action = OverviewAction(paused ? T("mon.resume") : T("ov.pause"), () =>
             OrgOverviewChange("/api/monitor/automation", new { id, status = paused ? "ACTIVE" : "PAUSED" },
                 T(paused ? "ov.automation_resumed" : "ov.automation_paused", ("name", automation.Text("name")))));
         AutomationProperties.SetAutomationId(action, "ov-auto-" + id);
         action.VerticalAlignment = VerticalAlignment.Center;
-        return TwoColumns(line, action);
+        // The button right after its line (the text wraps before it when long), not at the far edge of the row.
+        var row = new Grid { ColumnSpacing = 10, HorizontalAlignment = HorizontalAlignment.Left };
+        row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        row.Children.Add(line); Grid.SetColumn(action, 1); row.Children.Add(action);
+        return row;
     }
 
     // ---------------- what starts sessions without a seat ----------------
