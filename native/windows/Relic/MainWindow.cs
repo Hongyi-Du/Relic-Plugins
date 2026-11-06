@@ -91,6 +91,7 @@ public sealed partial class MainWindow : Window
         // their own localized shortcut labels/tooltips.
         root.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         SystemBackdrop = new MicaBackdrop();
+        RemoveAccentBorder();
         Activated += (_, e) =>
         {
             var wasActive = active;

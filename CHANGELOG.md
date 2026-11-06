@@ -47,6 +47,9 @@
   「全部停止」还暂停所有 Codex 定时任务和每个组织的自动唤醒。
 - Token 统计可按会话、代理或组织，看今天、24 小时、7 天、30 天、90 天的分段数和累计数。
 - 接口：`GET /api/monitor`、`GET /api/usage`、`POST /api/monitor/stop|resume`。
+- Windows: no accent-coloured border around the window when "Show accent colour on title bars and window borders"
+  is on; Relic draws its own title bar, so Windows' border was the only coloured line (DWMWA_BORDER_COLOR = none).
+  Windows 版窗口外不再有系统强调色的边框（「在标题栏和窗口边框上显示强调色」开着时也没有）。
 
 ## v0.7.1-beta.1 — 2026-10-29
 
