@@ -523,5 +523,54 @@
         "op"
       ]
     }
+  },
+  {
+    "name": "slack",
+    "description": "Read the person's Slack, read-only, once the person has connected it in the Relic App (Settings, Slack): the background the person would otherwise have to explain. op=search {query, limit?, cursor?} finds messages (a question in plain words, or key words; at most 20 a call, cursor pages on); op=history {channel, limit?, oldest?, latest?} reads a conversation, oldest first (channel: an id like C0123ABCD, #name, or @person for a direct message; oldest and latest: a Slack ts or a date like 2026-11-05); op=thread {channel, ts} reads a thread; op=channels {query?} lists the conversations your organization may read. The person decides what each organization may read, and every read is logged with your seat. You cannot post to Slack; do not repeat what you read to anyone outside this work.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "enum": [
+            "search",
+            "history",
+            "thread",
+            "channels"
+          ]
+        },
+        "query": {
+          "type": "string"
+        },
+        "channel": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "oldest": {
+          "type": "string"
+        },
+        "latest": {
+          "type": "string"
+        },
+        "org": {
+          "type": "string",
+          "description": "An organization you hold a seat in, by id or exact name: act there as its member (default: your main seat)."
+        },
+        "actor": {
+          "type": "string",
+          "description": "Filled in automatically by the Relic hook. Leave it out."
+        }
+      },
+      "required": [
+        "op"
+      ]
+    }
   }
 ]

@@ -48,6 +48,9 @@ def render(store, org, member, unread_count=None, full=True):
     if org.get("auto_wake", True):
         lines.append("Auto-wake is on: a member you message gets a turn in its own session automatically when that seat "
                      "has a configured session and is idle; others read it at their next tool call.")
+    slack_line = _slack_note(store, org)
+    if slack_line:
+        lines.append(slack_line)
     if len({s.get("harness", "claude-code") for s in org["members"].values()}) > 1:
         lines.append("Members run on different harnesses (Claude Code, Codex). Protocol rules use one tool vocabulary for "
                      "everyone: Bash for shell commands, Edit/Write for file changes (Codex apply_patch counts as Edit), "
@@ -208,6 +211,15 @@ def _org_name(store, org_id):
         return store.get(org_id)["name"]
     except Exception:
         return str(org_id)
+
+
+def _slack_note(store, org):
+    """While the person's Slack is connected and this organization may read it, say so (relic_core/slack.py)."""
+    try:
+        from . import slack
+        return slack.context_note(store, org)
+    except Exception:  # a broken Slack setting never breaks a member's context
+        return ""
 
 
 def render_below(store, org, viewer_org, viewer):

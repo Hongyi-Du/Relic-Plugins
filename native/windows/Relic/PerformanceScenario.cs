@@ -390,9 +390,9 @@ public sealed partial class MainWindow
             Walk(dialog);
             states = new JsonArray(navigation.Select(item => (JsonNode)(item.CurrentLabel?.DrawState()
                 ?? new JsonObject { ["current_draw"] = false, ["failure"] = "Visible navigation owner has no label" })).ToArray());
-            if (navigation.Count == 7 && navigation.All(item => item.IsLoaded && item.Visibility == Visibility.Visible
+            if (navigation.Count == 8 && navigation.All(item => item.IsLoaded && item.Visibility == Visibility.Visible
                 && item.CurrentLabel is { HasCurrentDraw: true, ActualWidth: > 0, ActualHeight: > 0 }))
-                return new JsonObject { ["source"] = "Seven actual mounted settings navigation labels after their production SurfaceImageSource EndDraw",
+                return new JsonObject { ["source"] = "Eight actual mounted settings navigation labels after their production SurfaceImageSource EndDraw",
                     ["count"] = navigation.Count, ["elapsed_ms"] = elapsed.Elapsed.TotalMilliseconds,
                     ["labels"] = states, ["passed"] = true };
             await Task.Delay(20);

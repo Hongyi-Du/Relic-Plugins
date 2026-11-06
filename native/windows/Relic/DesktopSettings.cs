@@ -356,6 +356,7 @@ public sealed partial class MainWindow
                     content.Children.Add(SettingsHeading(T("settings.notify"))); PreferenceToggle(content, "settings.desktop_notify", "settings.desktop_notify_hint", "notify");
                     content.Children.Add(SettingRow(T("settings.notify_test"), "", OverviewAction(T("settings.notify_send_test"), () => { Notify(T("settings.notify_on")); return Task.CompletedTask; }))); break;
                 case "harness": await HarnessSettings(content); break;
+                case "slack": await SlackSettings(content); break;
                 case "about":
                     content.Children.Add(SettingsHeading(T("settings.about")));
                     content.Children.Add(SettingRow(T("settings.data_folder"), preferences.Text("data"), OverviewAction(T("common.open"), async () => { await api!.Post("/api/open", new { what = "data" }); })));
@@ -367,7 +368,7 @@ public sealed partial class MainWindow
             }
             if (content.Children.LastOrDefault() is Border last && last.Tag?.ToString() == "setting-row") last.BorderThickness = new Thickness(0);
         }
-        foreach (var (key, label, glyph) in new[] { ("profile", "settings.profile", "\uE77B"), ("appearance", "settings.appearance", "\uE790"), ("language", "settings.language.title", "\uE774"), ("voice", "common.voice_input", "\uE720"), ("notify", "settings.notify", "\uEA8F"), ("harness", "common.harness", "\uE839"), ("about", "settings.about", "\uE946") })
+        foreach (var (key, label, glyph) in new[] { ("profile", "settings.profile", "\uE77B"), ("appearance", "settings.appearance", "\uE790"), ("language", "settings.language.title", "\uE774"), ("voice", "common.voice_input", "\uE720"), ("notify", "settings.notify", "\uEA8F"), ("harness", "common.harness", "\uE839"), ("slack", "slack.title", "\uE97A"), ("about", "settings.about", "\uE946") })
         {
             var labelRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false }; var icon = (ReferenceVectorIcon)Glyph(glyph, 16); labelRow.Children.Add(icon); var text = new NativeSettingsNavigationLabel(T(label), words.Language); labelRow.Children.Add(text);
             var tab = new SelectorBarItem { Text = T(label), Tag = labelRow, Height = 34, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch,

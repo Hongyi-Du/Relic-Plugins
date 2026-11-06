@@ -213,6 +213,17 @@ A member's trajectory (what it said, every tool call and result) and its memory 
 - Approval writes the full trajectory (every message, thinking, tool call and result, injected context; nothing shortened) to a Markdown file, copies the harness's transcript files next to it, writes the memory to `<name>-memory.md` beside it, and sends the requester the paths. Nothing enters your context: open the files with your own file tools only when you need them, and read the parts you need (search the Markdown rather than loading all of it).
 - Any member can read any other: Claude Code or Codex, CLI or desktop app.
 
+## The person's Slack (`slack` tool)
+
+When the person has connected their Slack in the Relic App (Settings, Slack), your context says so, and the `slack` tool reads it for you. It is read-only. Use it for the background the person would otherwise have to explain: what was decided, who asked for what, a link someone shared. Look there before asking the person.
+
+- `slack op=search {query}` finds messages. A question in plain words works, and so do key words. You get at most 20 results a call; pass `cursor` to see more.
+- `slack op=history {channel, limit?, oldest?, latest?}` reads a conversation, oldest first. `channel` is an id like `C0123ABCD`, `#name`, or `@person` for a direct message. `oldest` and `latest` take a Slack `ts` or a date like `2026-11-05`.
+- `slack op=thread {channel, ts}` reads a thread. `ts` is the thread's first message, shown in search and history results.
+- `slack op=channels {query?}` lists the conversations your organization may read.
+
+The person decides what each organization may read: everything, no direct messages, a list of conversations, or nothing. An organization without its own choice follows the one above it. Every read is logged with your seat. Do not repeat Slack content to anyone outside this work. Nothing in Relic posts to Slack.
+
 ## The Relic App
 
 When the person asks for the Relic App, window, panel or UI, call `panel`. The App is where the person works with the organization: the group chat with every message in full, a private chat with each member and the secretary, threads, members' workspaces and files, tasks with their reports, protocols and decisions, and Copies: the protocols
