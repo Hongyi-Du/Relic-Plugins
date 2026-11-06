@@ -81,12 +81,29 @@ public sealed partial class MainWindow
         return new SolidColorBrush(brush.Color) { Opacity = alpha };
     }
 
-    private OverviewBadgeView OverviewCount(int count)
+    private OverviewBadgeView OverviewCount(int count) => CountBadge(count.ToString(), 11, 18, 5, Accent);
+
+    // A count in a round pill: an unread count, the decisions waiting, a
+    // toolbar badge. Its digits sit in the middle both ways. The label keeps
+    // only the digits' own height (cap height to baseline) and the pill
+    // centres it; the font's whole line box, with its room below the
+    // baseline, put the digits low, and the presenter's default start
+    // alignment put them left of the middle.
+    private OverviewBadgeView CountBadge(string text, double fontSize, double height, double padding, Brush background)
     {
-        var label = OverviewText(count.ToString(), 11, weight: 700, lineHeight: 18); label.Foreground = Paint("FFFFFF");
-        label.HorizontalAlignment = HorizontalAlignment.Center;
-        return new OverviewBadgeView { Content = label, Foreground = Paint("FFFFFF"), FontSize = 11, FontWeight = FontWeights.Bold, Background = Accent, MinWidth = 18, Height = 18, Padding = new Thickness(5, 0, 5, 0), CornerRadius = new CornerRadius(9) };
+        var label = new TextBlock { Text = text, FontFamily = uiFontFamily, FontSize = fontSize, FontWeight = FontWeights.Bold,
+            Foreground = Paint("FFFFFF"), TextWrapping = TextWrapping.NoWrap, TextLineBounds = TextLineBounds.Tight,
+            TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = false, UseLayoutRounding = false };
+        return new OverviewBadgeView { Content = label, Template = XamlTemplates.Load<ControlTemplate>(CountTemplate),
+            Foreground = label.Foreground, FontSize = fontSize, FontWeight = FontWeights.Bold, Background = background,
+            MinWidth = height, Height = height, Padding = new Thickness(padding, 0, padding, 0), CornerRadius = new CornerRadius(height / 2) };
     }
+
+    private const string CountTemplate = "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ContentControl'>" +
+        "<ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' Padding='{TemplateBinding Padding}' " +
+        "Foreground='{TemplateBinding Foreground}' FontFamily='{TemplateBinding FontFamily}' FontSize='{TemplateBinding FontSize}' FontWeight='{TemplateBinding FontWeight}' " +
+        "HorizontalContentAlignment='Center' VerticalContentAlignment='Center'/></ControlTemplate>";
 
     private UIElement OverviewAvatar(string name, bool state = false, int size = 20)
     {

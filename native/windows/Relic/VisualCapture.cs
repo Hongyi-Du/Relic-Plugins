@@ -85,7 +85,7 @@ public sealed partial class MainWindow
                     // an unrelated screen in the next capture.
                     await CaptureMoveScreenPointer(1900, 1040);
                     sideWidth = 276; panelWidth = 340; fileWidth = 520; sideOpen = true; panelOpen = int.Parse(shot.Text("width")) > 1180;
-                    pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
+                    pane = "overview"; threadId = ""; plainMode = false; digestOpen = false; folded.Clear(); unfolded.Clear(); search.Text = ""; editor.Text = ""; ClearQuote(); drafts.Clear(); recipientNames.Clear(); recipientNames.Add("all");
                     if (isLive) await Refresh();
                     await Select(prepared.Text("org")); LayoutColumns();
                     Task? dialog = null;

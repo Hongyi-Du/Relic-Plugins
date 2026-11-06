@@ -165,14 +165,9 @@ public sealed partial class MainWindow
     {
         foreach (var old in content.Children.OfType<OverviewBadgeView>().ToArray()) content.Children.Remove(old);
         if (badge <= 0) return;
-        var label = SidebarText(badge.ToString(), 10, weight: 700, lineHeight: 15);
-        label.Foreground = Paint("FFFFFF"); label.TextWrapping = TextWrapping.NoWrap; label.TextAlignment = TextAlignment.Center; label.IsTextSelectionEnabled = false;
-        content.Children.Add(new OverviewBadgeView
-        {
-            Content = label, MinWidth = 15, Height = 15, Padding = new Thickness(4, 0, 4, 0), CornerRadius = new CornerRadius(8),
-            Background = Paint("C2412D", "EE8A78"), Foreground = label.Foreground, FontSize = 10, FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, UseLayoutRounding = false
-        });
+        var view = CountBadge(badge.ToString(), 10, 15, 4, Paint("C2412D", "EE8A78"));
+        view.HorizontalAlignment = HorizontalAlignment.Right; view.VerticalAlignment = VerticalAlignment.Top; view.UseLayoutRounding = false;
+        content.Children.Add(view);
     }
     // The same button shows a new count, tooltip or selection; a pressed one
     // stays pressed, so its click still arrives.
@@ -197,14 +192,21 @@ public sealed partial class MainWindow
         using var timing = PerformanceTrace.Measure("sidebar.template.toolbar");
         var hoverBackground = selected ? "RelicControlPressed" : "RelicControlHover";
         var hoverForeground = alert ? "" : "<Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlInk}'/>";
+        // The hover and selection fill is a rounded surface of its own under
+        // the content. A rounded ContentPresenter clipped what it presents to
+        // its corners and edges: the count badge in the top right corner lost
+        // its top and right edge (at 150% its whole top row of pixels).
         var template = XamlTemplates.Load<ControlTemplate>(
             "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
-            "<ContentPresenter x:Name='ToolbarContent' Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' Foreground='{TemplateBinding Foreground}' HorizontalContentAlignment='Center' VerticalContentAlignment='Center' UseLayoutRounding='False'>" +
+            "<Grid UseLayoutRounding='False'>" +
             "<VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'><VisualState x:Name='Normal'/>" +
-            "<VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='ToolbarContent.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
-            "<VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='ToolbarContent.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
+            "<VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='ToolbarSurface.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
+            "<VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='ToolbarSurface.Background' Value='{ThemeResource " + hoverBackground + "}'/>" + hoverForeground + "</VisualState.Setters></VisualState>" +
             "<VisualState x:Name='Disabled'><VisualState.Setters><Setter Target='ToolbarContent.Foreground' Value='{ThemeResource RelicControlDisabled}'/></VisualState.Setters></VisualState>" +
-            "</VisualStateGroup></VisualStateManager.VisualStateGroups></ContentPresenter></ControlTemplate>");
+            "</VisualStateGroup></VisualStateManager.VisualStateGroups>" +
+            "<Border x:Name='ToolbarSurface' Background='{TemplateBinding Background}' CornerRadius='{TemplateBinding CornerRadius}' UseLayoutRounding='False'/>" +
+            "<ContentPresenter x:Name='ToolbarContent' Content='{TemplateBinding Content}' Foreground='{TemplateBinding Foreground}' HorizontalContentAlignment='Center' VerticalContentAlignment='Center' UseLayoutRounding='False'/>" +
+            "</Grid></ControlTemplate>");
         toolbarButtonTemplates.Add(key, template);
         return template;
     }
@@ -241,6 +243,7 @@ public sealed partial class MainWindow
             // repeater so keyboard focus also realizes offscreen neighbors.
             side.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(SidebarArrowKeyDown), true);
             side.Recycling = ReleaseSidebarRow;
+            side.InPlace = true;  // folding changes only the rows under one organization (RefoldSidebar)
             sidebarKeyboardBound = true;
         }
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(sidebarSurface, T("page.side"));
@@ -260,10 +263,28 @@ public sealed partial class MainWindow
         search.Margin = new Thickness(0); search.MinHeight = 0; search.Height = 22.4; search.VerticalAlignment = VerticalAlignment.Center; search.FontSize = 14; search.Padding = new Thickness(0); search.BorderThickness = new Thickness(0); search.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent); Grid.SetColumn(search, 1); searchSurface.Children.Add(search);
         search.PlaceholderForeground = Paint("757575");
         var searchMic = Microphone(search); searchMic.Foreground = Paint("5A5853", "B8B5AE"); searchMic.Width = searchMic.Height = 32; searchMic.MinHeight = 0; searchMic.Padding = new Thickness(0); searchMic.HorizontalContentAlignment = HorizontalAlignment.Center; searchMic.VerticalContentAlignment = VerticalAlignment.Center; searchMic.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(searchMic, 2); searchSurface.Children.Add(searchMic); sideTools.Children.Add(searchSurface);
-        var caption = TwoColumns(SidebarText(T("page.tree"), 12, true), SidebarText(orgs.Count > 0 ? orgs.Count.ToString() : "", 12, true)); caption.UseLayoutRounding = false; caption.Margin = new Thickness(10, 14, 10, 6); side.Children.Add(caption);
+        DrawSidebarFooter();
+        foreach (var row in SidebarTree()) side.Children.Add(row);
+        side.Commit();
+    }
+    // Folding or unfolding one organization adds or removes only the rows
+    // under it. Every other row stays mounted and the list keeps its scroll
+    // position; drawing the whole sidebar again made every organization
+    // vanish for a moment and come back.
+    private void RefoldSidebar() => side.Reconcile(SidebarTree());
+    // The organization tree: one lazy row per organization, chat or member,
+    // each under a key, so that a refold can keep the rows that did not move.
+    private List<VirtualRows.Row> SidebarTree()
+    {
+        var tree = new List<VirtualRows.Row>();
+        void Queue(Func<UIElement> build, string key, double estimate = 40) => tree.Add(new(build, estimate, key));
+        Queue(() =>
+        {
+            var caption = TwoColumns(SidebarText(T("page.tree"), 12, true), SidebarText(orgs.Count > 0 ? orgs.Count.ToString() : "", 12, true));
+            caption.UseLayoutRounding = false; caption.Margin = new Thickness(10, 14, 10, 6); return caption;
+        }, "caption");
         // Keep every organization/chat as a separate lazy row in the scrolling
         // viewport. A nested StackPanel of all members defeats virtualization.
-        var tree = side;
         // Framework templates are reusable factories; their instantiated
         // controls, selection, bindings, and ThemeResources remain per row.
         var template = sidebarItemTemplate ??= XamlTemplates.Load<ControlTemplate>("<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><ContentPresenter Content='{TemplateBinding Content}' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}' CornerRadius='{TemplateBinding CornerRadius}' HorizontalContentAlignment='Stretch' VerticalContentAlignment='Center' UseLayoutRounding='False'/></ControlTemplate>");
@@ -381,22 +402,70 @@ public sealed partial class MainWindow
                 automationId: secretarySetup ? "sidebar-setup/" + id : "sidebar-chat/" + id + "/" + who,
                 isSelected: IsSelected, updateUnread: UpdateUnread);
         }
+        // A member of an organization that is not the open one, from the
+        // organization list: who it is and what it does there, with its leader
+        // and secretary marked and a seat held as head of an organization below
+        // noted. Clicking it opens that organization at this member's chat.
+        void Member(ListView list, JsonNode? seat, string id)
+        {
+            var who = seat.Text("name"); var title = seat.Text("display").Length > 0 ? seat.Text("display") : who;
+            var row = new Grid { ColumnSpacing = 9, UseLayoutRounding = false }; row.ColumnDefinitions.Add(new() { Width = new GridLength(30) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            var face = SidebarFace(who, seat.Text("avatar"), "", false, title); face.VerticalAlignment = VerticalAlignment.Center; face.HorizontalAlignment = HorizontalAlignment.Left; row.Children.Add(face);
+            var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false };
+            var heading = new Grid { ColumnSpacing = 6, HorizontalAlignment = HorizontalAlignment.Left, UseLayoutRounding = false }; heading.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            heading.Children.Add(SidebarLine(title, 13.3, 550, 17.955, Ink));
+            void Tag(OverviewBadgeView tag) { heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); Grid.SetColumn(tag, heading.ColumnDefinitions.Count - 1); heading.Children.Add(tag); }
+            if (seat.Flag("leader")) Tag(SidebarTag(T("common.leader"), false));
+            if (seat.Flag("secretary")) Tag(SidebarTag(T("common.secretary"), true));
+            var office = seat?["ex_officio"] is { } held ? T("card.ex_officio", ("org", held.Text("org_name"))) : "";
+            if (office.Length > 0) Tag(SidebarTag(T("card.ex_officio_tag"), false, neutral: true));
+            text.SizeChanged += (_, args) => { LayoutFeedback.Note("sidebar:heading_max", args.NewSize.Width, args.PreviousSize.Width); heading.MaxWidth = args.NewSize.Width; };
+            text.Children.Add(heading);
+            var subtitle = seat.Text("role").Length > 0 ? seat.Text("role") : office;
+            if (subtitle.Length > 0) text.Children.Add(SidebarLine(subtitle, 12, 400, 16.2, Muted));
+            Grid.SetColumn(text, 1); row.Children.Add(text);
+            SidebarToolTip(row, who + (seat.Text("role").Length > 0 ? " · " + seat.Text("role") : "") + (office.Length > 0 ? "\n" + office : ""));
+            Add(list, row, () => Select(id, who), false, chat: true, automationId: "sidebar-member/" + id + "/" + who, isSelected: () => false);
+        }
         void Node(JsonNode? item, int depth)
         {
             var id = item.Text("id"); if (!visited.Add(id)) return;
-            var selected = id == org; var members = selected ? snap.Rows("members").Where(m => Match(m.Text("name")) || Match(m.Text("display")) || Match(m.Text("role"))).ToArray() : [];
+            bool Finds(JsonNode? m) => Match(m.Text("name")) || Match(m.Text("display")) || Match(m.Text("role"));
+            // The open organization lists its chats from its own snapshot. Any
+            // other lists its own members from the organization list: every
+            // layer has members of its own, also one with organizations below.
+            var selected = id == org; var members = selected ? snap.Rows("members").Where(Finds).ToArray() : [];
+            var roster = !selected ? item.Rows("roster").Where(Finds).ToArray() : [];
             var orgMatch = Match(item.Text("name")) || Match(item.Text("purpose")); var children = orgs.Where(o => o.Text("parent") == id).ToArray();
             var organizationState = new NativeSidebarOrganization(
-                () => new NativeSidebarOrganizationState(id == org || orgs.Any(o => o.Text("parent") == id), folded.Contains(id), search.Text.Trim().Length > 0),
-                value => { if (value) folded.Add(id); else folded.Remove(id); SaveViewState(); DrawSidebar(); });
+                () =>
+                {
+                    // The open one and one with organizations below it start
+                    // unfolded; any other starts folded, listing no members.
+                    var opens = id == org || orgs.Any(o => o.Text("parent") == id);
+                    return new NativeSidebarOrganizationState(opens || item.Rows("roster").Count > 0,
+                        opens ? folded.Contains(id) : !unfolded.Contains(id), search.Text.Trim().Length > 0);
+                },
+                value =>
+                {
+                    if (value) { folded.Add(id); unfolded.Remove(id); } else { folded.Remove(id); unfolded.Add(id); }
+                    SaveViewState(); RefoldSidebar();
+                });
             var foldable = organizationState.Current.CanExpand; var collapsed = organizationState.Current.HidesDescendants;
-            if (query.Length == 0 || orgMatch || members.Length > 0)
+            if (query.Length == 0 || orgMatch || members.Length > 0 || roster.Length > 0)
             {
-                tree.Children.Add(() =>
+                Queue(() =>
                 {
                 void Fold() => organizationState.TogglePersisted();
                 var row = new Grid { ColumnSpacing = 8, UseLayoutRounding = false }; row.ColumnDefinitions.Add(new() { Width = new GridLength(14) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(22) }); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-                var arrow = (ReferenceVectorIcon)ReferenceIcon("chev", 14); arrow.Foreground = Muted; if (organizationState.Current.Expanded) { arrow.RenderTransformOrigin = new(.5, .5); arrow.RenderTransform = new Microsoft.UI.Xaml.Media.RotateTransform { Angle = 90 }; }
+                var arrow = (ReferenceVectorIcon)ReferenceIcon("chev", 14); arrow.Foreground = Muted;
+                // This row stays mounted when it folds: turn its arrow in place.
+                void Turn()
+                {
+                    if (!organizationState.Current.Expanded) { arrow.ClearValue(UIElement.RenderTransformProperty); return; }
+                    arrow.RenderTransformOrigin = new(.5, .5); arrow.RenderTransform = new Microsoft.UI.Xaml.Media.RotateTransform { Angle = 90 };
+                }
+                Turn(); organizationState.Changed = Turn;
                 var arrowHit = new Border { Child = arrow, Padding = new Thickness(3), Margin = new Thickness(-3), CornerRadius = new CornerRadius(5), VerticalAlignment = VerticalAlignment.Center, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
                 arrowHit.PointerPressed += (_, e) => { if (foldable && e.GetCurrentPoint(arrowHit).Properties.IsLeftButtonPressed) { e.Handled = true; Fold(); } }; row.Children.Add(arrowHit);
                 var badge = SidebarOrgFace(item!); badge.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(badge, 1); row.Children.Add(badge);
@@ -407,21 +476,24 @@ public sealed partial class MainWindow
                 var organizationRows = Rows(); Add(organizationRows, row, () => { if (org == id) { Fold(); return Task.CompletedTask; } return Select(id); }, selected, depth * 16, organization: organizationState,
                     automationId: "sidebar-org/" + id, isSelected: () => org == id);
                 return organizationRows;
-                }, key: "org:" + id);
+                }, "org:" + id);
+                // Chats and members sit under their own organization, however deep it is.
+                var firstChat = true; var indent = 10 + depth * 16;
+                void QueueRows(string key, Action<ListView> fill)
+                {
+                    var topPadding = firstChat ? 2 : 0; firstChat = false;
+                    Queue(() =>
+                    {
+                        var chats = Rows(); fill(chats);
+                        return new Border { Child = chats, BorderThickness = new Thickness(1, 0, 0, 0),
+                            BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, topPadding, 0, 0),
+                            Margin = new Thickness(indent, 0, 0, 0), UseLayoutRounding = false };
+                    }, key);
+                }
                 if (selected && !collapsed)
                 {
-                    var firstChat = true;
-                    void QueueChat(string who, string title, string subtitle, string avatar, string state = "", bool secretarySetup = false)
-                    {
-                        var topPadding = firstChat ? 2 : 0; firstChat = false;
-                        tree.Children.Add(() =>
-                        {
-                            var chats = Rows(); Chat(chats, who, title, subtitle, avatar, state, secretarySetup);
-                            return new Border { Child = chats, BorderThickness = new Thickness(1, 0, 0, 0),
-                                BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, topPadding, 0, 0),
-                                Margin = new Thickness(10, 0, 0, 0), UseLayoutRounding = false };
-                        }, key: secretarySetup ? "setup:" + id : "chat:" + id + "/" + who);
-                    }
+                    void QueueChat(string who, string title, string subtitle, string avatar, string state = "", bool secretarySetup = false) =>
+                        QueueRows(secretarySetup ? "setup:" + id : "chat:" + id + "/" + who, chats => Chat(chats, who, title, subtitle, avatar, state, secretarySetup));
                     if (orgMatch || Match(T("common.group_chat"))) QueueChat("", T("common.group_chat"), LastLine("group").Length > 0 ? LastLine("group") : T("side.group_sub"), "");
                     var secretary = snap["org"].Text("secretary"); var sec = snap.Rows("members").FirstOrDefault(m => m.Text("name") == secretary);
                     if (query.Length == 0 || Match(T("common.secretary")) || sec != null && members.Contains(sec))
@@ -429,21 +501,27 @@ public sealed partial class MainWindow
                         if (secretary.Length == 0) QueueChat("", T("side.set_secretary"), T("side.secretary_hint"), "", secretarySetup: true);
                         else QueueChat(secretary, T("common.secretary"), LastLine("member:" + secretary).Length > 0 ? LastLine("member:" + secretary) : sec.Text("doing").Length > 0 ? sec.Text("doing") : sec.Text("detail"), sec.Text("avatar"), sec.Text("state"));
                     }
-                    foreach (var m in members.Where(m => !m.Flag("secretary"))) QueueChat(m.Text("name"), Display(m.Text("name")), m.Text("doing").Length > 0 ? T("side.doing", ("doing", m.Text("doing"))) : LastLine("member:" + m.Text("name")).Length > 0 ? LastLine("member:" + m.Text("name")) : m.Text("role").Length > 0 ? m.Text("role") : MemberState(m.Text("state")), m.Text("avatar"), m.Text("state"));
-                    tree.Children.Add(() =>
+                    // The leader first, then the others in the order they joined.
+                    foreach (var m in members.Where(m => !m.Flag("secretary")).OrderByDescending(m => m.Flag("leader"))) QueueChat(m.Text("name"), Display(m.Text("name")), m.Text("doing").Length > 0 ? T("side.doing", ("doing", m.Text("doing"))) : LastLine("member:" + m.Text("name")).Length > 0 ? LastLine("member:" + m.Text("name")) : m.Text("role").Length > 0 ? m.Text("role") : MemberState(m.Text("state")), m.Text("avatar"), m.Text("state"));
+                    Queue(() =>
                     {
                     var add = QuietButton("", AddMember); add.Foreground = Muted; add.HorizontalAlignment = HorizontalAlignment.Stretch; add.Padding = new Thickness(8, 6, 8, 6); add.MinHeight = 0; add.CornerRadius = new CornerRadius(8);
                     var addContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; addContent.Children.Add(ReferenceIcon("plus", 14)); var addText = SidebarText(T("common.add_member"), 12.5, true); addText.IsTextSelectionEnabled = false; addContent.Children.Add(addText); add.Content = addContent;
                     Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, NativeGlyphWarmup.SourceText(addText));
-                    return new Border { Child = add, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, firstChat ? 2 : 0, 0, 8), Margin = new Thickness(10, 0, 0, 0), UseLayoutRounding = false };
-                    });
+                    return new Border { Child = add, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Paint("DEDBD4", "3A3936"), Padding = new Thickness(14, firstChat ? 2 : 0, 0, 8), Margin = new Thickness(indent, 0, 0, 0), UseLayoutRounding = false };
+                    }, "add:" + id);
                 }
+                else if (!collapsed)
+                    foreach (var m in roster) QueueRows("member:" + id + "/" + m.Text("name"), list => Member(list, m, id));
             }
             if (collapsed) return; foreach (var child in children) Node(child, depth + 1);
         }
         foreach (var item in orgs.Where(o => o.Text("parent").Length == 0 || !orgs.Any(p => p.Text("id") == o.Text("parent")))) Node(item, 0);
-        if (orgs.Count == 0) side.Children.Add(new Border { Padding = new Thickness(10, 8, 10, 8), Child = OverviewText(T("side.no_orgs"), muted: true) });
-        side.Commit();
+        if (orgs.Count == 0) Queue(() => new Border { Padding = new Thickness(10, 8, 10, 8), Child = OverviewText(T("side.no_orgs"), muted: true) }, "empty");
+        return tree;
+    }
+    private void DrawSidebarFooter()
+    {
         sidebarFooter.Padding = new Thickness(8); sidebarFooter.Spacing = 0; sidebarFooter.BorderBrush = Line; sidebarFooter.BorderThickness = new Thickness(0, 1, 0, 0);
         var profile = QuietButton("", Settings); profile.Padding = new Thickness(8, 6, 8, 6); profile.CornerRadius = new CornerRadius(8); profile.HorizontalAlignment = HorizontalAlignment.Stretch; ToolTipService.SetToolTip(profile, T("page.me"));
         var identity = new Grid { ColumnSpacing = 10 }; identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); identity.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); var human = SidebarFace("human", preferences.Text("avatar"), "", false); human.VerticalAlignment = VerticalAlignment.Center; identity.Children.Add(human);
@@ -535,19 +613,19 @@ public sealed partial class MainWindow
         row.Loaded += (_, _) => { if (!row.IsLoaded) return; Clear(); Watch(content); Update(); };
         row.Unloaded += (_, _) => { if (!row.IsLoaded) Clear(); };
     }
-    private OverviewBadgeView SidebarTag(string text, bool secretary)
+    private OverviewBadgeView SidebarTag(string text, bool secretary, bool neutral = false)
     {
-        var label = SidebarText(text, 10.5, weight: 600, lineHeight: 18); label.IsTextSelectionEnabled = false; label.TextWrapping = TextWrapping.NoWrap; label.Foreground = secretary ? Paint("7058B8", "A894E0") : Accent;
-        return new OverviewBadgeView { Content = label, FontSize = 10.5, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = label.Foreground, Background = secretary ? Paint("EFEBF8", "2E2A3D") : OverviewAlpha(Accent, .13), Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(5), VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false };
+        var label = SidebarText(text, 10.5, weight: 600, lineHeight: 18); label.IsTextSelectionEnabled = false; label.TextWrapping = TextWrapping.NoWrap; label.Foreground = neutral ? Paint("5A5853", "B8B5AE") : secretary ? Paint("7058B8", "A894E0") : Accent;
+        return new OverviewBadgeView { Content = label, FontSize = 10.5, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = label.Foreground, Background = neutral ? Paint("EFEEEA", "262624") : secretary ? Paint("EFEBF8", "2E2A3D") : OverviewAlpha(Accent, .13), Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(5), VerticalAlignment = VerticalAlignment.Center, UseLayoutRounding = false };
     }
     private PersonPicture SidebarOrgFace(JsonNode organization)
     {
         var badge = OverviewOrgBadge(organization, organization.Text("kind") == "subgroup");
         return SidebarPicture(organization.Text("name"), badge, 22);
     }
-    private Grid SidebarFace(string who, string url, string state, bool secretary)
+    private Grid SidebarFace(string who, string url, string state, bool secretary, string? label = null)
     {
-        var label = who.Length > 0 ? Display(who) : T("common.group_chat");
+        label ??= who.Length > 0 ? Display(who) : T("common.group_chat");
         var painted = who.Length == 0 && !secretary ? ChatAvatar(false) : secretary && url.Length == 0 ? ChatAvatar(true) : AvatarPaint(url, label, 28);
         if (painted is Border face) { face.CornerRadius = new CornerRadius(8); if (face.Child is TextBlock initial) { initial.FontSize = 12; initial.FontWeight = new Windows.UI.Text.FontWeight { Weight = 650 }; } }
         var result = new Grid { Width = 28, Height = 28 }; result.Children.Add(SidebarPicture(label, painted, 28));

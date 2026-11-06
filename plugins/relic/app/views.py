@@ -235,16 +235,42 @@ def harness_label(harness, lang=None):
 
 
 # ---------------------------------------------------------------- organizations
-def org_list(store):
+def org_list(store, lang=None):
     last = dict(_rows(store, "SELECT org_id, MAX(at) FROM events GROUP BY org_id"))
+    orgs = store.list_orgs()
+    names = {o["id"]: o["name"] for o in orgs}
     out = []
-    for org in store.list_orgs():
+    for org in orgs:
         members = org.get("members") or {}
         out.append({"id": org["id"], "name": org["name"], "purpose": org.get("purpose", ""),
                     "governance": org.get("governance"), "status": org.get("status"), "created_at": org.get("created_at"),
                     "parent": org.get("parent"), "members": len(members), "member_names": list(members)[:9], "last_at": last.get(org["id"]),
-                    "kind": kind_of(org), "cabinet": bool(org.get("cabinet")), "leader": org.get("leader")})
+                    "kind": kind_of(org), "cabinet": bool(org.get("cabinet")), "leader": org.get("leader"),
+                    "roster": roster(org, names, lang)})
     out.sort(key=lambda o: o.get("last_at") or o.get("created_at") or "", reverse=True)
+    return out
+
+
+def roster(org, names, lang=None):
+    """The organization's own members as the sidebar tree lists them under it, whether or not it is open: its leader
+    first, then its secretary, then the others in the order they joined. A member is listed once even when it both
+    leads and is the secretary, and a seat held ex officio (by the head of an organization below) says so. The same
+    session may sit in several organizations and is then listed under each."""
+    members = org.get("members") or {}
+    leader, secretary = org.get("leader"), secretary_of(org)
+    order = sorted(members, key=lambda name: (name != leader, name != secretary))  # stable: the rest keep their order
+    try:  # one look for the organization's avatar folder instead of one per member and picture type
+        pictures = order and prefs.avatar_base(org["id"], order[0]).parent.is_dir()
+    except (OSError, ValueError):
+        pictures = False
+    out = []
+    for name in order:
+        seat = members[name]
+        office = (seat.get("ex_officio") or {}).get("org")
+        out.append({"name": name, "display": naming.display(seat, name, lang), "role": seat.get("role", ""),
+                    "leader": name == leader, "secretary": name == secretary,
+                    "ex_officio": {"org": office, "org_name": names.get(office, office)} if office else None,
+                    "avatar": prefs.avatar_url(org["id"], name) if pictures else None})
     return out
 
 

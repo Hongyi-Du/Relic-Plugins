@@ -25,7 +25,7 @@ public sealed partial class MainWindow : Window
     // The organization the current snapshot belongs to.
     private string snapOrg = "";
     private string org = "", member = "", pane = "overview";
-    private readonly HashSet<string> folded = new();
+    private readonly HashSet<string> folded = new(), unfolded = new();
     private readonly Dictionary<string, string> drafts = new();
     private readonly NativeWindowLayout root = new();
     private readonly NativeRegionGrid titlebarRegion = new(), treeRegion = new(), chatRegion = new();

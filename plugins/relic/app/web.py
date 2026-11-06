@@ -619,7 +619,7 @@ class Handler(BaseHTTPRequestHandler):
             if api == ["events"]:
                 return self._events()
             if api == ["orgs"]:
-                return self._json(views.org_list(self.app.store))
+                return self._json(views.org_list(self.app.store, self.app.lang()))
             if api == ["orgchart"]:
                 return self._json(views.orgchart(self.app.store, self.app.hub, self.app.lang()))
             if api == ["monitor"]:  # who is working on this machine, what it costs, and what can start them again

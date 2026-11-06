@@ -61,6 +61,22 @@ class Hierarchy(unittest.TestCase):
         self.assertIn("organization.child_added", kinds)
         self.assertIn("organization.child_removed", kinds)
 
+    def test_the_tree_lists_each_organization_s_own_members(self):
+        # Every layer has its own members, also an organization that is not open: the leader first, then the
+        # secretary, then the others; a head of an organization below sits there ex officio.
+        s = self.store
+        s.set_seat_fields(self.team, "dev", secretary=True)
+        rosters = {o["id"]: o["roster"] for o in views.org_list(s, "zh-CN")}
+        team = rosters[self.team]
+        self.assertEqual([(m["name"], m["leader"], m["secretary"]) for m in team],
+                         [("lead", True, False), ("dev", False, True), ("s1", False, False)])
+        self.assertEqual(team[2]["ex_officio"], {"org": self.sub, "org_name": "Sub"})
+        self.assertIsNone(team[0]["ex_officio"])
+        # the same member leading and acting as secretary is listed once, with both marks
+        self.assertEqual([(m["name"], m["leader"], m["secretary"]) for m in rosters[self.sub]], [("s1", True, True)])
+        self.assertEqual([m["name"] for m in rosters[self.sec]][:2], ["chief", "helper"])
+        self.assertEqual(rosters[self.other][0]["role"], "")
+
     def test_a_member_acts_only_below_and_reports_only_above(self):
         s = self.store
         self.assertEqual(s.reach(CHIEF, "Sub")[3], "down")  # any depth, by name or id
