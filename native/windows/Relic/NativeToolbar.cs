@@ -8,7 +8,15 @@ namespace Relic;
 // fit this app's 39px titlebar; local template-part values own that layout.
 internal sealed class NativeToolbar : CommandBar
 {
-    public NativeToolbar() => DefaultStyleKey = typeof(CommandBar);
+    public NativeToolbar()
+    {
+        DefaultStyleKey = typeof(CommandBar);
+        // The template clips LayoutRoot to the content height, moved down by TemplateSettings.CompactVerticalDelta:
+        // the compact height (AppBarThemeCompactHeight, 48 in the stock theme) minus the content height (39). That
+        // cut the top 9 px of every command and the tops of the count badges. AppBar reads this key from the bar's
+        // own resources, so here the delta is 0 and the clip is the toolbar itself.
+        Resources["AppBarThemeCompactHeight"] = 39d;
+    }
 
     // Names this element if a layout inside it fails (see LayoutFailure).
     protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)

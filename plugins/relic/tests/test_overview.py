@@ -94,14 +94,27 @@ class Base(unittest.TestCase):
 
 
 class Tree(Base):
-    def test_the_cabinet_comes_first_and_each_organization_follows_its_parent(self):
+    def test_each_organization_under_its_parent_siblings_in_the_sidebars_order(self):
+        research = self.store.create("research-head", "科研部", "research", "lead")["id"]
+        self.store.set_parent(research, self.cabinet)
         lone = self.store.create("someone", "独立组", "alone", "solo")["id"]
+
+        def touch(org_id, at):  # the latest event decides, as in the sidebar (views.org_list)
+            with self.store.db() as db:
+                db.execute("INSERT INTO events(org_id, member, kind, body, at) VALUES(?, 'test', 'test', '{}', ?)", (org_id, at))
+        touch(lone, "2099-01-01T00:00:01Z")
+        touch(self.dept, "2099-01-01T00:00:02Z")
+        touch(self.cabinet, "2099-01-01T00:00:03Z")
+        touch(research, "2099-01-01T00:00:04Z")
         data = overview.overview(self.store)
         self.assertEqual([(o["name"], o["depth"]) for o in data["orgs"]],
-                         [("秘书处", 0), ("研发部", 1), ("工具组", 2), ("独立组", 0)])
+                         [("秘书处", 0), ("科研部", 1), ("研发部", 1), ("工具组", 2), ("独立组", 0)])
         self.assertTrue(self.org(data, self.cabinet)["cabinet"])
         self.assertEqual(self.org(data, lone)["parent"], None)
-        self.assertEqual(data["totals"]["orgs"], 4)
+        self.assertEqual(data["totals"]["orgs"], 5)
+        touch(self.dept, "2099-01-01T00:00:05Z")  # read incrementally by the next refresh
+        self.assertEqual([o["name"] for o in overview.overview(self.store)["orgs"]],
+                         ["秘书处", "研发部", "工具组", "科研部", "独立组"])
 
     def test_open_tasks_in_progress_first_and_done_ones_counted(self):
         self.task(self.dept, "T1", "write tests", "head", "open")

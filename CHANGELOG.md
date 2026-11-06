@@ -61,6 +61,10 @@
     `POST /api/monitor/automation`.
   - 原生 Windows App 的工具栏新增「总览」：整棵组织树一页看完，每个组织在做什么、未完成的任务、谁在干活、什么能让成员
     自己开工；能直接开关自动唤醒、暂停或恢复 Codex 定时任务、停止或恢复成员、跳到群聊或私聊。
+- The overview keeps every row realized while it is open (rows are still built a few at a time), so its height is
+  exact and its end can be reached; its organizations follow the sidebar's order (latest activity first). The
+  toolbar no longer cuts the top of its commands and count badges: the CommandBar's clip had moved down by its
+  stock 48 px compact height minus the 39 px toolbar.
 
 自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
 没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。

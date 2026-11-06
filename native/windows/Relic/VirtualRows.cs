@@ -25,6 +25,9 @@ internal sealed class VirtualRows : Grid
     internal event Action? ItemsReplacing;
     private readonly ItemsRepeater repeater = new() { Layout = new StackLayout(), VerticalCacheLength = .5 };
     internal double Spacing { get => ((StackLayout)repeater.Layout).Spacing; set => ((StackLayout)repeater.Layout).Spacing = value; }
+    // Viewports above and below the visible one that stay realized. A list of a few hundred rows can keep them all:
+    // recycled rows come back at their estimated height, so the list's height kept changing near its end.
+    internal double CacheLength { get => repeater.VerticalCacheLength; set => repeater.VerticalCacheLength = value; }
     internal int Realized => factory.Realized;
     // Called with a built row just before it leaves the list.
     internal Action<UIElement>? Recycling { get => factory.Recycling; set => factory.Recycling = value; }

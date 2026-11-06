@@ -1,6 +1,7 @@
 """The overview the Relic App opens from its toolbar: the whole organization tree on one page.
 
-For every active organization, in the order of the tree (the cabinet first, each organization under its parent):
+For every active organization, in the order of the tree (each organization under its parent, siblings in the
+sidebar's order: the latest activity first):
 - what it is doing: its purpose, its latest message and its latest tool call;
 - its open tasks, with owner and status;
 - each member: working, working in another organization (a session that holds seats in several), idle, stopped
@@ -133,11 +134,13 @@ class _Latest:
         self.path = None
         self.acts, self.act_id = {}, 0
         self.messages, self.message_id = {}, 0
+        self.events, self.event_seq = {}, 0
 
     def read(self, store):
         with self.lock:
             if self.path != str(store.path):
                 self.path, self.acts, self.act_id, self.messages, self.message_id = str(store.path), {}, 0, {}, 0
+                self.events, self.event_seq = {}, 0
             with store.db() as db:
                 if not self.act_id:
                     ids = [r[0] for r in db.execute("SELECT MAX(id) FROM activity GROUP BY org_id, member")]
@@ -172,10 +175,20 @@ class _Latest:
                     self.message_id = max(self.message_id, mid)
                 if not self.message_id:
                     self.message_id = db.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()[0]
+                # each organization's latest event: the sidebar lists organizations most recent first (views.org_list)
+                if not self.event_seq:
+                    for org_id, at, seq in db.execute("SELECT org_id, MAX(at), MAX(seq) FROM events GROUP BY org_id"):
+                        self.events[org_id] = at or ""
+                        self.event_seq = max(self.event_seq, seq or 0)
+                else:
+                    for seq, org_id, at in db.execute("SELECT seq, org_id, at FROM events WHERE seq > ? ORDER BY seq",
+                                                      (self.event_seq,)):
+                        self.events[org_id] = max(self.events.get(org_id, ""), at or "")
+                        self.event_seq = max(self.event_seq, seq)
                 focus = dict(db.execute("SELECT actor, org_id FROM focus").fetchall())
                 mains = {actor: (org_id, member) for actor, org_id, member in
                          db.execute("SELECT actor, org_id, member FROM actors").fetchall()}
-            return dict(self.acts), dict(self.messages), focus, mains
+            return dict(self.acts), dict(self.messages), focus, mains, dict(self.events)
 
     @staticmethod
     def _rows(db, sql, ids):
@@ -191,28 +204,30 @@ _latest = _Latest()
 
 # ---------------------------------------------------------------- the overview
 
-def _tree(orgs):
-    """[(organization, depth)] depth first: the cabinet first, then by creation; an organization whose parent is not
-    active, or whose chain of parents loops, starts its own branch."""
+def _tree(orgs, last=None):
+    """[(organization, depth)] depth first, siblings in the sidebar's order (views.org_list): the latest event first,
+    else the latest created. An organization whose parent is not active, or whose chain of parents loops, starts its
+    own branch."""
+    last = last or {}
+    ranked = sorted(orgs, key=lambda o: last.get(o["id"]) or o.get("created_at") or "", reverse=True)
     ids = {o["id"] for o in orgs}
     below = {}
-    for org in orgs:
+    for org in ranked:
         below.setdefault(org.get("parent") if org.get("parent") in ids else None, []).append(org)
-    order = lambda o: (not o.get("cabinet"), kind_of(o) == "subgroup", o.get("created_at") or "", o["name"])
     out, seen = [], set()
 
     def walk(parent, depth):
-        stack = [(o, depth) for o in sorted(below.get(parent, []), key=order, reverse=True)]
+        stack = [(o, depth) for o in reversed(below.get(parent, []))]
         while stack:
             org, level = stack.pop()
             if org["id"] in seen:
                 continue
             seen.add(org["id"])
             out.append((org, level))
-            stack += [(o, level + 1) for o in sorted(below.get(org["id"], []), key=order, reverse=True)]
+            stack += [(o, level + 1) for o in reversed(below.get(org["id"], []))]
 
     walk(None, 0)
-    for org in sorted(orgs, key=order):
+    for org in ranked:
         if org["id"] not in seen:
             seen.add(org["id"])
             out.append((org, 0))
@@ -256,7 +271,7 @@ def overview(store, hub=None, lang=None, now=None):
     orgs = [o for o in store.list_orgs() if o.get("status") in (None, "active")]
     snap = monitor.snapshot(store, now, orgs=orgs)
     sessions = {agent["key"]: agent for agent in snap["agents"]}
-    acts, messages, focus, mains = _latest.read(store)
+    acts, messages, focus, mains, events = _latest.read(store)
     configs = _configs(orgs, mains)
     running = _running(orgs, now)
     names = {o["id"]: o["name"] for o in orgs}
@@ -295,7 +310,7 @@ def overview(store, hub=None, lang=None, now=None):
                 "kind": automation["kind"], "schedule": rrule_text(automation["rrule"], lang)}
 
     out, busy = [], {"working": set(), "stopped": set()}  # sessions, each counted once across its seats
-    for org, depth in _tree(orgs):
+    for org, depth in _tree(orgs, events):
         org_id = org["id"]
         org_wake = bool(org.get("auto_wake", True))
         secretary = views.secretary_of(org)
