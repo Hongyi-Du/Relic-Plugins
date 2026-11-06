@@ -233,7 +233,7 @@ def action_plan(fixture):
     for name in ("file", "edit", "view", "help"):
         add("menu", name=name)
     add("group", org=fixture["orgs"][0]["id"])
-    for name in ("settings", "about", "neworg", "member", "tasks", "protocols"):
+    for name in ("settings", "about", "neworg", "member", "tasks", "protocols", "overview"):
         add("dialog", name=name)
     for width, height in ((1440, 900), (1180, 800), (1024, 700), (960, 640), (1440, 900)):
         add("resize", width=width, height=height)

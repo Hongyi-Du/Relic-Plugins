@@ -80,19 +80,76 @@ def _set_automation(path, status):
     os.replace(tmp, path)
 
 
+def set_automation(automation_id, status):
+    """The person pauses (PAUSED) or resumes (ACTIVE) one Codex automation from the Relic window. Stop and Resume keep
+    their own record of what they paused, so a later Resume never undoes the person's own choice."""
+    if status not in ("ACTIVE", "PAUSED"):
+        raise ValueError("status must be ACTIVE or PAUSED")
+    for automation in codex_automations():
+        if automation["id"] == automation_id:
+            if automation["status"] != status:
+                _set_automation(automation["path"], status)
+            return {"id": automation_id, "status": status, "before": automation["status"]}
+    raise ValueError("No Codex automation %s" % automation_id)
+
+
+def _claude_app_folders():
+    """Where the Claude desktop app may keep its own record of the scheduled tasks (their switches and times)."""
+    folders = []
+    for name in ("LOCALAPPDATA", "APPDATA"):
+        if os.environ.get(name):
+            folders += [Path(os.environ[name]) / "Claude-Data", Path(os.environ[name]) / "Claude"]
+    if sys.platform == "darwin":
+        support = Path.home() / "Library" / "Application Support"
+        folders += [support / "Claude-Data", support / "Claude"]
+    return folders
+
+
+def _claude_app_tasks():
+    """{task id: the Claude desktop app's entry for it} from its scheduled-tasks.json files, newest file first. Read only
+    and best effort: the file belongs to the app, and a task it does not list just shows without a switch or time."""
+    files = []
+    for folder in _claude_app_folders():
+        for pattern in ("claude-code-sessions/*/*/scheduled-tasks.json", "*/claude-code-sessions/*/*/scheduled-tasks.json"):
+            try:
+                files += [(path.stat().st_mtime, path) for path in folder.glob(pattern)]
+            except OSError:
+                continue
+    found = {}
+    for _, path in sorted(files, key=lambda item: item[0], reverse=True):
+        try:
+            tasks = json.loads(path.read_text(encoding="utf-8")).get("scheduledTasks") or []
+        except (OSError, ValueError, AttributeError):
+            continue
+        for task in tasks if isinstance(tasks, list) else []:
+            if isinstance(task, dict) and task.get("id") and task["id"] not in found:
+                found[task["id"]] = task
+    return found
+
+
 def claude_tasks():
-    """The Claude desktop app's scheduled tasks, read only: the app keeps their switches itself."""
+    """The Claude desktop app's scheduled tasks, read only: the app keeps their switches itself. Each with its
+    description (from its SKILL.md) and, where the app's own record has it, its name, switch, schedule and folder."""
     root = claude_root() / "scheduled-tasks"
     found = []
     if not root.is_dir():
         return found
+    kept = None
     for path in sorted(root.glob("*/SKILL.md")):
         try:
             head = path.read_text(encoding="utf-8")[:2000]
         except OSError:
             continue
         description = re.search(r"^description:\s*(.+)$", head, re.M)
-        found.append({"id": path.parent.name, "description": description.group(1).strip() if description else ""})
+        kept = _claude_app_tasks() if kept is None else kept
+        entry = kept.get(path.parent.name) or {}
+        fire_at = entry.get("fireAt")
+        found.append({"id": path.parent.name, "description": description.group(1).strip() if description else "",
+                      "name": str(entry.get("displayName") or entry.get("title") or ""),
+                      "enabled": entry["enabled"] if isinstance(entry.get("enabled"), bool) else None,
+                      "cron": str(entry.get("cronExpression") or entry.get("cron") or ""),
+                      "fire_at": fire_at / 1000 if isinstance(fire_at, (int, float)) and fire_at > 0 else None,
+                      "cwd": str(entry.get("cwd") or "")})
     return found
 
 
@@ -300,7 +357,8 @@ def _owner(store, session, places):
     return places[0]
 
 
-def snapshot(store, now=None):
+def snapshot(store, now=None, orgs=None):
+    """orgs: the active organizations when the caller has just read them (the overview), so they are read once."""
     now = time.time() if now is None else now
     ledger = usage.Ledger.shared()
     ledger.scan(now=now, blocking=False, fresh_for=FRESH_FOR)  # never waits for the first, long read
@@ -308,7 +366,7 @@ def snapshot(store, now=None):
     windows = ledger.windows(now, SPANS)
     brakes = _load_brakes()
     automations = codex_automations()
-    orgs = _active_orgs(store)
+    orgs = _active_orgs(store) if orgs is None else orgs
     seated = {}
     for org in orgs:
         for member, seat in org["members"].items():

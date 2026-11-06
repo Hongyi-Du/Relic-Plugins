@@ -88,11 +88,13 @@ public sealed partial class MainWindow
         }
         // Last, so the commands before it keep their positions.
         AddCommand(toolbarMonitor = ToolbarIconButton("\uE9D9", monitorTip, OpenMonitor, badge: working));
+        AddCommand(toolbarOverview = ToolbarIconButton("\uE8A9", T("appbar.overview"), OpenOrgOverview));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(toolbarOverview, "toolbar-overview");
     }
     private static readonly (string Id, string Key, string Glyph)[] ToolbarPanes =
         [("overview", "panel.overview", "\uE8FD"), ("workspace", "panel.workspace", "\uE8B7"), ("files", "common.file", "\uE8A5")];
     private string? toolbarCommandsKey, toolbarNavigationKey;
-    private Button? toolbarDecisions, toolbarCopies, toolbarMonitor;
+    private Button? toolbarDecisions, toolbarCopies, toolbarMonitor, toolbarOverview;
     private readonly Button?[] toolbarPaneButtons = new Button?[3];
     private readonly Dictionary<Button, (string Tip, int Badge, bool Selected, bool Alert)> toolbarLooks = [];
 

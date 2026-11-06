@@ -142,6 +142,14 @@ hooks 只约束实际经过它的动作，不能当作操作系统隔离或对�
 
 Claude App 里定时任务的开关只能在 Claude App 里改；Codex 桌面会话要先信任 Relic 的钩子，才能打断正在进行的一轮。接口：`GET /api/monitor`、`GET /api/usage`、`POST /api/monitor/stop`、`POST /api/monitor/resume`，都要带 App 的口令。
 
+**总览。**工具栏「运行监控」旁边的「总览」把整棵组织树放在一页上，开着时每 5 秒刷新：
+- 每个组织一张卡，按组织树缩进排列：宗旨、最近一条消息和最近一次动作、未完成的任务（负责人和状态）；
+- 每个成员：在干活、在别的组织干活（一个会话坐几个席位时）、空闲、已停止或席位空着，以及最后活动时间；「干活」的判断和运行监控一样；
+- 什么能让成员自己开工：组织和席位的自动唤醒（开关开着但席位没登记会话的，写「叫不醒」）、唤醒它的 Codex 定时任务（频率、在跑还是暂停）；不唤醒任何成员的 Codex 定时任务和 Claude 桌面定时任务列在最下面；什么都没有的写「没有能自己开工的」；
+- 直接调整：组织和成员的自动唤醒开关、暂停或恢复 Codex 定时任务、停止或恢复成员（同运行监控的「停止」，要连点两下）、跳到群聊或私聊。
+
+接口：`GET /api/overview`、`POST /api/org/<组织>/seat_auto_wake`（`member`、`on`）、`POST /api/monitor/automation`（`id`、`status` 为 `ACTIVE` 或 `PAUSED`），都要带 App 的口令。Claude 定时任务的开关和时间从 Claude App 自己的记录里只读取来，改要在 Claude App 里改。
+
 Windows 上通过宿主工具管道唤醒已打开的 Codex 桌面对话；macOS 上需要宿主提供的私有 Unix socket 通过能力握手和宿主授权，见[macOS 指南](macos.zh-CN.md)。可能已投递的请求保留 uncertain，不盲目重发。GUI 席位不会悄悄退回第二个 CLI 写入者；CLI/App 内成员与显式 `inbox` 可以独立使用。
 
 ## 8. 聊天席位与轨迹访问
