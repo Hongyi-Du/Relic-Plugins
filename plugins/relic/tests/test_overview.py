@@ -149,6 +149,10 @@ class Members(Base):
                          [("head", True, "idle"), ("builder", False, "idle"), ("reviewer", False, "vacant")])
         reviewer = dept["members"][2]
         self.assertEqual((reviewer["wake"], reviewer["can_stop"], reviewer["session"]), ("vacant", False, ""))
+        # a seat the App runs itself is not empty before its first session; nothing can wake it until then
+        self.store.add_seat(self.dept, "embedded", config={"harness": "claude-code", "surface": "acp"})
+        embedded = self.member(overview.overview(self.store), self.dept, "embedded")
+        self.assertEqual((embedded["state"], embedded["wake"]), ("idle", "cannot"))
 
     def test_a_working_session_works_where_it_last_acted_and_its_other_seat_says_where(self):
         self.working()

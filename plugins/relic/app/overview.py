@@ -310,7 +310,8 @@ def overview(store, hub=None, lang=None, now=None):
             act = acts.get((org_id, name))
             last = max([t for t in ((act or {}).get("at"), (agent or {}).get("last_active")) if t] or [0]) or None
             working_in = None
-            if not carrier and not live:
+            embedded = (seat.get("config") or {}).get("surface") == "acp"  # the App runs it, with or without a session yet
+            if not carrier and not embedded and not live:
                 state = "vacant"
             elif brake and not brake.get("released"):
                 state = "stopped"
@@ -326,7 +327,7 @@ def overview(store, hub=None, lang=None, now=None):
             thread = monitor._thread(key) if key else None
             own = [schedule(a) for a in threads.get(thread, [])] if thread else []
             attached.update(a["id"] for a in own)
-            if not carrier:
+            if not carrier and not embedded:
                 wake_state = "vacant"
             elif not seat.get("auto_wake", True):
                 wake_state = "off"
