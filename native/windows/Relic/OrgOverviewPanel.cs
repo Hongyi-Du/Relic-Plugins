@@ -17,11 +17,12 @@ namespace Relic;
 //
 // Each card is a run of rows in a VirtualRows list (its header, what it does, each task, each member, its end), built
 // only around the view (CI measured 255-460 ms when every expanded card was built at once, and keeping every row
-// realized made a full UI Automation read hold the UI thread for half a second). A row's key is "<which row>|<what it
-// shows>": the list remembers each row's built height by the first part, so a row that comes back into view, or a
-// row a refresh replaces, keeps its height while it is built, and a refresh replaces only the rows whose content
-// changed. At the bottom the view holds its bottom edge; elsewhere the first visible row keeps its place. Times are
-// clock times, so a row does not change just because a minute passed.
+// built made a full UI Automation read hold the UI thread for half a second). Every row keeps a holder at its known
+// height, so the list's height does not depend on which rows are built (BuildNearView). A row's key is "<which
+// row>|<what it shows>": the list remembers each row's built height by the first part, so a row a refresh replaces
+// keeps its height while it is built, and a refresh replaces only the rows whose content changed. At the bottom the
+// view holds its bottom edge; elsewhere the first visible row keeps its place. Times are clock times, so a row does
+// not change just because a minute passed.
 public sealed partial class MainWindow
 {
     private JsonNode orgOverviewData = new JsonObject();
@@ -45,7 +46,7 @@ public sealed partial class MainWindow
             orgOverviewTimer.Tick += (_, _) => { if (orgOverviewBody != null) _ = ReadOrgOverview(); };
         }
         // Transparent, not null: the whole list reports the pointer, so a refresh can wait while it is over the rows.
-        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, CacheLength = 1, RememberHeights = true,
+        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, RememberHeights = true, BuildNearView = true,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         AutomationProperties.SetAutomationId(body, "org-overview");
         body.PointerEntered += (_, _) => orgOverviewPointerOver = true;
@@ -63,29 +64,13 @@ public sealed partial class MainWindow
             if (anchored || node is not ScrollViewer scroll) return;
             anchored = true;
             // At the bottom the view keeps its bottom edge where it is, so the last row stays in view while rows above
-            // it change height; elsewhere the first visible row keeps its place. Rows not built yet have estimated
-            // heights, so arriving at the bottom is not yet the end: the rows there come out shorter or taller, and the
-            // list's height changes under the view. So a move headed for the end pins the view there until the person
-            // scrolls away, and whenever the list's height has changed and no row is waiting to be built, a view that
-            // is no longer at the end is scrolled there again, as a second jump by the person would. (Bringing the last
-            // row into view did not move it the last 80-160 px.)
+            // it change height; elsewhere the first visible row keeps its place. Rows built for the first time can come
+            // out taller or shorter than estimated, and a refresh can change a row's height, so a move headed for the
+            // end pins the view there until the person scrolls away: whenever the list's height has changed and no row is
+            // waiting to be built, a view that is no longer at the end is scrolled there again, as a second jump by the
+            // person would.
             var pinned = false; var aiming = false; var pressed = false; var ours = false; var placing = false;
-            var repairs = 0; var queued = 0; long stepAt = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
-            // EXPERIMENT (to be removed before merge): RELIC_OVERVIEW_PIN flags and a RELIC_OVERVIEW_TRACE file.
-            var knobs = (Environment.GetEnvironmentVariable("RELIC_OVERVIEW_PIN") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            bool Knob(string name) => knobs.Contains(name);
-            var tracePath = Environment.GetEnvironmentVariable("RELIC_OVERVIEW_TRACE");
-            void Trace(string what)
-            {
-                if (string.IsNullOrEmpty(tracePath)) return;
-                try
-                {
-                    System.IO.File.AppendAllText(tracePath, string.Format(CultureInfo.InvariantCulture,
-                        "{0} {1} off={2:F1} max={3:F1} ext={4:F1} ratio={5} pinned={6} aiming={7} pend={8}\n", Environment.TickCount64, what,
-                        scroll.VerticalOffset, scroll.ScrollableHeight, scroll.ExtentHeight, scroll.VerticalAnchorRatio, pinned, aiming, VirtualRows.PendingBuilds));
-                }
-                catch (Exception) { }
-            }
+            var repairs = 0; var queued = 0; long stepAt = 0, repairedAt = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
             var retry = body.DispatcherQueue.CreateTimer();
             retry.Interval = TimeSpan.FromMilliseconds(260); retry.IsRepeating = false;
             bool Current() => orgOverviewBody == body && pinned;
@@ -94,15 +79,14 @@ public sealed partial class MainWindow
             bool Moving() => pressed || Environment.TickCount64 - stepAt < 250;
             void ToEnd()
             {
-                if (!Current()) return;
-                if (VirtualRows.PendingBuilds > 0) { Trace("toend.pending"); return; }
-                if (Moving()) { Trace("toend.moving"); if (!retry.IsRunning) retry.Start(); return; }
-                if (scroll.ScrollableHeight - scroll.VerticalOffset <= 1) { repairs = 0; return; }
-                if (++repairs > 12) { Trace("toend.giveup"); return; }
-                ours = true;
-                var bring = Knob("bring") || (Knob("both") && repairs % 2 == 1);
-                Trace(bring ? "toend.bring" : "toend.view");
-                if (bring) body.BringLastIntoView(Current); else scroll.ChangeView(null, scroll.ScrollableHeight, null, true);
+                if (!Current() || VirtualRows.PendingBuilds > 0) return;
+                if (Moving()) { if (!retry.IsRunning) retry.Start(); return; }
+                if (scroll.ScrollableHeight - scroll.VerticalOffset <= 1) return;
+                // At most 12 in a burst (repairs less than 2 s apart), so a list that kept changing could not make it loop.
+                if (Environment.TickCount64 - repairedAt > 2000) repairs = 0;
+                if (++repairs > 12) return;
+                repairedAt = Environment.TickCount64; ours = true;
+                scroll.ChangeView(null, scroll.ScrollableHeight, null, true);
             }
             void Anchor()
             {
@@ -113,30 +97,22 @@ public sealed partial class MainWindow
                 var extent = scroll.ExtentHeight;
                 var bottom = max > 0 && (offset >= max - 2 || (lastMax > 0 && offset >= lastMax - 2)
                     || (offset - lastOffset > screen && max - offset < screen));
-                // Off the end while pinned, and not by the person: a move headed for the end has not landed there (a
-                // refresh or rows built meanwhile moved it, by up to half the list), a scroll to the end has not landed
-                // yet, or the list's height changed under the view near the end. Anything else is the person leaving.
+                // Off the end while pinned, and not by the person: a move headed for the end has not landed there, a
+                // scroll to the end has not landed yet, or the list's height changed under the view near the end.
+                // Anything else is the person leaving.
                 var stay = pinned && !bottom && !Moving()
                     && (aiming || ours || (max - offset < screen && Math.Abs(extent - lastExtent) > .5));
-                var arriving = bottom && !pinned;
                 lastMax = max; lastOffset = offset; lastExtent = extent; ours = false;
                 pinned = bottom || stay;
-                if (bottom) aiming = false;
-                else if (!pinned) { aiming = false; repairs = 0; }
-                scroll.VerticalAnchorRatio = pinned && !Knob("ratio0") ? 1 : 0;
-                Trace(bottom ? "anchor.bottom" : stay ? "anchor.stay" : "anchor.free");
-                if (arriving && Knob("arrivebring")) body.BringLastIntoView(Current);
-                else if (pinned) ToEnd();
+                if (!stay) aiming = false;
+                scroll.VerticalAnchorRatio = pinned ? 1 : 0;
+                if (pinned) ToEnd();
             }
             // The target of a move is known before it lands: one headed for the end (a jump, a drag, the wheel) pins
             // the view at once.
             scroll.ViewChanging += (_, args) =>
             {
-                if (scroll.ScrollableHeight <= 0 || args.FinalView.VerticalOffset < scroll.ScrollableHeight - 2) return;
-                var was = pinned;
-                aiming = pinned = true;
-                if (Knob("early") && !Knob("ratio0")) scroll.VerticalAnchorRatio = 1;
-                if (!was) Trace("changing.to-end target=" + args.FinalView.VerticalOffset.ToString("F1", CultureInfo.InvariantCulture));
+                if (scroll.ScrollableHeight > 0 && args.FinalView.VerticalOffset >= scroll.ScrollableHeight - 2) aiming = pinned = true;
             };
             // When rows were built (raised for every row built anywhere, possibly on a worker), the list or the window
             // changed size, or the person let go, and no row is waiting any more: look once after the next layout pass,
@@ -160,7 +136,7 @@ public sealed partial class MainWindow
             scroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => pressed = true), true);
             scroll.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, _) => { pressed = false; look?.Invoke(); }), true);
             scroll.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler((_, _) => { pressed = false; look?.Invoke(); }), true);
-            scroll.ViewChanged += (_, args) => { if (args.IsIntermediate) { stepAt = Environment.TickCount64; Trace("changed.step"); } else { Trace("changed.final"); Anchor(); } };
+            scroll.ViewChanged += (_, args) => { if (args.IsIntermediate) stepAt = Environment.TickCount64; else Anchor(); };
             Anchor();
         };
         orgOverviewBody = body; orgOverviewPointerOver = orgOverviewPending = false; orgOverviewDrawn = "";
