@@ -14,11 +14,13 @@ namespace Relic;
 // organization or a seat, pausing or resuming an automation, stopping or resuming a member's session (the monitor's
 // Stop and Resume), and opening a chat. Refreshes every 5 s while open; reads nothing while closed.
 //
-// Each card is a run of rows in a VirtualRows list (its header, what it does, each task, each member, its end). Rows
-// are built a few at a time after the panel opens, so a large tree opens without holding the UI thread (CI measured
-// 255-460 ms when every expanded card was built at once), and they all stay realized while it is open: recycled rows
-// came back at their estimated height and the end of the list could not be reached. A refresh replaces only the rows
-// whose content changed; a row's key carries its content, and times are clock times, so an unchanged row stays.
+// Each card is a run of rows in a VirtualRows list (its header, what it does, each task, each member, its end), built
+// only around the view (CI measured 255-460 ms when every expanded card was built at once, and keeping every row
+// realized made a full UI Automation read hold the UI thread for half a second). A row's key is "<which row>|<what it
+// shows>": the list remembers each row's built height by the first part, so a row that comes back into view, or a
+// row a refresh replaces, keeps its height while it is built, and a refresh replaces only the rows whose content
+// changed. At the bottom the view holds its bottom edge; elsewhere the first visible row keeps its place. Times are
+// clock times, so a row does not change just because a minute passed.
 public sealed partial class MainWindow
 {
     private JsonNode orgOverviewData = new JsonObject();
@@ -42,13 +44,27 @@ public sealed partial class MainWindow
             orgOverviewTimer.Tick += (_, _) => { if (orgOverviewBody != null) _ = ReadOrgOverview(); };
         }
         // Transparent, not null: the whole list reports the pointer, so a refresh can wait while it is over the rows.
-        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, CacheLength = 1000, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, CacheLength = 1, RememberHeights = true,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         AutomationProperties.SetAutomationId(body, "org-overview");
         body.PointerEntered += (_, _) => orgOverviewPointerOver = true;
         body.PointerExited += (_, _) =>
         {
             orgOverviewPointerOver = false;
             if (orgOverviewPending && orgOverviewBody == body) { orgOverviewPending = false; orgOverviewDrawn = orgOverviewLatest; DrawOrgOverview(); }
+        };
+        var anchored = false;
+        body.Loaded += (_, _) =>
+        {
+            DependencyObject? node = body;
+            while (node != null && node is not ScrollViewer) node = VisualTreeHelper.GetParent(node);
+            if (anchored || node is not ScrollViewer scroll) return;
+            anchored = true;
+            // At the bottom the view keeps its bottom edge where it is, so the last row stays in view while rows above
+            // it change height; elsewhere the first visible row keeps its place.
+            void Anchor() => scroll.VerticalAnchorRatio = scroll.ScrollableHeight > 0 && scroll.VerticalOffset >= scroll.ScrollableHeight - 2 ? 1 : 0;
+            scroll.ViewChanged += (_, args) => { if (!args.IsIntermediate) Anchor(); };
+            Anchor();
         };
         orgOverviewBody = body; orgOverviewPointerOver = orgOverviewPending = false; orgOverviewDrawn = "";
         DrawOrgOverview();
@@ -103,7 +119,7 @@ public sealed partial class MainWindow
         if (orgOverviewData["orgs"] is not JsonArray orgs)
         {
             var wait = orgOverviewError.Length > 0 ? T("common.load_failed", ("error", orgOverviewError)) : T("common.loading");
-            Add("wait:" + wait, 30, () => OrgOverviewTop(Quiet(wait)));
+            Add("wait|" + wait, 30, () => OrgOverviewTop(Quiet(wait)));
             body.Reconcile(rows);
             return;
         }
@@ -118,7 +134,7 @@ public sealed partial class MainWindow
         summary.Add(T("mon.codex_automations", ("on", (int)Num(totals, "automations_on")), ("n", (int)Num(totals, "automations"))));
         summary.Add(T("ov.sum_claude", ("on", (int)Num(totals, "claude_tasks_on")), ("n", (int)Num(totals, "claude_tasks"))));
         var line = string.Join(" · ", summary);
-        Add("summary:" + line, 30, () => OrgOverviewTop(Heading(line, 13.5)));
+        Add("summary|" + line, 30, () => OrgOverviewTop(Heading(line, 13.5)));
         if (orgOverviewData.Flag("stopped_all")) Add("stopped-all", 30, () => OrgOverviewTop(OrgOverviewWarning(T("ov.stopped_all"))));
         if (orgOverviewData.Flag("scanning")) Add("scanning", 26, () => OrgOverviewTop(Quiet(T("ov.scanning"))));
         Add("fold-all", 42, () =>
@@ -180,7 +196,7 @@ public sealed partial class MainWindow
         if (!orgOverviewOpen.TryGetValue(id, out var open)) open = orgOverviewOpen[id] = working > 0 || openTasks > 0;
         var depth = Num(o, "depth");
         var accent = working > 0;
-        var card = id + ":" + (accent ? "a" : "n") + depth.ToString(CultureInfo.InvariantCulture);
+        var look = (accent ? "a" : "n") + depth.ToString(CultureInfo.InvariantCulture);  // shown by every row of the card
         var names = new Dictionary<string, string>();
         foreach (var m in o.Rows("members")) names[m.Text("name")] = m.Text("display").Length > 0 ? m.Text("display") : m.Text("name");
         string Who(string name)
@@ -195,43 +211,43 @@ public sealed partial class MainWindow
 
         var head = OrgOverviewHash(o.Text("name"), o.Text("kind"), o.Text("cabinet"), o.Text("auto_wake"), o.Text("starts_itself"),
             counts?.ToJsonString(), open ? "open" : "folded");
-        add("head:" + card + ":" + head, o.Flag("starts_itself") ? 66 : 88, () => OrgOverviewPart(OrgOverviewHeader(o, id, open, working, openTasks), depth, accent, top: true));
+        add("head:" + id + "|" + look + ":" + head, o.Flag("starts_itself") ? 66 : 88, () => OrgOverviewPart(OrgOverviewHeader(o, id, open, working, openTasks), depth, accent, top: true));
         if (open)
         {
             var doing = OrgOverviewHash(o.Text("purpose"), o?["latest_message"]?.ToJsonString(), o?["latest_action"]?.ToJsonString(),
                 string.Join(",", names.Select(pair => pair.Key + "=" + pair.Value)));
-            add("doing:" + card + ":" + doing, 110, () => OrgOverviewPart(OrgOverviewDoing(o, Who), depth, accent));
+            add("doing:" + id + "|" + look + ":" + doing, 110, () => OrgOverviewPart(OrgOverviewDoing(o, Who), depth, accent));
             var tasks = o.Rows("tasks");
             var done = (int)Num(o, "done");
-            add("tasks:" + card + ":" + tasks.Count + ":" + done, 34, () =>
+            add("tasks:" + id + "|" + look + ":" + tasks.Count + ":" + done, 34, () =>
             {
                 var heading = TwoColumns(Heading(T("ov.tasks", ("n", tasks.Count)), 13), Quiet(done > 0 ? T("ov.done_tasks", ("n", done)) : "", 12));
                 heading.Margin = new Thickness(0, 8, 0, 0);
                 return OrgOverviewPart(heading, depth, accent);
             });
-            if (tasks.Count == 0) add("no-tasks:" + card, 26, () => OrgOverviewPart(Quiet(T("ov.no_open_tasks"), 12.5), depth, accent));
+            if (tasks.Count == 0) add("no-tasks:" + id + "|" + look, 26, () => OrgOverviewPart(Quiet(T("ov.no_open_tasks"), 12.5), depth, accent));
             var everything = orgOverviewEverything.Contains(id);
             foreach (var task in everything ? tasks : tasks.Take(OrgOverviewTaskRows))
             {
                 var owner = task.Text("owner").Length > 0 ? Who(task.Text("owner")) : T("ov.unassigned");
-                add("task:" + card + ":" + task.Text("id") + ":" + OrgOverviewHash(task?.ToJsonString(), owner), 28,
+                add("task:" + id + ":" + task.Text("id") + "|" + look + ":" + OrgOverviewHash(task?.ToJsonString(), owner), 28,
                     () => OrgOverviewPart(OrgOverviewTask(task, owner), depth, accent));
             }
             if (!everything && tasks.Count > OrgOverviewTaskRows)
-                add("more-tasks:" + card + ":" + tasks.Count, 34, () => OrgOverviewPart(QuietButton(T("common.more_items", ("n", tasks.Count - OrgOverviewTaskRows)), () => OrgOverviewShowAll(id)), depth, accent));
+                add("more-tasks:" + id + "|" + look + ":" + tasks.Count, 34, () => OrgOverviewPart(QuietButton(T("common.more_items", ("n", tasks.Count - OrgOverviewTaskRows)), () => OrgOverviewShowAll(id)), depth, accent));
             var members = o.Rows("members");
-            add("members:" + card + ":" + members.Count, 34, () =>
+            add("members:" + id + "|" + look + ":" + members.Count, 34, () =>
             {
                 var heading = Heading(T("ov.members", ("n", members.Count)), 13); heading.Margin = new Thickness(0, 8, 0, 0);
                 return OrgOverviewPart(heading, depth, accent);
             });
             foreach (var m in everything ? members : members.Take(OrgOverviewMemberRows))
-                add("member:" + card + ":" + m.Text("name") + ":" + OrgOverviewHash(m?.ToJsonString()), 66 + 22 * m.Rows("automations").Count,
+                add("member:" + id + ":" + m.Text("name") + "|" + look + ":" + OrgOverviewHash(m?.ToJsonString()), 66 + 22 * m.Rows("automations").Count,
                     () => OrgOverviewPart(OrgOverviewMember(m, id), depth, accent));
             if (!everything && members.Count > OrgOverviewMemberRows)
-                add("more-members:" + card + ":" + members.Count, 34, () => OrgOverviewPart(QuietButton(T("common.more_items", ("n", members.Count - OrgOverviewMemberRows)), () => OrgOverviewShowAll(id)), depth, accent));
+                add("more-members:" + id + "|" + look + ":" + members.Count, 34, () => OrgOverviewPart(QuietButton(T("common.more_items", ("n", members.Count - OrgOverviewMemberRows)), () => OrgOverviewShowAll(id)), depth, accent));
         }
-        add("end:" + card, 18, () => OrgOverviewPart(new Border(), depth, accent, bottom: true));
+        add("end:" + id + "|" + look, 18, () => OrgOverviewPart(new Border(), depth, accent, bottom: true));
     }
 
     private Grid OrgOverviewHeader(JsonNode? o, string id, bool open, int working, int openTasks)
@@ -455,14 +471,14 @@ public sealed partial class MainWindow
         add("loose-hint", 26, () => OrgOverviewTop(Quiet(T("ov.loose_hint"), 12.5)));
         if (loose.Count == 0) add("loose-none", 26, () => OrgOverviewTop(Quiet(T("ov.none"), 12.5)));
         foreach (var automation in loose)
-            add("loose:" + automation.Text("id") + ":" + OrgOverviewHash(automation?.ToJsonString()), 34, () => OrgOverviewTop(OrgOverviewAutomation(automation)));
+            add("loose:" + automation.Text("id") + "|" + OrgOverviewHash(automation?.ToJsonString()), 34, () => OrgOverviewTop(OrgOverviewAutomation(automation)));
         var tasks = orgOverviewData.Rows("claude_tasks");
         add("claude", 30, () => { var h = Heading(T("ov.claude_tasks"), 14); h.Margin = new Thickness(0, 6, 0, 0); return h; });
         add("claude-hint", 26, () => OrgOverviewTop(Quiet(T("ov.claude_hint"), 12.5)));
         if (tasks.Count == 0) add("claude-none", 26, () => OrgOverviewTop(Quiet(T("ov.none"), 12.5)));
         foreach (var task in tasks)
         {
-            add("claude:" + task.Text("id") + ":" + OrgOverviewHash(task?.ToJsonString()), 70, () =>
+            add("claude:" + task.Text("id") + "|" + OrgOverviewHash(task?.ToJsonString()), 70, () =>
             {
                 var enabled = task?["enabled"]?.ToString();
                 var parts = new List<string> { task.Text("name") };
