@@ -65,11 +65,11 @@ public sealed partial class MainWindow
             // At the bottom the view keeps its bottom edge where it is, so the last row stays in view while rows above
             // it change height; elsewhere the first visible row keeps its place. Rows not built yet have estimated
             // heights, so arriving at the bottom is not yet the end: the rows there come out shorter or taller, and the
-            // list's height changes under the view. Once it arrives, the view stays pinned to the end until the person
+            // list's height changes under the view. So a move headed for the end pins the view there until the person
             // scrolls away, and when rows have been built and the real last row is not at the bottom, it is brought
             // there again.
-            var pinned = false; var moving = false; var pressed = false; var ours = false; var placing = false;
-            var repairs = 0; var queued = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
+            var pinned = false; var aiming = false; var landed = false; var moving = false; var pressed = false;
+            var ours = false; var placing = false; var repairs = 0; var queued = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
             bool Current() => orgOverviewBody == body && pinned;
             void ToEnd()
             {
@@ -87,18 +87,31 @@ public sealed partial class MainWindow
                 var extent = scroll.ExtentHeight;
                 var bottom = max > 0 && (offset >= max - 2 || (lastMax > 0 && offset >= lastMax - 2)
                     || (offset - lastOffset > screen && max - offset < screen));
-                // Off the end while pinned but not by the person's scrolling: the list's height changed under the view
-                // (rows built or replaced), or a bring to the end has not landed yet. Anything else is the person leaving.
+                // Off the end while pinned, and not by the person: a move headed for the end has not landed there (a
+                // refresh or rows built meanwhile moved it, by up to half the list), a bring to the end has not landed
+                // yet, or the list's height changed under the view near the end. Anything else is the person leaving.
                 var byPerson = moving || pressed;
-                var stay = pinned && !bottom && !byPerson && max - offset < screen && (ours || Math.Abs(extent - lastExtent) > .5);
-                var arriving = bottom && !pinned;
+                var stay = pinned && !bottom && !byPerson
+                    && (aiming || ours || (max - offset < screen && Math.Abs(extent - lastExtent) > .5));
                 lastMax = max; lastOffset = offset; lastExtent = extent; ours = false; moving = false;
                 pinned = bottom || stay;
-                if (bottom || !pinned) repairs = 0;
                 scroll.VerticalAnchorRatio = pinned ? 1 : 0;
-                if (arriving) body.BringLastIntoView(Current);
+                if (bottom)
+                {
+                    aiming = false; repairs = 0;
+                    if (!landed) { landed = true; body.BringLastIntoView(Current); }
+                }
                 else if (stay) ToEnd();
+                else { aiming = landed = false; repairs = 0; }
             }
+            // The target of a move is known before it lands: one headed for the end (a jump, a drag, the wheel) pins
+            // the view at once.
+            scroll.ViewChanging += (_, args) =>
+            {
+                if (scroll.ScrollableHeight <= 0 || args.FinalView.VerticalOffset < scroll.ScrollableHeight - 2) return;
+                aiming = pinned = true;
+                scroll.VerticalAnchorRatio = 1;
+            };
             // Rows are built a few per frame and change the list's height in the next layout pass. When rows were built
             // (raised for every row built anywhere, possibly on a worker) or the list or the window changed size, and no
             // row is waiting any more, look once after that pass whether the view is still at the end.
