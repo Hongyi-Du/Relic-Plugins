@@ -64,10 +64,16 @@ public sealed partial class MainWindow
             // it change height; elsewhere the first visible row keeps its place. The height of rows not built yet is
             // an estimate, so arriving at the bottom brings the real last row into view once (scrolling to the
             // estimated maximum stopped short of it), and the bottom anchor keeps it there.
-            var arrived = false;
+            var arrived = false; double lastMax = 0, lastOffset = 0;
             void Anchor()
             {
-                var bottom = scroll.ScrollableHeight > 0 && scroll.VerticalOffset >= scroll.ScrollableHeight - 2;
+                // Rows built after a long scroll change the list's height before this runs, so the view can be short
+                // of the new maximum: it also arrived when it reached the maximum it was scrolled to, or when a jump of
+                // more than a screen stopped within a screen of the end.
+                var offset = scroll.VerticalOffset; var max = scroll.ScrollableHeight; var screen = scroll.ViewportHeight;
+                var bottom = max > 0 && (offset >= max - 2 || (lastMax > 0 && offset >= lastMax - 2)
+                    || (offset - lastOffset > screen && max - offset < screen));
+                lastMax = max; lastOffset = offset;
                 scroll.VerticalAnchorRatio = bottom ? 1 : 0;
                 if (bottom && !arrived) { arrived = true; body.BringLastIntoView(() => orgOverviewBody == body); }
                 else if (!bottom) arrived = false;
