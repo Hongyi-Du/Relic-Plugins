@@ -61,8 +61,17 @@ public sealed partial class MainWindow
             if (anchored || node is not ScrollViewer scroll) return;
             anchored = true;
             // At the bottom the view keeps its bottom edge where it is, so the last row stays in view while rows above
-            // it change height; elsewhere the first visible row keeps its place.
-            void Anchor() => scroll.VerticalAnchorRatio = scroll.ScrollableHeight > 0 && scroll.VerticalOffset >= scroll.ScrollableHeight - 2 ? 1 : 0;
+            // it change height; elsewhere the first visible row keeps its place. The height of rows not built yet is
+            // an estimate, so arriving at the bottom brings the real last row into view once (scrolling to the
+            // estimated maximum stopped short of it), and the bottom anchor keeps it there.
+            var arrived = false;
+            void Anchor()
+            {
+                var bottom = scroll.ScrollableHeight > 0 && scroll.VerticalOffset >= scroll.ScrollableHeight - 2;
+                scroll.VerticalAnchorRatio = bottom ? 1 : 0;
+                if (bottom && !arrived) { arrived = true; body.BringLastIntoView(() => orgOverviewBody == body); }
+                else if (!bottom) arrived = false;
+            }
             scroll.ViewChanged += (_, args) => { if (!args.IsIntermediate) Anchor(); };
             Anchor();
         };
