@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from app import harness as harnesses  # noqa: E402
 from app import hub as hubs  # noqa: E402
-from relic_core import api  # noqa: E402
+from relic_core import api, codex_trust  # noqa: E402
 from relic_core.store import HUMAN, Store, harness_of  # noqa: E402
 
 FAKE = Path(__file__).resolve().parent / "fake_acp_agent.py"
@@ -123,12 +123,21 @@ class Bringing(Isolated):
     def test_a_codex_with_the_relic_plugin_serves_its_sessions_itself(self):
         self.assertFalse(harnesses.has_hooks("codex"))  # no plugin: the App gives the server and does the hooks' work
         (self.home / "codex").mkdir()
-        (self.home / "codex" / "config.toml").write_text(
-            '[plugins."relic@relic-bridge"]\nenabled = true\n\n'
-            '[hooks.state."relic@relic-bridge:hooks/hooks.json:pre_tool_use:0:0"]\ntrusted_hash = "sha256:x"\n',
-            encoding="utf-8")
+        _, _, keys = codex_trust.declared()
+
+        def approve(content):
+            (self.home / "codex" / "config.toml").write_text(
+                '[plugins."relic@relic-bridge"]\nenabled = true\n\n' + "".join(
+                    '[hooks.state."relic@relic-bridge:%s"]\ntrusted_hash = "sha256:x"\ntrusted_content_hash = "%s"\n\n'
+                    % (key, content) for key in keys), encoding="utf-8")
+            codex_trust._fingerprints.clear()
+        approve(codex_trust.content_hash(codex_trust.PLUGIN))
         self.assertEqual(harnesses.relic_for("codex", self.oid, "ana", "tok"), ([], None))  # one relic_org server
         self.assertTrue(harnesses.has_hooks("codex"))
+        # Approved for another version of the plugin: Codex skips the hooks, so the App does their work itself.
+        approve("sha256:approved-before-an-upgrade")
+        self.assertEqual(harnesses.relic_for("codex", self.oid, "ana", "tok"), ([], None))  # still the plugin's server
+        self.assertFalse(harnesses.has_hooks("codex"))
         (self.home / "codex" / "config.toml").write_text('[plugins."relic@relic-bridge"]\nenabled = false\n', encoding="utf-8")
         self.assertEqual(harnesses.relic_for("codex", self.oid, "ana", "tok")[0][0]["name"], "relic_org")
 

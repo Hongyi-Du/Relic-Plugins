@@ -176,6 +176,19 @@ class SlackTests(unittest.TestCase):
         self.store.set_parent(child, self.oid)
         return child
 
+    def test_organizations_are_listed_in_the_sidebars_order(self):
+        """Latest event first, else the newest created, like app/views.org_list, among roots and among children."""
+        with mock.patch("relic_core.store.now", return_value="2026-11-07T01:00:00Z"):
+            zeta = self.store.create("zeta-session", "Zeta", "later work", "z", "z")["id"]
+        with mock.patch("relic_core.store.now", return_value="2026-11-07T02:00:00Z"):
+            alpha = self.store.create("alpha-session", "Alpha", "newest", "a", "a")["id"]
+        def order():
+            return [r["id"] for r in slack.status(self.store)["orgs"] if r["id"] in (alpha, zeta)]
+        self.assertEqual(order(), [alpha, zeta])  # not by name
+        with mock.patch("relic_core.store.now", return_value="2026-11-07T03:00:00Z"):
+            self.store.send("zeta-session", ["z"], "a note to self")  # an event in Zeta makes it the more recent
+        self.assertEqual(order(), [zeta, alpha])
+
     def test_connect_keeps_the_token_encrypted_and_never_sends_it_back(self):
         with self.assertRaisesRegex(ValueError, "slack.error.bot_token"):
             slack.connect(self.store, "xoxb-123")
@@ -249,6 +262,8 @@ class SlackTests(unittest.TestCase):
         text = self.tool(CHILD, op="search", query="deadline")
         self.assertIn("#general", text)
         self.assertNotIn("group deadline chat", text)
+        order = [r["id"] for r in slack.status(self.store)["orgs"]]
+        self.assertLess(order.index(self.oid), order.index(child))  # a child is listed under its parent
         rows = {r["id"]: r for r in slack.status(self.store)["orgs"]}
         self.assertEqual(rows[child]["source"], self.oid)
         self.assertEqual(rows[child]["depth"], 1)

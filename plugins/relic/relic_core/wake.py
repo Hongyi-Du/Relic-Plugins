@@ -96,7 +96,25 @@ def gap(seat):
     return CHAT_GAP if (seat or {}).get("harness") == "chatgpt" else GAP
 
 
-def prompt(org, member, senders, count, hop=1, main=True, messages=None):
+OLD_MESSAGE = 6 * 3600  # an unread message older than this carries its age in the wake-up prompt
+
+
+def sent_note(at, now=None):
+    """', sent <time>, <n> days ago: ...' for a message older than OLD_MESSAGE, else ''. A seat whose auto-wake was
+    off, or that was stopped, is woken for its whole unread backlog once it is back on, and old instructions may no
+    longer hold (2026-11-07: five seats were woken for a three-day-old message announcing a pause already lifted)."""
+    try:
+        sent = calendar.timegm(time.strptime(at or "", "%Y-%m-%dT%H:%M:%SZ"))
+    except ValueError:
+        return ""
+    age = (time.time() if now is None else now) - sent
+    if age < OLD_MESSAGE:
+        return ""
+    ago = "%d days" % (age // 86400) if age >= 2 * 86400 else "%d hours" % (age // 3600)
+    return ", sent %s, %s ago: check that it still applies" % (at, ago)
+
+
+def prompt(org, member, senders, count, hop=1, main=True, messages=None, now=None):
     """main: whether this is the session's main seat; another seat is worked in with org=<its id>."""
     where = "" if main else (" This is not your main seat: pass org=%s to the Relic tools (inbox, message, work, "
                              "protocol ...) to act here, and follow this organization's protocols while you do its "
@@ -121,7 +139,8 @@ def prompt(org, member, senders, count, hop=1, main=True, messages=None):
             body = message.get("body") or ""
             preview = body[:budget]
             budget -= len(preview)
-            text += "\n[msg %s from %s]\n%s" % (message["id"], message["sender"], preview)
+            text += "\n[msg %s from %s%s]\n%s" % (message["id"], message["sender"],
+                                                  sent_note(message.get("at"), now), preview)
             if len(preview) < len(body):
                 text += "\n(preview: read message %s in full with inbox message_id=%s)" % (message["id"], message["id"])
     return text

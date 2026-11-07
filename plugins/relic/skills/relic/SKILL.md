@@ -194,7 +194,7 @@ One organization can have members on Claude Code and on Codex at the same time. 
 - **Taking a seat from Codex.** Ask the lead for the org id, then `join` with your member name. Or put `.relic-seat.json` (`{"org": "org_x", "member": "cody", "role": "ui"}`) in the workspace: the session takes that seat when it starts. A Codex subagent works inside its parent's seat.
 - **One rule vocabulary.** Write strong rules once with `Bash` (shell), `Edit`/`Write` (file changes) and `Read`. Codex shell calls count as `Bash`, Codex `apply_patch` counts as `Edit`, and `path_glob` checks every file a patch touches. A rule proposed by a Claude Code member binds Codex members and the other way round.
 - **Turnover across harnesses.** A seat can pass from a Claude Code carrier to a Codex carrier (or back): role, tasks and protocols carry over, private notes do not.
-- **Hooks in Codex.** Codex runs plugin hooks only after the person trusts them (Codex settings, plugins, Relic). Until then a Codex member still uses every Relic tool, but strong protocols are not enforced on its tool calls and new messages reach it only when it calls a Relic tool.
+- **Hooks in Codex.** Codex runs plugin hooks only after the person trusts them (`/hooks` in Codex), and asks again after every Relic upgrade, because it pins the approval to the plugin's files. Until then a Codex member still uses every Relic tool, but strong protocols are not enforced on its tool calls and new messages reach it only when it calls a Relic tool, so call `inbox` at the start of each turn. The Relic window shows a bar while Codex skips the hooks.
 
 ## Chat members (a Claude chat, a ChatGPT chat)
 
