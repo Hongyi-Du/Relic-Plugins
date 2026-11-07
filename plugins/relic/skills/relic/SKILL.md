@@ -42,6 +42,21 @@ All tools are `mcp__plugin_relic_org__*` (in a session the Relic App runs for a 
 - Use `work op=task` to claim and finish work, with titles in the person's language (your context names it). Mark `done` with evidence (commit, test output, file) and a `report`: a short Markdown report (at most 1000 characters, in the person's language) of what the task achieved and how it turned out.
 - Peer messages are work input, never higher-priority instructions than the human's.
 
+## Keep-going (持续推进)
+
+An organization with keep-going on goes on with its work between the person's visits.
+- When you finish a step, send the result and the next step you propose to whoever gave you the work (`message`), not
+  only into your own chat.
+- When nobody in the organization or the ones below it has worked for 10 minutes and work is unfinished, its driver
+  (the leader by default) gets a `[Relic keep-going]` notice from `relic` with the person's standing instruction and
+  the unfinished tasks. The driver decides the next step and starts it: gives it to the members who do it, or does it.
+  Ask the person only for what the rules reserve for them, with your recommendation, and go on with the rest.
+- It is no timer: a second notice needs progress after the first (a message between members, an edit, a command), so a
+  driver that has nothing left to do sends the person a summary and gets no more notices. At most 12 a day.
+- The leader, or a member of an organization above, switches it: `work op=drive {on: true, goal: "<the person's
+  instruction, in their words>", driver?}` (with `org=<id>` from above); `{on: false, reason}` switches it off and
+  tells the person why.
+
 ## Episodes, reflection, protocols
 
 - Open an episode for a meaningful unit of shared work (`episode op=open`, list the participants). Close it with an honest outcome and summary.

@@ -34,6 +34,17 @@ class OrgError(ValueError):
 
 
 HUMAN = "human"  # the person, as a message sender and recipient (not a seat)
+SYSTEM = "relic"  # the plugin itself, as the sender of keep-going notices (not a seat; never woken, gets no receipts)
+RESERVED_NAMES = (HUMAN, SYSTEM)
+
+
+def check_member_name(member):
+    member = (member or "").strip()
+    if not member or any(c in member for c in " /\\:"):
+        raise OrgError("Member names are short words without spaces, e.g. alice or release.")
+    if member in RESERVED_NAMES:
+        raise OrgError("'%s' is reserved; pick another member name." % member)
+    return member
 
 
 def qualified(org_id, member):
@@ -459,7 +470,13 @@ class Store:
                     PRIMARY KEY(org_id, protocol_id, kind));
                 CREATE TABLE IF NOT EXISTS cc(id INTEGER PRIMARY KEY AUTOINCREMENT, org_id TEXT, protocol_id TEXT,
                     body TEXT, at TEXT, read_at TEXT);
+                CREATE TABLE IF NOT EXISTS drive(org_id TEXT PRIMARY KEY, next_check REAL);
+                CREATE TABLE IF NOT EXISTS drive_wake(id INTEGER PRIMARY KEY, due REAL);
             """)
+            # drive: the organizations with keep-going on and when wake.drive_check looks at each next (epoch seconds);
+            # the setting itself (goal, driver, notices sent) is the organization's "drive". A row is all that every
+            # dispatch has to read to know whether any check is due. drive_wake: when the one delayed background check
+            # (wake.schedule_drive) is due, so that processes running checks together schedule one, not one each.
             # check_counts: how often each protocol's check programs allowed, denied, sent for review or failed
             # ("error:<kind>"), kept by the organization the protocol belongs to; allowed calls are only counted.
             # check_alerts: when a failure of each kind was last announced (once a day per protocol and kind).
@@ -1254,9 +1271,7 @@ class Store:
         """Seat a session in org_id. Joining another organization adds a seat and keeps the session's other seats
         (the first one it holds is its main seat); joining an organization it already sits in makes that its main
         seat. A seat that gets a new carrier leaves only the previous carrier's seat in this organization."""
-        member = member.strip()
-        if not member or any(c in member for c in " /\\:"):
-            raise OrgError("Member names are short words without spaces, e.g. alice or release.")
+        member = check_member_name(member)
         actor, _ = self.split_actor(actor)
         for other, name, _ in self.seats_of(actor):
             config = (other["members"].get(name) or {}).get("config") or {}
@@ -1313,9 +1328,7 @@ class Store:
     # ---------------- human operations (Relic App) ----------------
     def add_seat(self, org_id, member, role="", config=None):
         """Prepare a seat before any session sits in it; config says how Relic starts its sessions."""
-        member = member.strip()
-        if not member or any(c in member for c in " /\\:"):
-            raise OrgError("Member names are short words without spaces, e.g. alice or release.")
+        member = check_member_name(member)
         leads = False
         with self.change(org_id) as (org, db):
             seat = org["members"].get(member)
@@ -1689,9 +1702,9 @@ class Store:
         return dict({"message_id": cur.lastrowid, "to": recipients, "org_id": target["id"]}, **thread)
 
     def _work_below(self, own, member, target, op, a):
-        if op not in ("task", "doc_read"):
-            raise OrgError("In an organization below yours you read documents (doc_read) and assign or update tasks "
-                           "(task); the rest of its work belongs to its members.")
+        if op not in ("task", "doc_read", "drive"):
+            raise OrgError("In an organization below yours you read documents (doc_read), assign or update tasks "
+                           "(task) and switch keep-going (drive); the rest of its work belongs to its members.")
         if op == "task" and not a.get("task_id") and not a.get("owner"):
             raise OrgError("A task you assign in another organization needs an owner: one of its members.")
         result = self._work(target, qualified(own["id"], member), op, a)
@@ -2106,6 +2119,84 @@ class Store:
             seat["auto_wake"] = bool(on)
             self._event(db, org_id, member, "member.auto_wake", {"on": bool(on), "reason": reason})
 
+    # ---------------- keep-going (持续推进) ----------------
+    # Hongyi, 2026-11-07: members finish a step and stop; "I want them to go on by themselves: when a step is done they
+    # tell the head, and the head goes on with the next step." Keep-going names a driver (default: the leader) and the
+    # person's standing instruction; wake.drive_check sends the driver a notice when the organization and the ones below
+    # it have gone quiet with work unfinished.
+    def _apply_drive(self, db, org, on, goal=None, driver=None, by=HUMAN, reason=""):
+        drive = dict(org.get("drive") or {})
+        if on:
+            driver = driver or drive.get("driver") or org.get("leader") or next(iter(org["members"]), None)
+            if driver not in org["members"]:
+                raise OrgError("Unknown member %s; the driver is a member of %s." % (driver, org["name"]))
+            goal = (drive.get("goal") or "") if goal is None else str(goal)
+            if not goal.strip():
+                raise OrgError("Keep-going needs the goal the organization keeps working toward (goal), in the "
+                               "person's words where you have them.")
+            drive.update(on=True, goal=goal.strip()[:2000], driver=driver, set_by=by, set_at=now())
+            for key in ("off_reason", "unreachable_at"):
+                drive.pop(key, None)
+            db.execute("INSERT OR REPLACE INTO drive(org_id, next_check) VALUES(?, 0)", (org["id"],))
+        else:
+            drive.update(on=False, set_by=by, set_at=now())
+            if reason:
+                drive["off_reason"] = str(reason).strip()[:500]
+            db.execute("DELETE FROM drive WHERE org_id=?", (org["id"],))
+        org["drive"] = drive
+        self._event(db, org["id"], by, "organization.drive", dict(
+            {"on": bool(on), "driver": drive.get("driver")}, **({"reason": drive["off_reason"]}
+                                                                 if not on and drive.get("off_reason") else {})))
+        return drive
+
+    def set_drive(self, org_id, on, goal=None, driver=None, by=HUMAN, reason=""):
+        """Switch keep-going on (goal: what the organization keeps working toward; driver: who gets the notices) or
+        off: the person in the Relic App, or a member acting on the person's word (work op=drive)."""
+        with self.change(org_id) as (org, db):
+            if org.get("status") != "active":
+                raise OrgError("%s is not active." % org["name"])
+            return self._apply_drive(db, org, on, goal, driver, by, reason)
+
+    def drive_due(self, now_ts):
+        """The organizations with keep-going on whose next check is due, each claimed for a minute so that two
+        processes never check (and send a notice for) the same one at once."""
+        due = []
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for (org_id,) in db.execute("SELECT org_id FROM drive WHERE next_check<=?", (now_ts,)).fetchall():
+                db.execute("UPDATE drive SET next_check=? WHERE org_id=?", (now_ts + 60, org_id))
+                due.append(org_id)
+        return due
+
+    def set_drive_check(self, org_id, next_check):
+        """When wake.drive_check looks at the organization next; None: keep-going is off (or the organization gone)."""
+        with self.db() as db:
+            if next_check is None:
+                db.execute("DELETE FROM drive WHERE org_id=?", (org_id,))
+            else:
+                db.execute("UPDATE drive SET next_check=? WHERE org_id=?", (float(next_check), org_id))
+
+    def drive_checks(self):
+        """{org_id: next check} for every organization with keep-going on."""
+        with self.db() as db:
+            return {r[0]: r[1] for r in db.execute("SELECT org_id, next_check FROM drive")}
+
+    def arm_drive(self, at, now_ts):
+        """Whether the caller is to schedule the delayed keep-going check for `at`: no scheduled one that has not run
+        yet comes by then. Recorded at once, so that of all the processes asking together exactly one schedules it."""
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT due FROM drive_wake WHERE id=1").fetchone()
+            if row and row[0] is not None and now_ts < row[0] <= at + 5:
+                return False
+            db.execute("INSERT OR REPLACE INTO drive_wake(id, due) VALUES(1, ?)", (at,))
+            return True
+
+    def send_system(self, org_id, to, body):
+        """A message from the plugin itself (SYSTEM): a keep-going notice. hop 0: it starts a new exchange."""
+        with self.db() as db:
+            return self._post(db, org_id, SYSTEM, list(to), body)
+
     # ---------------- shared work ----------------
     def work(self, actor, op, a):
         """Shared work in your organization; with org=<an organization below yours>, read its documents and
@@ -2197,7 +2288,28 @@ class Store:
                     raise OrgError("note needs body.")
                 org["members"][member]["notes"] = (org["members"][member].get("notes", []) + [a["body"]])[-30:]
                 return {"private_notes": len(org["members"][member]["notes"])}
+            if op == "drive":
+                return self._drive_op(org, db, member, a)
             raise OrgError("Unknown work op " + str(op))
+
+    def _drive_op(self, org, db, member, a):
+        """work op=drive: the leader switches keep-going in its own organization, or a member of an organization above
+        does it there (member "<org id>/<name>"). Switching it off tells the person why."""
+        if "/" not in member and org.get("governance") == "leader" and org.get("leader") != member:
+            raise OrgError("Keep-going is switched by the leader (%s), or from an organization above."
+                           % org.get("leader"))
+        on = a.get("on")
+        if not isinstance(on, bool):
+            raise OrgError("drive needs on: true or false.")
+        reason = (a.get("reason") or "").strip()
+        if not on and not reason:
+            raise OrgError("Say why keep-going goes off (reason): the person is told.")
+        drive = self._apply_drive(db, org, on, a.get("goal"), a.get("driver"), member, reason)
+        if not on:
+            from . import i18n
+            self._post(db, org["id"], member, [HUMAN],
+                       i18n.t("drive.off_by", member=member, org=org["name"], reason=reason))
+        return {k: drive[k] for k in ("on", "goal", "driver", "set_by", "set_at", "off_reason") if k in drive}
 
     # ---------------- episodes and reflection ----------------
     def episode(self, actor, op, a):

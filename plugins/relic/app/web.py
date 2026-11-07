@@ -190,12 +190,18 @@ class App:
 
     def watch(self):
         """Tell the page when an organization changed (any process may write the store)."""
-        last_reap = time.time()
+        last_reap = last_drive = time.time()
         while not self.stopping.wait(1.0):
             if time.time() - last_reap > 60:
                 last_reap = time.time()
                 try:
                     self.hub.reap()
+                except Exception:
+                    pass
+            if time.time() - last_drive > 30:  # keep-going checks that are due, whoever's hooks run or not
+                last_drive = time.time()
+                try:
+                    wake.drive_due(self.store)
                 except Exception:
                     pass
             try:

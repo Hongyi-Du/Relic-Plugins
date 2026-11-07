@@ -77,6 +77,9 @@ class NoConsole(unittest.TestCase):
             self.assertNotIn("--open", launch.call_args.args[0])
             wake.schedule_retry(oid, 10)
             self.assert_hidden(launch)
+            wake.schedule_drive(10)  # the delayed keep-going check
+            self.assert_hidden(launch)
+            self.assertIn("--drive", launch.call_args.args[0])
         with mock.patch.object(runner, "NO_WINDOW", 0x08000000), \
                 mock.patch.object(runner, "find_claude", return_value="fixture-claude"), \
                 mock.patch.object(runner.subprocess, "run", return_value=SimpleNamespace(

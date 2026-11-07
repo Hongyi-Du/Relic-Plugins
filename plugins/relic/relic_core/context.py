@@ -33,6 +33,25 @@ def _rule_text(rule):
     return "%s is blocked%s" % (what, who)
 
 
+def _drive_line(org, member, above):
+    """Keep-going (wake.drive_check) on here or above: what the person wants, and who decides the next step."""
+    for place in [org] + list(above):
+        drive = place.get("drive") or {}
+        if not drive.get("on"):
+            continue
+        from .wake import DRIVE_QUIET
+        mine = place["id"] == org["id"] and drive.get("driver") == member
+        goal = drive.get("goal") or ""
+        goal = goal if len(goal) <= 400 else goal[:400] + "..."
+        return ("Keep-going (持续推进) is on for %s and the organizations below it; the driver is %s. The person wants "
+                "the work to go on without waiting for them: when you finish a step, send the result and the next step "
+                "you propose to whoever gave you the work. When nobody there has worked for %d minutes and work is "
+                "unfinished, %s a keep-going notice to decide the next step and start it. The person's standing "
+                "instruction: %s" % (place["name"], "you" if mine else drive.get("driver"), DRIVE_QUIET // 60,
+                                     "you get" if mine else "the driver gets", goal))
+    return None
+
+
 def render(store, org, member, unread_count=None, full=True):
     seat = org["members"][member]
     lines = ["Relic organization '%s' (%s). You are member '%s'%s." % (
@@ -45,9 +64,13 @@ def render(store, org, member, unread_count=None, full=True):
     lines.append("Governance: %s. Members (harness in parentheses): %s." % (gov, roster))
     lines.append("The person reads %s; write task titles, task reports and anything addressed to the person in that "
                  "language." % language_name())
+    above = store.ancestors(org)
     if org.get("auto_wake", True):
         lines.append("Auto-wake is on: a member you message gets a turn in its own session automatically when that seat "
                      "has a configured session and is idle; others read it at their next tool call.")
+    keep = _drive_line(org, member, above)
+    if keep:
+        lines.append(keep)
     slack_line = _slack_note(store, org)
     if slack_line:
         lines.append(slack_line)
@@ -71,7 +94,6 @@ def render(store, org, member, unread_count=None, full=True):
     seat_office = seat.get("ex_officio")
     if seat_office:
         lines.append("You hold this seat ex officio, as the leader of %s." % _org_name(store, seat_office.get("org")))
-    above = store.ancestors(org)
     if above:
         lines.append("Above this organization: %s. Their members can see it, write to its members, assign its tasks "
                      "and issue protocols that take effect here directly. You report to them with message (org=<id>, "
