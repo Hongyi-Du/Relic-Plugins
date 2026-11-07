@@ -2087,15 +2087,18 @@ class Store:
                 seat[self.WAITING] = (seat.get(self.WAITING) or [])[1:]
         return mid
 
-    def set_auto_wake(self, org_id, on):
-        """Organization-wide switch for automatic wake-ups (on unless the person turns it off in the Relic App)."""
+    def set_auto_wake(self, org_id, on, reason=""):
+        """Organization-wide switch for automatic wake-ups (on unless the person turns it off in the Relic App, or
+        Stop all does; the person's next message after a Stop turns it back on: monitor.back_to_work)."""
         with self.change(org_id) as (org, db):
             org["auto_wake"] = bool(on)
-            self._event(db, org_id, "human", "organization.auto_wake", {"on": bool(on)})
+            self._event(db, org_id, "human", "organization.auto_wake", dict({"on": bool(on)},
+                                                                            **({"reason": reason} if reason else {})))
 
     def set_seat_auto_wake(self, org_id, member, on, reason=""):
         """One seat's switch for automatic wake-ups (wake.wakeable reads it); the person's Stop in the Relic window
-        turns it off for every seat of the stopped session, and Resume turns back on what Stop turned off."""
+        turns it off for every seat of the stopped session, and the person's next message (monitor.back_to_work) or
+        Resume turns back on what Stop turned off."""
         with self.change(org_id) as (org, db):
             seat = org["members"].get(member)
             if seat is None:

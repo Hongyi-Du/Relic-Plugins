@@ -3,7 +3,8 @@
 The same script and the same hooks.json serve both harnesses; Codex speaks the same hook JSON contract
 (session_id, tool_name, tool_input, hookSpecificOutput, permissionDecision, additionalContext,
 decision=block on Stop). One script handles every registered event:
-  SessionStart / UserPromptSubmit / SubagentStart -> inject organization context
+  SessionStart / UserPromptSubmit / SubagentStart -> inject organization context; the person typing to a member's
+                  session after a Stop puts every organization back to work (monitor.back_to_work)
   PreToolUse    -> attach the caller identity to Relic tool calls; enforce strong protocols
   PostToolUse   -> record activity, deliver new peer messages
   Stop / SubagentStop -> one continuation for due reflection or direct messages, or (Stop) for a reply that breaks
@@ -184,13 +185,30 @@ def handle(event, store=None):
 
 
 STOPPED = ("人在 Relic 窗口停止了这个会话。Stopped by the person in the Relic window: end this turn now. Do not call "
-           "any more tools; reply with one short sentence saying where you stopped. The person resumes you by typing "
-           "to this session or with Resume in the Relic window.")
+           "any more tools; reply with one short sentence saying where you stopped. The person's next message (in the "
+           "Relic App, or typed to a member's session) or Resume in the Relic window lets you work again.")
+
+
+def person_typed(event, name, actor, store):
+    """The person typed to this session (a prompt neither Relic nor a timer started). In a member's own session that
+    ends a Stop or Stop all in force: every organization goes back to work (monitor.back_to_work), before this
+    prompt's own wake-ups are dispatched. Costs one file check while nothing is stopped."""
+    if name != "UserPromptSubmit" or monitor.automatic(event.get("prompt")):
+        return
+    try:
+        if not monitor.stopped():
+            return
+        org, member = store.whoami(store.focused(actor))
+        if org:
+            monitor.back_to_work(store, org["id"], "session", [member])
+    except Exception:  # the brake must never break a session's hooks
+        pass
 
 
 def braked(event, name, actor):
     """The person's Stop in the Relic window: refuse every tool call, end automatic turns at once, and never hold a
-    stopped session in its turn. The person typing to the session releases it. Returns the hook output, or None."""
+    stopped session in its turn. The person typing to a session that holds no seat releases its own brake (a
+    member's session has already put everyone back to work: person_typed). Returns the hook output, or None."""
     if name not in ("PreToolUse", "UserPromptSubmit", "Stop", "SubagentStop"):
         return None
     try:
@@ -212,6 +230,7 @@ def braked(event, name, actor):
 def respond(event, store):
     name = event.get("hook_event_name")
     actor = actor_key(event)
+    person_typed(event, name, actor, store)
     stopped = braked(event, name, actor)
     if stopped is not None:
         return stopped

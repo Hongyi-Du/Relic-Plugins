@@ -392,7 +392,9 @@ def overview(store, hub=None, lang=None, now=None):
         claude.append({"id": task["id"], "name": task.get("name") or task["id"], "description": task.get("description", ""),
                        "enabled": task.get("enabled"), "schedule": when, "cwd": task.get("cwd", "")})
     return {
-        "at": now, "scanning": snap["scanning"], "stopped_all": bool(snap.get("stopped_all")),
+        "at": now, "scanning": snap["scanning"],
+        # Stop all in force; after the person's next message only the automations it paused may still wait
+        "stopped_all": bool(snap.get("stopped_all") and not snap["stopped_all"].get("woken")),
         "orgs": out, "automations": loose, "claude_tasks": claude,
         "totals": {"orgs": len(out), "members": sum(org["counts"]["members"] for org in out),
                    "working": len(busy["working"]), "stopped": len(busy["stopped"]),

@@ -6,7 +6,11 @@ Codex plan's rate limits as Codex last reported them. report() turns them into p
 session, by agent (a Relic seat, across the sessions that carried it) or by organization.
 Stop: ends Relic's own runner for the session, makes the Relic hook refuse the session's next tool calls so its turn
 ends, turns off automatic wake-ups for every seat it holds and pauses the Codex automations that would start it again.
-The person typing to that session releases the hook brake; Resume turns back on what Stop turned off.
+Stop all does that for every working session and turns off every organization's wake-ups and every automation.
+The person's next message, in the Relic App or typed into a member's own session, puts every organization back to work
+(back_to_work): the brakes come off and the wake-ups come back on, so the members the person talks to wake the others
+with their messages. Timers do not drive the work: the automations stay paused until Resume all or their own Resume.
+Resume and Resume all turn back on what Stop and Stop all turned off.
 
 Light on disk: usage.sqlite3 keeps only sums; brakes.json holds a few hundred bytes per stopped session; Stop and
 Resume also edit the status line of the Codex automation files they pause or resume.
@@ -32,7 +36,11 @@ RANGES = {"24h": DAY, "7d": 7 * DAY, "30d": 30 * DAY, "90d": 90 * DAY}  # and "t
 GROUPS = ("session", "agent", "org")
 TOP = 30                # series kept by name; the rest are summed into one
 FRESH_FOR = 3           # seconds a scan stays current for the views
-AUTOMATIC = ("[Relic auto-wake]", "[Relic GUI nonce:")
+# Prompts nobody typed: Relic's wake-ups (also behind the App's "[Relic] " notes), its GUI deliveries, and the turns
+# a Codex automation starts ("<heartbeat> <automation_id>...</automation_id> ..."); and, at the start, the App's
+# request to reflect and the introduction of a new seat.
+AUTOMATIC = ("[Relic auto-wake]", "[Relic GUI nonce:", "<automation_id>")
+STARTED_BY_RELIC = ("[Relic] Before you finish, reflect", "You now hold the seat '")
 MEASURED = ("claude-code", "codex")
 claude_root = usage.claude_root
 codex_root = usage.codex_root
@@ -187,13 +195,14 @@ def brake_for(actor):
 
 
 def automatic(prompt):
-    """Whether a submitted prompt was started by Relic rather than typed by the person."""
+    """Whether a submitted prompt was started by Relic or a timer rather than typed by the person."""
     text = str(prompt or "").lstrip()
-    return text.startswith(AUTOMATIC[0]) or AUTOMATIC[1] in text
+    return any(mark in text for mark in AUTOMATIC) or text.startswith(STARTED_BY_RELIC)
 
 
 def release(actor, why="the person typed to the session"):
-    """The person typed to a stopped session: let its tools work again. Its wake-ups stay off until Resume."""
+    """The person typed to a stopped session that holds no Relic seat: let its tools work again. (Typing to a member's
+    own session puts every organization back to work instead: back_to_work.)"""
     brakes = _load_brakes()
     brake = (brakes.get("agents") or {}).get(_base(actor))
     if brake and not brake.get("released_at"):
@@ -293,13 +302,15 @@ def _resume_automations(paused):
 
 def stop_all(store, now=None, cancel_turn=None):
     """Stop every session that is working, turn off automatic wake-ups in every organization and pause every Codex
-    automation. Resume all turns back on exactly what this turned off."""
+    automation. The person's next message turns the wake-ups back on (back_to_work); Resume all turns back on exactly
+    what this turned off, the automations too."""
     snap = snapshot(store, now)
     stopped = [stop(store, agent["key"], "stopped with Stop all in the Relic window", cancel_turn)["key"]
                for agent in snap["agents"] + snap["others"] if agent["working"] and agent["can_stop"]]
     brakes = _load_brakes()
     record = brakes.setdefault("all", {"orgs": [], "paused": {}})
     record["at"] = time.time()
+    record.pop("woken", None)  # in force again, whatever the person's last message turned back on
     for org in store.list_orgs():
         if org.get("status") == "active" and org.get("auto_wake", True):
             store.set_auto_wake(org["id"], False)
@@ -326,6 +337,88 @@ def resume_all(store):
     _resume_automations(record.get("paused") or {})
     _save_brakes(brakes)
     return {"orgs": record.get("orgs") or [], "resumed": list((record.get("paused") or {}))}
+
+
+# ---------------- the person's next message: back to work ----------------
+
+def in_force(brakes):
+    """Whether a Stop or Stop all is still in force: a session's brake (one the person released by typing to it under
+    an older Relic counts while it still records seats it turned off), or Stop all's record before the person wrote."""
+    for brake in (brakes.get("agents") or {}).values():
+        if not brake.get("released_at") or brake.get("wake_off"):
+            return True
+    record = brakes.get("all")
+    return bool(record) and not record.get("woken")
+
+
+def stopped():
+    """in_force for the hook, which asks on every prompt the person types: one file check while nothing is stopped."""
+    return brakes_path().exists() and in_force(_load_brakes())
+
+
+WROTE = {"message": "the person wrote to %s in %s", "forward": "the person forwarded the reply of %s in %s",
+         "session": "the person typed in the session of %s in %s"}
+
+
+def back_to_work(store, org_id, via, members=()):
+    """The person wrote in org_id: a message to members in the Relic App (via "message"), a chat member's reply
+    forwarded there ("forward"), or text typed into a member's own session ("session"). While a Stop or Stop all is in
+    force, every organization goes back to work:
+      * every brake comes off, so stopped sessions can use their tools again;
+      * the seats' wake-ups that Stop turned off come back on, and so does every active organization's switch that is
+        off, Stop all's and the person's own, so the members the person talks to wake the others with messages;
+      * the Codex automations Stop and Stop all paused stay paused: timers never drive the work again on their own.
+        They wait in Stop all's record (marked woken) for Resume all, or for their own Resume.
+    Seats the person switched off themselves stay off. Records organization.wake_resumed in org_id with why and what
+    came back on, and returns it; None (and nothing written) when nothing was stopped."""
+    if not brakes_path().exists():
+        return None
+    brakes = _load_brakes()
+    if not in_force(brakes):
+        return None
+    orgs = {org["id"]: org for org in store.list_orgs()}
+    names = ", ".join(str(m) for m in members) or "the organization"
+    why = WROTE.get(via, WROTE["message"]) % (names, (orgs.get(org_id) or {}).get("name") or org_id)
+    seats, held = [], {}
+    sessions = list(brakes.get("agents") or {})
+    for brake in (brakes.get("agents") or {}).values():
+        for automation_id, before in (brake.get("paused") or {}).items():
+            held.setdefault(automation_id, before)
+        for place, member in brake.get("wake_off") or []:
+            seat = ((orgs.get(place) or {}).get("members") or {}).get(member)
+            if seat is None or seat.get("auto_wake", True) or [place, member] in seats:
+                continue
+            try:
+                store.set_seat_auto_wake(place, member, True, reason=why)
+                seats.append([place, member])
+            except Exception:  # the seat may be gone; resume the rest
+                pass
+    record = brakes.get("all") or {}
+    for automation_id, before in (record.get("paused") or {}).items():
+        held.setdefault(automation_id, before)
+    turned = []
+    for org in orgs.values():
+        if org.get("status") in (None, "active") and not org.get("auto_wake", True):
+            try:
+                store.set_auto_wake(org["id"], True, reason=why)
+                turned.append(org["id"])
+            except Exception:
+                pass
+    paused = {a["id"] for a in codex_automations() if a["status"] == "PAUSED"}
+    held = {key: value for key, value in held.items() if key in paused}  # the person may have resumed some already
+    now = time.time()
+    brakes["agents"] = {}
+    if held:
+        brakes["all"] = {"at": record.get("at") or now, "orgs": [], "paused": held, "woken": {"at": now, "why": why}}
+    else:
+        brakes.pop("all", None)
+    _save_brakes(brakes)
+    done = {"why": why, "via": via, "to": [str(m) for m in members], "orgs": turned, "seats": seats,
+            "sessions": sessions, "still_paused": sorted(held)}
+    if org_id in orgs:
+        with store.db() as db:
+            store._event(db, org_id, "human", "organization.wake_resumed", done)
+    return done
 
 
 # ---------------- the live view the Relic window shows ----------------
@@ -415,12 +508,16 @@ def snapshot(store, now=None, orgs=None):
         totals[kind] = {name: sum(a["tokens"][name]["total"] for a in rows) for name in SPANS}
         totals[kind].update(rate=sum(a["rate"] for a in rows), working=sum(1 for a in rows if a["working"]))
     limits = ledger.limits.get("value")
+    held = brakes.get("all")
+    if held and held.get("woken") and not any(a["status"] == "PAUSED" and a["id"] in (held.get("paused") or {})
+                                              for a in automations):
+        held = None  # the person's message ended the stop, and every automation it paused is running again
     return {"at": now, "agents": agents, "others": others, "totals": totals, "scanning": ledger.scanning,
             "plans": {"codex": dict(limits, observed_at=ledger.limits.get("at")) if limits else None},
             "automations": [{k: v for k, v in a.items() if k != "path"} for a in automations],
             "claude_tasks": claude_tasks(),
             "orgs": [{"id": o["id"], "name": o["name"], "auto_wake": bool(o.get("auto_wake", True))} for o in orgs],
-            "stopped_all": brakes.get("all")}
+            "stopped_all": held}  # what Resume all still turns back on ("woken": the person's message lifted the stop)
 
 
 # ---------------- the statistics: per period and cumulative, by session, agent or organization ----------------

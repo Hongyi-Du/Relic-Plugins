@@ -823,7 +823,7 @@ NOTICE_KINDS = ("organization.created", "member.joined", "member.prepared", "mem
                 "organization.group_created", "organization.closed", "organization.dissolved",
                 "organization.child_closed", "organization.child_dissolved", "member.office_ended", "request.filed",
                 "request.approved", "request.denied", "request.failed", "protocol.copied", "protocol.retired_by_person",
-                "protocol.check_alert")
+                "protocol.check_alert", "organization.wake_resumed")
 # how a check program failed (protocol.check_alert), in the person's words
 CHECK_ERRORS = {"timeout": "view.check.timeout", "raised": "view.check.raised", "load": "view.check.load",
                 "invalid": "view.check.invalid", "crashed": "view.check.crashed",
@@ -946,6 +946,8 @@ def notice_text(org, e, lang=None, store=None):
         return None
     if k == "member.wake_gave_up":
         return i18n.t("view.notice.wake_failed", lang, who=who)
+    if k == "organization.wake_resumed":  # the person's message ended a Stop (monitor.back_to_work)
+        return i18n.t("view.notice.wake_resumed_timers" if b.get("still_paused") else "view.notice.wake_resumed", lang)
     return None
 
 
