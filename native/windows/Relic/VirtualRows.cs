@@ -25,9 +25,22 @@ internal sealed class VirtualRows : Grid
     internal event Action? ItemsReplacing;
     private readonly ItemsRepeater repeater = new() { Layout = new StackLayout(), VerticalCacheLength = .5 };
     internal double Spacing { get => ((StackLayout)repeater.Layout).Spacing; set => ((StackLayout)repeater.Layout).Spacing = value; }
-    // Viewports above and below the visible one that stay realized. A list of a few hundred rows can keep them all:
-    // recycled rows come back at their estimated height, so the list's height kept changing near its end.
+    // Viewports above and below the visible one that stay realized.
     internal double CacheLength { get => repeater.VerticalCacheLength; set => repeater.VerticalCacheLength = value; }
+    // A row that comes back into view, or replaces a row with the same stable key (the part of its key before '|'),
+    // waits for its build at the height that row had when last built, not at its estimate. Recycled rows coming
+    // back at their estimate kept changing the list's height, so its end could not be reached, and a refresh
+    // shrank the rows it replaced until they were built, which moved a view at the bottom up. With it, Reconcile
+    // replaces only the rows whose key changed while the rows keep their stable keys, one row at a time, and
+    // leaves the realized rows around them (and the row the scroll position is anchored to) as they are.
+    // Set it before the list builds rows: only rows built from then on listen for their size.
+    internal bool RememberHeights { get => factory.Heights != null; set => factory.Heights = value ? new(StringComparer.Ordinal) : null; }
+    private static string? StableKey(string? key)
+    {
+        if (key == null) return null;
+        var bar = key.IndexOf('|');
+        return bar >= 0 ? key[..bar] : key;
+    }
     internal int Realized => factory.Realized;
     // Called with a built row just before it leaves the list.
     internal Action<UIElement>? Recycling { get => factory.Recycling; set => factory.Recycling = value; }
@@ -152,6 +165,7 @@ internal sealed class VirtualRows : Grid
             Commit();
             return;
         }
+        if (ReplaceChanged(rows)) return;
         var start = 0;
         while (start < Children.Count && start < rows.Count && Children[start].Key is { } key && key == rows[start].Key) start++;
         var end = 0;
@@ -168,6 +182,22 @@ internal sealed class VirtualRows : Grid
         for (var index = start + removed - 1; index >= start; index--) live.RemoveAt(index);
         for (var index = 0; index < inserted; index++) live.Insert(start + index, rows[start + index]);
         PerformanceTrace.Count(TraceName + ".reconcile", removed + inserted);
+    }
+    // The same rows by stable key: replace each row whose key changed, alone (see RememberHeights).
+    private bool ReplaceChanged(IReadOnlyList<Row> rows)
+    {
+        if (factory.Heights == null || live == null || rows.Count != Children.Count) return false;
+        for (var index = 0; index < rows.Count; index++)
+            if (StableKey(Children[index].Key) is not { } key || key != StableKey(rows[index].Key)) return false;
+        var replaced = 0;
+        for (var index = 0; index < rows.Count; index++)
+        {
+            if (Children[index].Key == rows[index].Key) continue;
+            if (replaced++ == 0) { CancelNativeBring(); pendingBring = null; committed = ++revision; }
+            Children[index] = rows[index]; live[index] = rows[index];
+        }
+        if (replaced > 0) PerformanceTrace.Count(TraceName + ".replace", replaced);
+        return true;
     }
     internal void FollowLastIntoView(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
     {
@@ -642,11 +672,20 @@ internal sealed class VirtualRows : Grid
         internal int Realized { get; private set; }
         internal string TrackKind = "VirtualRow.rows";
         internal Action<UIElement>? Recycling;
+        internal Dictionary<string, double>? Heights;  // stable row key -> its height when last built (RememberHeights)
         public UIElement GetElement(ElementFactoryGetArgs args)
         {
-            var host = empty.Count > 0 ? empty.Pop() : new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
+            Border host;
+            if (empty.Count > 0) host = empty.Pop();
+            else
+            {
+                host = new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
+                // Only a list that remembers heights listens for its rows' sizes; every other list stays as it was.
+                if (Heights != null) host.SizeChanged += RememberHeight;
+            }
             var row = (Row)args.Data;
-            host.Tag = row; host.MinHeight = row.Estimate; Realized++;
+            host.Tag = row; Realized++;
+            host.MinHeight = Heights != null && StableKey(row.Key) is { } stable && Heights.TryGetValue(stable, out var built) ? built : row.Estimate;
             pending.Enqueue((this, host, row)); Interlocked.Increment(ref PendingBuilds);
             if (pumpTimer == null)
             {
@@ -682,6 +721,11 @@ internal sealed class VirtualRows : Grid
                 if (built >= 32 || System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 12) break;
             }
             if (pending.Count == 0) pumpTimer!.Stop();
+        }
+        private void RememberHeight(object sender, SizeChangedEventArgs args)
+        {
+            if (Heights != null && sender is Border { Child: not null, Tag: Row row } && StableKey(row.Key) is { } stable)
+                Heights[stable] = args.NewSize.Height;
         }
         internal void BuildNow(Border host)
         {

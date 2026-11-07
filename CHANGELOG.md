@@ -120,6 +120,11 @@
   exact and its end can be reached; its organizations follow the sidebar's order (latest activity first). The
   toolbar no longer cuts the top of its commands and count badges: the CommandBar's clip had moved down by its
   stock 48 px compact height minus the 39 px toolbar.
+- The overview builds only the rows around the view again (a full UI Automation read had held the UI thread for
+  about half a second with every row realized) and still reaches its end: the list remembers each row's built
+  height, so rows coming back into view or replaced by a refresh keep their height while they are built. A
+  refresh replaces only the rows whose content changed; at the bottom the view keeps its bottom edge, elsewhere
+  the first visible row keeps its place.
 
 自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
 没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。
