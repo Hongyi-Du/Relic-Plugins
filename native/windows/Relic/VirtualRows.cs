@@ -24,7 +24,11 @@ internal sealed class VirtualRows : Grid
     // exist here. Consumers must not mutate rows or force layout from this event.
     internal event Action? ItemsReplacing;
     private readonly ItemsRepeater repeater = new() { Layout = new StackLayout(), VerticalCacheLength = .5 };
-    internal double Spacing { get => ((StackLayout)repeater.Layout).Spacing; set => ((StackLayout)repeater.Layout).Spacing = value; }
+    internal double Spacing
+    {
+        get => repeater.Layout is KnownStack known ? known.Spacing : ((StackLayout)repeater.Layout).Spacing;
+        set { if (repeater.Layout is KnownStack known) known.Spacing = value; else ((StackLayout)repeater.Layout).Spacing = value; }
+    }
     // Viewports above and below the visible one that stay realized.
     internal double CacheLength { get => repeater.VerticalCacheLength; set => repeater.VerticalCacheLength = value; }
     // A row that comes back into view, or replaces a row with the same stable key (the part of its key before '|'),
@@ -35,6 +39,31 @@ internal sealed class VirtualRows : Grid
     // leaves the realized rows around them (and the row the scroll position is anchored to) as they are.
     // Set it before the list builds rows: only rows built from then on listen for their size.
     internal bool RememberHeights { get => factory.Heights != null; set => factory.Heights = value ? new(StringComparer.Ordinal) : null; }
+    // Opt-in for a list whose end must stay put (with RememberHeights): rows are laid out at their known heights
+    // (KnownStack) instead of by StackLayout, which sizes the rows it has not realized from the average of those it
+    // has, so the list's height, and its end, moved whenever a row entered or left the realized range: a single jump
+    // to the end of the overview stopped 50-160 px short, and scrolling there again could not settle.
+    internal bool KnownHeights
+    {
+        get => repeater.Layout is KnownStack;
+        set
+        {
+            if (value == KnownHeights) return;
+            var spacing = Spacing;
+            repeater.Layout = value ? new KnownStack(this) { Spacing = spacing } : new StackLayout { Spacing = spacing };
+        }
+    }
+    private IReadOnlyList<Row> shown = Array.Empty<Row>();  // what the repeater shows (KnownStack reads its rows)
+    // From this list's measure or arrange until that layout pass ends: whatever changes a scroll view's position
+    // meanwhile is layout (anchoring, clamping to a new end), not a request.
+    internal bool InLayout { get; private set; }
+    // A row's known height: its height when last built (RememberHeights), else its estimate.
+    private double KnownHeight(int index)
+    {
+        if (index >= shown.Count) return 40;
+        var row = shown[index];
+        return factory.Heights is { } heights && StableKey(row.Key) is { } stable && heights.TryGetValue(stable, out var built) ? built : row.Estimate;
+    }
     private static string? StableKey(string? key)
     {
         if (key == null) return null;
@@ -116,6 +145,7 @@ internal sealed class VirtualRows : Grid
         repeater.ItemTemplate = factory;
         base.Children.Add(repeater);
         Unloaded += (_, _) => StopFollowingLast();
+        LayoutUpdated += (_, _) => InLayout = false;
     }
     internal void Commit()
     {
@@ -138,7 +168,9 @@ internal sealed class VirtualRows : Grid
         }
         ItemsReplacing?.Invoke();
         live = InPlace ? new System.Collections.ObjectModel.ObservableCollection<Row>(Children) : null;
-        repeater.ItemsSource = live != null ? live : (object)Children.ToArray();
+        IReadOnlyList<Row> items = live != null ? live : Children.ToArray();
+        shown = items;
+        repeater.ItemsSource = items;
         hasSuggestedAnchor = false;
         if (reading != null)
         {
@@ -648,6 +680,7 @@ internal sealed class VirtualRows : Grid
     }
     protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
     {
+        InLayout = true;
         using var timing = PerformanceTrace.Measure(TraceName + ".measure");
         var result = base.MeasureOverride(availableSize);
         PerformanceTrace.Count(TraceName + ".realized", Realized);
@@ -655,6 +688,7 @@ internal sealed class VirtualRows : Grid
     }
     protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
     {
+        InLayout = true;
         using var timing = PerformanceTrace.Measure(TraceName + ".arrange");
         var result = base.ArrangeOverride(finalSize);
         arrangeRevision++;
@@ -662,6 +696,121 @@ internal sealed class VirtualRows : Grid
         QueueReadingCheck();
         QueueFollowCheck();
         return result;
+    }
+    // KnownHeights' layout: rows top to bottom, a realized row at its measured height and any other row at its known
+    // height, so the list's height does not depend on which rows are realized. Realizes the rows in the repeater's
+    // realization rect (the view and CacheLength screens around it), and a row asked for outside it (the repeater's
+    // recommended anchor, from GetOrCreateElement) as well.
+    private sealed class KnownStack : VirtualizingLayout
+    {
+        private readonly VirtualRows owner;
+        private double[] tops = Array.Empty<double>(), heights = Array.Empty<double>();
+        private int first = -1, last = -1, extra = -1;  // the realized rows, and one asked for outside them
+        internal double Spacing;
+        internal KnownStack(VirtualRows owner) { this.owner = owner; }
+        private double Place(int count)
+        {
+            var y = 0d;
+            for (var index = 0; index < count; index++) { tops[index] = y; y += heights[index] + (index < count - 1 ? Spacing : 0); }
+            return y;
+        }
+        // The first row whose bottom is below y.
+        private int FirstEndingAfter(double y, int count)
+        {
+            int low = 0, high = count - 1, found = count;
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+                if (tops[middle] + heights[middle] > y) { found = middle; high = middle - 1; } else low = middle + 1;
+            }
+            return found;
+        }
+        // The last row whose top is above y.
+        private int LastStartingBefore(double y, int count)
+        {
+            int low = 0, high = count - 1, found = -1;
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+                if (tops[middle] < y) { found = middle; low = middle + 1; } else high = middle - 1;
+            }
+            return found;
+        }
+        protected override Windows.Foundation.Size MeasureOverride(VirtualizingLayoutContext context, Windows.Foundation.Size availableSize)
+        {
+            var count = context.ItemCount;
+            if (heights.Length != count) { heights = new double[count]; tops = new double[count]; }
+            for (var index = 0; index < count; index++) heights[index] = owner.KnownHeight(index);
+            Place(count);
+            var rect = context.RealizationRect;
+            var from = FirstEndingAfter(rect.Y, count); var to = LastStartingBefore(rect.Y + rect.Height, count);
+            if (from > to) { from = 0; to = -1; }
+            var anchor = context.RecommendedAnchorIndex;
+            var wanted = anchor >= 0 && anchor < count && (anchor < from || anchor > to) ? anchor : -1;
+            for (var index = first; index >= 0 && index <= last && index < count; index++)
+                if ((index < from || index > to) && index != wanted) context.RecycleElement(context.GetOrCreateElementAt(index));
+            if (extra >= 0 && extra < count && extra != wanted && (extra < from || extra > to)) context.RecycleElement(context.GetOrCreateElementAt(extra));
+            var width = availableSize.Width; var widest = 0d;
+            var size = new Windows.Foundation.Size(width, double.PositiveInfinity);
+            for (var index = from; index <= to; index++)
+            {
+                var element = context.GetOrCreateElementAt(index);
+                element.Measure(size);
+                heights[index] = element.DesiredSize.Height;
+                widest = Math.Max(widest, element.DesiredSize.Width);
+            }
+            if (wanted >= 0)
+            {
+                var element = context.GetOrCreateElementAt(wanted);
+                element.Measure(size);
+                heights[wanted] = element.DesiredSize.Height;
+            }
+            first = from <= to ? from : -1; last = from <= to ? to : -1; extra = wanted;
+            var extent = Place(count);
+            return new Windows.Foundation.Size(double.IsInfinity(width) ? widest : width, extent);
+        }
+        protected override Windows.Foundation.Size ArrangeOverride(VirtualizingLayoutContext context, Windows.Foundation.Size finalSize)
+        {
+            for (var index = first; index >= 0 && index <= last && index < context.ItemCount && index < tops.Length; index++)
+                context.GetOrCreateElementAt(index).Arrange(new Windows.Foundation.Rect(0, tops[index], finalSize.Width, heights[index]));
+            if (extra >= 0 && extra < context.ItemCount && extra < tops.Length)
+                context.GetOrCreateElementAt(extra).Arrange(new Windows.Foundation.Rect(0, tops[extra], finalSize.Width, heights[extra]));
+            return finalSize;
+        }
+        // The repeater has already cleared the elements of removed or replaced rows and given the others their new
+        // indices; keep the realized range on the same rows.
+        protected override void OnItemsChangedCore(VirtualizingLayoutContext context, object source, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+        {
+            if (extra >= 0)
+            {
+                if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                { if (args.NewStartingIndex <= extra) extra += args.NewItems?.Count ?? 0; }
+                else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+                {
+                    var gone = args.OldStartingIndex; var count = args.OldItems?.Count ?? 0;
+                    extra = extra < gone ? extra : extra >= gone + count ? extra - count : -1;
+                }
+                else if (args.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace) extra = -1;
+            }
+            if (first >= 0)
+            {
+                if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                {
+                    var added = args.NewItems?.Count ?? 0;
+                    if (args.NewStartingIndex <= first) { first += added; last += added; }
+                    else if (args.NewStartingIndex <= last) last += added;
+                }
+                else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+                {
+                    var at = args.OldStartingIndex; var removed = args.OldItems?.Count ?? 0;
+                    first = first < at ? first : first >= at + removed ? first - removed : at;
+                    last = last < at ? last : last >= at + removed ? last - removed : at - 1;
+                    if (last < first) first = last = -1;
+                }
+                else if (args.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace) first = last = -1;
+            }
+            InvalidateMeasure();
+        }
     }
     private sealed class RowFactory : IElementFactory
     {
