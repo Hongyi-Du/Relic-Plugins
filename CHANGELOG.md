@@ -2,6 +2,36 @@
 
 ## Unreleased / 未发布
 
+- Relic now says when Codex skips its hooks. Codex ties its approval of a plugin's hooks to a fingerprint of the
+  plugin's whole folder, so after every Relic upgrade it skips them, silently, until the person approves them again
+  with `/hooks`. Meanwhile Codex members get no messages between their own Relic calls, strict protocols are not
+  enforced on their tool calls, and their activity is not recorded.
+  - Relic computes Codex's fingerprint the way Codex does and compares it with the approvals in `~/.codex/config.toml`.
+    On this machine it reproduced the stored approval exactly.
+  - When they differ, the Relic App shows a bar at the top of the window, `scripts/install.py` prints it, and a Codex
+    session is told at start to call inbox each turn and to ask the person once to run `/hooks`.
+  - Members the Relic App runs on Codex get the hooks' work from the App while Codex skips the hooks. Before, an
+    outdated approval counted as trusted, and they got neither.
+  - Relic never approves hooks itself and does not move code out of the fingerprinted folder to keep an old approval:
+    the approval is the person's safeguard.
+  - Relic 现在会在 Codex 跳过它的钩子时提醒。Codex 对插件钩子的信任绑定在整个插件文件夹的指纹上，所以 Relic 每次
+    升级后，Codex 都会悄悄跳过这些钩子，直到人用 `/hooks` 重新信任。在这之前，Codex 成员在两次调用 Relic 之间收不到
+    消息，严格协议对它们的工具调用不生效，它们的活动也不会被记录。
+    - Relic 按 Codex 的算法计算指纹，并和 `~/.codex/config.toml` 里的信任记录比对；在本机上和 Codex 存的值完全一致。
+    - 对不上时，Relic App 窗口顶部显示提示条，`scripts/install.py` 也会打印提示。Codex 会话在启动时会被告知：每轮先查
+      收件箱，并请人运行一次 `/hooks`。
+    - Codex 跳过钩子期间，由 Relic App 运行的 Codex 成员改由 App 代做钩子的工作。以前过期的信任也被当成有效，这些
+      成员两边都得不到。
+    - Relic 从不替人信任钩子，也不会为了保住旧的信任把代码挪出被计算指纹的文件夹：这份信任是人的安全把关。
+- A member woken for an old unread message is told how old it is. After auto-wake was off, or a Stop, a seat is woken
+  for its whole unread backlog, and a message older than six hours now reads "sent <time>, N days ago: check that it
+  still applies" in the wake-up prompt. On 2026-11-07 five seats were woken for a three-day-old message announcing a
+  pause that the person had already lifted.
+  - 成员因为一条旧的未读消息被叫醒时，会被告知这条消息有多旧。自动唤醒关过、或者停止过之后，席位会因为全部积压的
+    未读消息被叫醒。超过 6 小时的消息，在唤醒提示里会写明「发于某时，已过 N 天，先确认还适用」。2026-11-07 曾有 5
+    个席位被一条三天前的消息叫醒，那条消息宣布的暂停早已被人解除。
+- The Slack settings page lists organizations in the sidebar's order (the latest activity first) instead of by name.
+  - Slack 设置页里的组织顺序改成和侧栏一致（最近有动静的在前），不再按名称排。
 - After Stop or Stop all, the person's next message puts the organizations back to work. The message can be sent in
   the Relic App (private chat, group chat, a forwarded reply) or typed into any member's own session.
   - Every brake comes off. Auto-wake comes back on for the seats Stop turned off and for every active organization,

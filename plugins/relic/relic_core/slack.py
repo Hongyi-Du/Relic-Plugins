@@ -770,8 +770,15 @@ def reads(limit=50):
 # ---------------- the Relic App's settings ----------------
 
 def _org_rows(store, config):
+    """The organizations as a tree in the sidebar's order (app/views.org_list): the latest event first, else the
+    newest created, among roots and among each organization's children."""
     orgs = [o for o in store.list_orgs() if o.get("status", "active") == "active"]
     by_id = {o["id"]: o for o in orgs}
+    with store.db() as db:
+        last = dict(db.execute("SELECT org_id, MAX(at) FROM events GROUP BY org_id").fetchall())
+
+    def recent(org):
+        return last.get(org["id"]) or org.get("created_at") or ""
     children, roots = {}, []
     for o in orgs:
         (children.setdefault(o["parent"], []) if o.get("parent") in by_id else roots).append(o)
@@ -783,9 +790,9 @@ def _org_rows(store, config):
         rows.append({"id": org["id"], "name": org["name"], "depth": depth, "own": _entry(own.get(org["id"])),
                      "effective": {k: v for k, v in effective.items() if k != "source"}, "source": source,
                      "source_name": by_id[source]["name"] if source in by_id else ""})
-        for child in sorted(children.get(org["id"], []), key=lambda o: o["name"].lower()):
+        for child in sorted(children.get(org["id"], []), key=recent, reverse=True):
             walk(child, depth + 1)
-    for org in sorted(roots, key=lambda o: o["name"].lower()):
+    for org in sorted(roots, key=recent, reverse=True):
         walk(org, 0)
     return rows
 

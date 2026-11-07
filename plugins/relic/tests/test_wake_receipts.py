@@ -1,4 +1,5 @@
 """Trigger-bound wake delivery and receipts; no real sessions, processes or App server."""
+import calendar
 import importlib.util
 import os
 from pathlib import Path
@@ -81,6 +82,21 @@ class WakeReceipts(unittest.TestCase):
         self.assertIn("inbox message_id=%d" % mid, text)
         self.assertLess(len(text), 9500)
         self.assertEqual(self.store.unread("worker-session", mark=False)[0]["body"], "x" * 10000)
+
+    def test_preview_labels_an_old_message_with_its_age(self):
+        with mock.patch("relic_core.store.now", return_value="2026-11-03T00:49:18Z"):
+            old = self.send("lead-session", ["worker"], "Pause all work")
+        with mock.patch("relic_core.store.now", return_value="2026-11-07T04:50:00Z"):
+            new = self.send("lead-session", ["worker"], "Back to work")
+        messages = self.store.unread_by_member(self.org)["worker"]
+        later = calendar.timegm((2026, 11, 7, 4, 53, 54, 0, 0, 0))
+        text = wake.prompt(self.store.get(self.org), "worker", ["lead"], 2, messages=messages, now=later)
+        self.assertIn("[msg %d from lead, sent 2026-11-03T00:49:18Z, 4 days ago: check that it still applies]\n"
+                      "Pause all work" % old, text)
+        self.assertIn("[msg %d from lead]\nBack to work" % new, text)  # recent messages read as before
+        self.assertEqual(wake.sent_note("2026-11-06T20:00:00Z", later), ", sent 2026-11-06T20:00:00Z, 8 hours ago: "
+                                                                       "check that it still applies")
+        self.assertEqual(wake.sent_note("not a time", later), "")
 
     def test_redirect_quotes_only_new_replies_in_trigger_thread_on_both_routes(self):
         # Freeze time: an earlier reply in the same second must still be excluded by its id.
