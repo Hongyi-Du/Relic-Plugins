@@ -70,7 +70,7 @@ public sealed partial class MainWindow
             // waiting to be built, a view that is no longer at the end is scrolled there again, as a second jump by the
             // person would.
             var pinned = false; var aiming = false; var pressed = false; var ours = false;
-            var repairs = 0; var queued = 0; long stepAt = 0, repairedAt = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
+            var repairs = 0; var queued = 0; long stepAt = 0, repairedAt = 0, aimedAt = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
             var retry = body.DispatcherQueue.CreateTimer();
             retry.Interval = TimeSpan.FromMilliseconds(260); retry.IsRepeating = false;
             bool Current() => orgOverviewBody == body && pinned;
@@ -95,16 +95,20 @@ public sealed partial class MainWindow
                 // more than a screen stopped within a screen of the end.
                 var offset = scroll.VerticalOffset; var max = scroll.ScrollableHeight; var screen = scroll.ViewportHeight;
                 var extent = scroll.ExtentHeight;
-                var bottom = max > 0 && (offset >= max - 2 || (lastMax > 0 && offset >= lastMax - 2)
-                    || (offset - lastOffset > screen && max - offset < screen));
+                var exact = max > 0 && offset >= max - 2;
+                var bottom = exact || (max > 0 && ((lastMax > 0 && offset >= lastMax - 2)
+                    || (offset - lastOffset > screen && max - offset < screen)));
+                // A move headed for the end aims there until the view is exactly at the end (for at most 3 s): the small
+                // correction that ends a jump comes while its own animation is still reporting, and is not the person.
+                if (aiming && Environment.TickCount64 - aimedAt > 3000) aiming = false;
                 // Off the end while pinned, and not by the person: a move headed for the end has not landed there, a
                 // scroll to the end has not landed yet, or the list's height changed under the view near the end.
                 // Anything else is the person leaving.
-                var stay = pinned && !bottom && !Moving()
-                    && (aiming || ours || (max - offset < screen && Math.Abs(extent - lastExtent) > .5));
+                var stay = pinned && !bottom && !pressed
+                    && (aiming || (!Moving() && (ours || (max - offset < screen && Math.Abs(extent - lastExtent) > .5))));
                 lastMax = max; lastOffset = offset; lastExtent = extent; ours = false;
                 pinned = bottom || stay;
-                if (!stay) aiming = false;
+                if (exact || !pinned) aiming = false;
                 scroll.VerticalAnchorRatio = pinned ? 1 : 0;
                 if (pinned) ToEnd();
             }
@@ -112,7 +116,9 @@ public sealed partial class MainWindow
             // the view at once.
             scroll.ViewChanging += (_, args) =>
             {
-                if (scroll.ScrollableHeight > 0 && args.FinalView.VerticalOffset >= scroll.ScrollableHeight - 2) aiming = pinned = true;
+                var max = scroll.ScrollableHeight; var target = args.FinalView.VerticalOffset;
+                if (max > 0 && target >= max - 2) { if (!aiming) aimedAt = Environment.TickCount64; aiming = pinned = true; }
+                else if (max - target >= scroll.ViewportHeight) aiming = false;  // headed a screen or more away from the end
             };
             // When rows were built (raised for every row built anywhere, possibly on a worker), the list or the window
             // changed size, or the person let go: look once, at low priority, after the layout that places the built
