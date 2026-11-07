@@ -69,7 +69,7 @@ public sealed partial class MainWindow
             // end pins the view there until the person scrolls away: whenever the list's height has changed and no row is
             // waiting to be built, a view that is no longer at the end is scrolled there again, as a second jump by the
             // person would.
-            var pinned = false; var aiming = false; var pressed = false; var ours = false; var placing = false;
+            var pinned = false; var aiming = false; var pressed = false; var ours = false;
             var repairs = 0; var queued = 0; long stepAt = 0, repairedAt = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
             var retry = body.DispatcherQueue.CreateTimer();
             retry.Interval = TimeSpan.FromMilliseconds(260); retry.IsRepeating = false;
@@ -115,19 +115,14 @@ public sealed partial class MainWindow
                 if (scroll.ScrollableHeight > 0 && args.FinalView.VerticalOffset >= scroll.ScrollableHeight - 2) aiming = pinned = true;
             };
             // When rows were built (raised for every row built anywhere, possibly on a worker), the list or the window
-            // changed size, or the person let go, and no row is waiting any more: look once after the next layout pass,
-            // which places the built rows.
+            // changed size, or the person let go: look once, at low priority, after the layout that places the built
+            // rows. (Waiting for the next LayoutUpdated instead left the view 10 DIP short: once the list is still, no
+            // further layout pass comes.)
             look = () =>
             {
                 if (Interlocked.Exchange(ref queued, 1) != 0) return;
-                if (!body.DispatcherQueue.TryEnqueue(() =>
-                {
+                if (!body.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => { queued = 0; ToEnd(); }))
                     queued = 0;
-                    if (placing || !Current() || VirtualRows.PendingBuilds > 0) return;
-                    placing = true;
-                    void Placed(object? sender, object args) { scroll.LayoutUpdated -= Placed; placing = false; ToEnd(); }
-                    scroll.LayoutUpdated += Placed;
-                })) queued = 0;
             };
             retry.Tick += (_, _) => look?.Invoke();
             PresentationPreparation.Completed += look;
