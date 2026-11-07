@@ -2,6 +2,22 @@
 
 ## Unreleased / 未发布
 
+- Windows: the window's own state now lives with Relic's data, in `RELIC_HOME\native`
+  (`%USERPROFILE%\.relic\native` by default). That covers the open chat, read marks, folds and drafts
+  (`native-ui.json`), and the size and position (`window.json`).
+  - It used to be in `%LOCALAPPDATA%\Relic`. Windows redirects that folder for a program started from a packaged
+    app (the Claude desktop app and every agent session it runs), so a person had one state when an agent opened
+    Relic and another, empty one when they opened it from the desktop: every chat looked unread, and the window and
+    folds were reset.
+  - The first start copies the most recently written earlier state from either place and leaves the old files
+    where they were.
+  - Windows：窗口自己的状态改为和 Relic 的数据放在一起，位置是 `RELIC_HOME\native`（默认
+    `%USERPROFILE%\.relic\native`）。包括打开的聊天、已读、折叠和草稿（`native-ui.json`），以及窗口大小和位置
+    （`window.json`）。
+    - 以前放在 `%LOCALAPPDATA%\Relic`。从打包应用（Claude 桌面版及其中运行的所有代理会话）里启动的程序，
+      Windows 会把这个目录重定向到该应用包自己的文件夹。所以代理打开的 Relic 是一套状态，人从桌面打开的又是另一套
+      空的：所有聊天都像没读过，窗口和折叠也被重置。
+    - 第一次启动时，会从两处里拷来最近写过的那份旧状态，旧文件原地保留。
 - Relic now says when Codex skips its hooks. Codex ties its approval of a plugin's hooks to a fingerprint of the
   plugin's whole folder, so after every Relic upgrade it skips them, silently, until the person approves them again
   with `/hooks`. Meanwhile Codex members get no messages between their own Relic calls, strict protocols are not
