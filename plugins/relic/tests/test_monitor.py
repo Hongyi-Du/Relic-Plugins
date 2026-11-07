@@ -371,6 +371,13 @@ class StopAndResume(Base):
         self.assertFalse(self.store.get(self.cabinet)["auto_wake"])
         self.assertIn('status = "ACTIVE"', path.read_text(encoding="utf-8"))
         self.assertEqual(monitor._load_brakes(), {"agents": {}})
+        # each organization switch says why it moved, like the seats' switches and the person's resume
+        with self.store.db() as db:
+            switches = [json.loads(body) for (body,) in db.execute(
+                "SELECT body FROM events WHERE org_id=? AND kind='organization.auto_wake' ORDER BY seq", (self.org,))]
+        self.assertEqual([(s["on"], s.get("reason")) for s in switches],
+                         [(False, "stopped with Stop all in the Relic window"),
+                          (True, "resumed with Resume all in the Relic window")])
 
     def test_nothing_is_written_until_someone_is_stopped(self):
         self.transcript(lines=[claude_usage("m1", self.now - 10)])

@@ -313,7 +313,7 @@ def stop_all(store, now=None, cancel_turn=None):
     record.pop("woken", None)  # in force again, whatever the person's last message turned back on
     for org in store.list_orgs():
         if org.get("status") == "active" and org.get("auto_wake", True):
-            store.set_auto_wake(org["id"], False)
+            store.set_auto_wake(org["id"], False, reason="stopped with Stop all in the Relic window")
             record["orgs"].append(org["id"])
     for automation in codex_automations():
         if automation["status"] != "PAUSED":
@@ -331,7 +331,7 @@ def resume_all(store):
     record = brakes.pop("all", None) or {}
     for org_id in record.get("orgs") or []:
         try:
-            store.set_auto_wake(org_id, True)
+            store.set_auto_wake(org_id, True, reason="resumed with Resume all in the Relic window")
         except Exception:
             pass
     _resume_automations(record.get("paused") or {})
