@@ -68,12 +68,12 @@ public sealed partial class MainWindow
             // first time come out taller or shorter than estimated, and a refresh can change a row's height, so a view
             // that arrives at the end (or a move headed there) stays pinned to the end until the person moves away:
             // the wheel or keys moving up, an animated move upward, a drag or pan that ends off the end, or a requested
-            // move headed a screen or more away, or upward at all unless a row was built or a size changed within
-            // 500 ms (the correction that follows comes before the size change is reported, and is not the person).
+            // move headed upward or a screen or more away, made outside a layout pass of the list (what moves the view
+            // during one, anchoring or clamping to a new end, is not the person).
             // Whenever it is pinned but off the end and no row is waiting to be built, it is scrolled to the end again,
             // as a second jump by the person would.
             var pinned = false; var pressed = false; var dragged = false;
-            var repairs = 0; var queued = 0; long stepAt = 0, repairedAt = 0, layoutAt = 0; double lastMax = 0, lastOffset = 0, seen = 0;
+            var repairs = 0; var queued = 0; long stepAt = 0, repairedAt = 0; double lastMax = 0, lastOffset = 0, seen = 0;
             var retry = body.DispatcherQueue.CreateTimer();
             retry.Interval = TimeSpan.FromMilliseconds(260); retry.IsRepeating = false;
             bool Current() => orgOverviewBody == body && pinned;
@@ -115,8 +115,7 @@ public sealed partial class MainWindow
             {
                 var max = scroll.ScrollableHeight; var target = args.FinalView.VerticalOffset;
                 if (max > 0 && target >= max - 2) { if (!pinned) Pin(true); return; }
-                if (pinned && (max - target >= scroll.ViewportHeight
-                    || (target < scroll.VerticalOffset - 2 && Environment.TickCount64 - layoutAt > 500))) Pin(false);
+                if (pinned && !body.InLayout && (max - target >= scroll.ViewportHeight || target < scroll.VerticalOffset - 2)) Pin(false);
             };
             // When rows were built (raised for every row built anywhere, possibly on a worker), the list or the window
             // changed size, or the person let go: look once, at low priority, after the layout that places the built
@@ -124,7 +123,6 @@ public sealed partial class MainWindow
             // further layout pass comes.)
             look = () =>
             {
-                layoutAt = Environment.TickCount64;
                 if (Interlocked.Exchange(ref queued, 1) != 0) return;
                 if (!body.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => { queued = 0; ToEnd(); }))
                     queued = 0;

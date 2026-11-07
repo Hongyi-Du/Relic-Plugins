@@ -54,6 +54,9 @@ internal sealed class VirtualRows : Grid
         }
     }
     private IReadOnlyList<Row> shown = Array.Empty<Row>();  // what the repeater shows (KnownStack reads its rows)
+    // From this list's measure or arrange until that layout pass ends: whatever changes a scroll view's position
+    // meanwhile is layout (anchoring, clamping to a new end), not a request.
+    internal bool InLayout { get; private set; }
     // A row's known height: its height when last built (RememberHeights), else its estimate.
     private double KnownHeight(int index)
     {
@@ -142,6 +145,7 @@ internal sealed class VirtualRows : Grid
         repeater.ItemTemplate = factory;
         base.Children.Add(repeater);
         Unloaded += (_, _) => StopFollowingLast();
+        LayoutUpdated += (_, _) => InLayout = false;
     }
     internal void Commit()
     {
@@ -676,6 +680,7 @@ internal sealed class VirtualRows : Grid
     }
     protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
     {
+        InLayout = true;
         using var timing = PerformanceTrace.Measure(TraceName + ".measure");
         var result = base.MeasureOverride(availableSize);
         PerformanceTrace.Count(TraceName + ".realized", Realized);
@@ -683,6 +688,7 @@ internal sealed class VirtualRows : Grid
     }
     protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
     {
+        InLayout = true;
         using var timing = PerformanceTrace.Measure(TraceName + ".arrange");
         var result = base.ArrangeOverride(finalSize);
         arrangeRevision++;
