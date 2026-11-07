@@ -71,6 +71,21 @@ public sealed partial class MainWindow
             // row into view did not move it the last 80-160 px.)
             var pinned = false; var aiming = false; var pressed = false; var ours = false; var placing = false;
             var repairs = 0; var queued = 0; long stepAt = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
+            // EXPERIMENT (to be removed before merge): RELIC_OVERVIEW_PIN flags and a RELIC_OVERVIEW_TRACE file.
+            var knobs = (Environment.GetEnvironmentVariable("RELIC_OVERVIEW_PIN") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            bool Knob(string name) => knobs.Contains(name);
+            var tracePath = Environment.GetEnvironmentVariable("RELIC_OVERVIEW_TRACE");
+            void Trace(string what)
+            {
+                if (string.IsNullOrEmpty(tracePath)) return;
+                try
+                {
+                    System.IO.File.AppendAllText(tracePath, string.Format(CultureInfo.InvariantCulture,
+                        "{0} {1} off={2:F1} max={3:F1} ext={4:F1} ratio={5} pinned={6} aiming={7} pend={8}\n", Environment.TickCount64, what,
+                        scroll.VerticalOffset, scroll.ScrollableHeight, scroll.ExtentHeight, scroll.VerticalAnchorRatio, pinned, aiming, VirtualRows.PendingBuilds));
+                }
+                catch (Exception) { }
+            }
             var retry = body.DispatcherQueue.CreateTimer();
             retry.Interval = TimeSpan.FromMilliseconds(260); retry.IsRepeating = false;
             bool Current() => orgOverviewBody == body && pinned;
@@ -79,12 +94,15 @@ public sealed partial class MainWindow
             bool Moving() => pressed || Environment.TickCount64 - stepAt < 250;
             void ToEnd()
             {
-                if (!Current() || VirtualRows.PendingBuilds > 0) return;
-                if (Moving()) { if (!retry.IsRunning) retry.Start(); return; }
+                if (!Current()) return;
+                if (VirtualRows.PendingBuilds > 0) { Trace("toend.pending"); return; }
+                if (Moving()) { Trace("toend.moving"); if (!retry.IsRunning) retry.Start(); return; }
                 if (scroll.ScrollableHeight - scroll.VerticalOffset <= 1) { repairs = 0; return; }
-                if (++repairs > 12) return;
+                if (++repairs > 12) { Trace("toend.giveup"); return; }
                 ours = true;
-                scroll.ChangeView(null, scroll.ScrollableHeight, null, true);
+                var bring = Knob("bring") || (Knob("both") && repairs % 2 == 1);
+                Trace(bring ? "toend.bring" : "toend.view");
+                if (bring) body.BringLastIntoView(Current); else scroll.ChangeView(null, scroll.ScrollableHeight, null, true);
             }
             void Anchor()
             {
@@ -100,20 +118,25 @@ public sealed partial class MainWindow
                 // yet, or the list's height changed under the view near the end. Anything else is the person leaving.
                 var stay = pinned && !bottom && !Moving()
                     && (aiming || ours || (max - offset < screen && Math.Abs(extent - lastExtent) > .5));
+                var arriving = bottom && !pinned;
                 lastMax = max; lastOffset = offset; lastExtent = extent; ours = false;
                 pinned = bottom || stay;
                 if (bottom) aiming = false;
                 else if (!pinned) { aiming = false; repairs = 0; }
-                scroll.VerticalAnchorRatio = pinned ? 1 : 0;
-                if (pinned) ToEnd();
+                scroll.VerticalAnchorRatio = pinned && !Knob("ratio0") ? 1 : 0;
+                Trace(bottom ? "anchor.bottom" : stay ? "anchor.stay" : "anchor.free");
+                if (arriving && Knob("arrivebring")) body.BringLastIntoView(Current);
+                else if (pinned) ToEnd();
             }
             // The target of a move is known before it lands: one headed for the end (a jump, a drag, the wheel) pins
             // the view at once.
             scroll.ViewChanging += (_, args) =>
             {
                 if (scroll.ScrollableHeight <= 0 || args.FinalView.VerticalOffset < scroll.ScrollableHeight - 2) return;
+                var was = pinned;
                 aiming = pinned = true;
-                scroll.VerticalAnchorRatio = 1;
+                if (Knob("early") && !Knob("ratio0")) scroll.VerticalAnchorRatio = 1;
+                if (!was) Trace("changing.to-end target=" + args.FinalView.VerticalOffset.ToString("F1", CultureInfo.InvariantCulture));
             };
             // When rows were built (raised for every row built anywhere, possibly on a worker), the list or the window
             // changed size, or the person let go, and no row is waiting any more: look once after the next layout pass,
@@ -137,7 +160,7 @@ public sealed partial class MainWindow
             scroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => pressed = true), true);
             scroll.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, _) => { pressed = false; look?.Invoke(); }), true);
             scroll.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler((_, _) => { pressed = false; look?.Invoke(); }), true);
-            scroll.ViewChanged += (_, args) => { if (args.IsIntermediate) stepAt = Environment.TickCount64; else Anchor(); };
+            scroll.ViewChanged += (_, args) => { if (args.IsIntermediate) { stepAt = Environment.TickCount64; Trace("changed.step"); } else { Trace("changed.final"); Anchor(); } };
             Anchor();
         };
         orgOverviewBody = body; orgOverviewPointerOver = orgOverviewPending = false; orgOverviewDrawn = "";
