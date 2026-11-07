@@ -446,9 +446,24 @@ def _drive_seats(subtree, everything):
     return keys, list(sessions.values())
 
 
-def _drive_busy(store, keys, everything, now, stillness):
+def _drive_tools(store, keys):
+    """{(org_id, member): {activity kind: time of the seat's last tool call of that kind}} for the given seats."""
+    places = sorted({k[0] for k in keys})
+    if not places:
+        return {}
+    with store.db() as db:
+        rows = db.execute("SELECT org_id, member, kind, MAX(at) FROM activity WHERE org_id IN (%s) "
+                          "GROUP BY org_id, member, kind" % ",".join("?" * len(places)), places).fetchall()
+    tools = {}
+    for org_id, member, kind, at in rows:
+        if (org_id, member) in keys and at:
+            tools.setdefault((org_id, member), {})[kind] = at
+    return tools
+
+
+def _drive_busy(store, keys, everything, now, stillness, tools):
     """Why the subtree is not quiet (a turn runs, a wake-up is under way or due), or None. stillness: {session:
-    seconds since its transcript changed, or None}."""
+    seconds since its transcript changed, or None}; tools: _drive_tools."""
     for org_id, member in sorted(keys):
         org = everything.get(org_id) or {}
         seat = (org.get("members") or {}).get(member) or {}
@@ -456,7 +471,10 @@ def _drive_busy(store, keys, everything, now, stillness):
             return "%s runs a turn" % member
         episode = (org.get("episodes") or {}).get(seat.get("turn_episode") or "")
         still = stillness.get(seat.get("carrier"))
-        if episode and episode.get("status") == "open" and (still is None or still < DRIVE_STALE):
+        if still is None:  # no transcript to look at (another CODEX_HOME, a chat): its own last tool call tells
+            last = max((tools.get((org_id, member)) or {}).values() or [_epoch((episode or {}).get("opened_at"))])
+            still = now - last
+        if episode and episode.get("status") == "open" and still < DRIVE_STALE:
             return "%s is in a turn" % member
         mine = ((org.get("wake") or {}).get("members") or {}).get(member) or {}
         if "claim" in mine and now - mine.get("last_at", 0) < DRIVE_STALE:
@@ -469,20 +487,16 @@ def _drive_busy(store, keys, everything, now, stillness):
     return None
 
 
-def _drive_record(store, subtree_ids, keys, stillness, now, since_id, since_at):
+def _drive_record(store, subtree_ids, tools, stillness, now, since_id, since_at):
     """What happened in the subtree: times (epoch) of the last message, tool call and transcript change; whether
     anything moved after the last notice (since_id, since_at); the newest message to the person that neither the
     person's answer nor any progress has followed (question)."""
     marks = ",".join("?" * len(subtree_ids))
-    places = sorted({k[0] for k in keys})
+    acts = [(kind, at) for kinds in tools.values() for kind, at in kinds.items()]
+    work = max([at for kind, at in acts if kind in WORK_KINDS] or [0])
     with store.db() as db:
         last_message = db.execute("SELECT MAX(at) FROM messages WHERE org_id IN (%s)" % marks,
                                   subtree_ids).fetchone()[0]
-        rows = db.execute("SELECT org_id, member, kind, MAX(at) FROM activity WHERE org_id IN (%s) "
-                          "GROUP BY org_id, member, kind" % ",".join("?" * len(places)),
-                          places).fetchall() if places else []
-        acts = [(kind, at) for org_id, member, kind, at in rows if (org_id, member) in keys and at]
-        work = max([at for kind, at in acts if kind in WORK_KINDS] or [0])
 
         def moved(after_id, after_at):
             """Progress after a message: a message that is not a notice, a receipt or a report to the person only,
@@ -544,11 +558,12 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
         return later("paused", now + DRIVE_IDLE)
     keys, sessions = _drive_seats(subtree, everything)
     stillness = {seat["carrier"]: age(seat) for seat in sessions}
-    why = _drive_busy(store, keys, everything, now, stillness)
+    tools = _drive_tools(store, keys)
+    why = _drive_busy(store, keys, everything, now, stillness, tools)
     if why:
         return later("busy", now + DRIVE_RECHECK, why=why)
     last = drive.get("last") or {}
-    seen = _drive_record(store, [o["id"] for o in subtree], keys, stillness, now, last.get("id", 0),
+    seen = _drive_record(store, [o["id"] for o in subtree], tools, stillness, now, last.get("id", 0),
                          last.get("at", 0))
     quiet_since = max(seen["message"], seen["tool"], seen["transcript"])
     if now - quiet_since < DRIVE_QUIET:

@@ -129,9 +129,19 @@ class Drive(unittest.TestCase):
     def test_no_notice_during_an_open_turn_unless_its_transcript_went_stale(self):
         self.drive()
         self.store.record_activity(ANA, "Read", {"file_path": "x.py"})  # opens ana's turn episode
+        self.assertEqual(self.check(time.time() + 60)["why"], "ana is in a turn")
+        self.ages[ANA] = 30  # a long turn whose transcript still moves
         self.assertEqual(self.check(time.time() + 7200)["state"], "busy")
         self.ages[ANA] = wake.DRIVE_STALE + 60  # interrupted: the Stop never came, the transcript is still
         self.assertEqual(self.check(time.time() + 7200)["state"], "nudged")
+
+    def test_an_open_turn_without_a_transcript_goes_stale_with_its_last_tool_call(self):
+        """A seat whose transcript Relic cannot find (another CODEX_HOME): its own last tool call says whether the
+        turn it never closed is still alive (found on the real store: a session left a turn open for days)."""
+        self.drive()
+        self.store.record_activity(ANA, "Read", {"file_path": "x.py"})
+        self.assertEqual(self.check(time.time() + 600)["state"], "busy")
+        self.assertEqual(self.check(time.time() + wake.DRIVE_STALE + 60)["state"], "nudged")
 
     def test_no_notice_while_a_wake_up_is_due(self):
         self.drive()
