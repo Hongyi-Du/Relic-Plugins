@@ -2,6 +2,32 @@
 
 ## Unreleased / 未发布
 
+- Keep-going: an organization can carry its work on without the person. With keep-going on, when nobody in the
+  organization or the ones below it has worked for 10 minutes, nothing is waiting to be delivered and work is
+  unfinished, its driver (the leader by default) gets a notice with the person's standing instruction and the
+  unfinished tasks, and decides the next step.
+  - Members finished a step and stopped. Auto-wake only answers messages, and an exchange ends after six automatic
+    wake-ups, so a head that stopped after a batch, or a member that finished without telling anyone, left the work
+    standing until the person came back (on 2026-11-07, once for an hour and a half, once for 17 hours).
+  - It is not a timer. A second notice needs progress after the first (a message other than notices, receipts and
+    reports to the person, or an edit or a command anywhere below), so an organization that has stopped for good costs
+    one notice; at most 12 a day. A question to the person holds the notices for an hour, and Stop all pauses them.
+  - `work op=drive {on, goal, driver}` switches it: the leader, or a member of an organization above. Switching it off
+    takes a reason, which the person is told. Members see the driver and the person's instruction in their context.
+  - Notices come from `relic`, a reserved name like `human`. The checks run on this machine and cost no turns: in the
+    Relic App every 30 seconds, on every wake-up dispatch, and in a delayed background check that each check arms for
+    the next, so they go on with the App closed and while members still run an older plugin's hooks.
+  - 持续推进：组织可以不等人，自己把工作接着做下去。开着持续推进时，组织（连同下属组织）10 分钟没人干活、没有待送的消息、
+    工作还没做完，推进人（默认是负责人）会收到一条提醒，附上人的长期指令和没做完的任务，由它定下一步。
+    - 以前成员做完一步就停。自动唤醒只回应消息，一轮来回最多 6 次自动唤醒，所以 head 做完一批就停、或者成员做完没告诉
+      任何人，工作就一直停到人回来（2026-11-07 一次停了一个半小时，一次停了 17 小时）。
+    - 不是定时器。第二条提醒要求第一条之后有进展（提醒、回执和只发给人的汇报以外的消息，或者下属里有人改文件、跑命令），
+      所以已经彻底停下的组织只花一条提醒；每天最多 12 条。有人向人提了问题，提醒等一小时；全部停止时暂停。
+    - 用 `work op=drive {on, goal, driver}` 开关：负责人，或者上级组织的成员。关掉要写原因，会告诉人。成员在上下文里
+      能看到推进人和人的指令。
+    - 提醒的发信人是 `relic`，和 `human` 一样是保留名字。检查都在本机做，不占任何回合：Relic App 每 30 秒一次，每次
+      自动唤醒派发时一次，另外每次检查都会预约下一次的后台检查。所以 App 关着、成员还在用旧版插件的钩子时也照样检查。
+
 - Windows: the window's own state now lives with Relic's data, in `RELIC_HOME\native`
   (`%USERPROFILE%\.relic\native` by default). That covers the open chat, read marks, folds and drafts
   (`native-ui.json`), and the size and position (`window.json`).
