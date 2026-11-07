@@ -24,7 +24,11 @@ internal sealed class VirtualRows : Grid
     // exist here. Consumers must not mutate rows or force layout from this event.
     internal event Action? ItemsReplacing;
     private readonly ItemsRepeater repeater = new() { Layout = new StackLayout(), VerticalCacheLength = .5 };
-    internal double Spacing { get => ((StackLayout)repeater.Layout).Spacing; set => ((StackLayout)repeater.Layout).Spacing = value; }
+    internal double Spacing
+    {
+        get => repeater.Layout is KnownStack known ? known.Spacing : ((StackLayout)repeater.Layout).Spacing;
+        set { if (repeater.Layout is KnownStack known) known.Spacing = value; else ((StackLayout)repeater.Layout).Spacing = value; }
+    }
     // Viewports above and below the visible one that stay realized.
     internal double CacheLength { get => repeater.VerticalCacheLength; set => repeater.VerticalCacheLength = value; }
     // A row that comes back into view, or replaces a row with the same stable key (the part of its key before '|'),
@@ -35,26 +39,28 @@ internal sealed class VirtualRows : Grid
     // leaves the realized rows around them (and the row the scroll position is anchored to) as they are.
     // Set it before the list builds rows: only rows built from then on listen for their size.
     internal bool RememberHeights { get => factory.Heights != null; set => factory.Heights = value ? new(StringComparer.Ordinal) : null; }
-    // Opt-in for a long list whose end must stay put: every row keeps a realized holder at its known height (its
-    // built height when remembered, else its estimate), so the list's height is their sum. StackLayout sizes the
-    // rows it has not realized from the average of those it has, so with only the rows around the view realized the
-    // list's height, and its end, moved whenever a row entered or left that range: a single jump to the end of the
-    // overview stopped 50-160 px short, and scrolling it there again could not settle. Only the rows within a
-    // screen of the view are built, and the content of rows more than three screens away is dropped again (the
-    // holder keeps its height), so UI Automation and the dispatcher still see only the rows near the view.
-    // Use with RememberHeights; set both before the list builds rows.
-    internal bool BuildNearView
+    // Opt-in for a list whose end must stay put (with RememberHeights): rows are laid out at their known heights
+    // (KnownStack) instead of by StackLayout, which sizes the rows it has not realized from the average of those it
+    // has, so the list's height, and its end, moved whenever a row entered or left the realized range: a single jump
+    // to the end of the overview stopped 50-160 px short, and scrolling there again could not settle.
+    internal bool KnownHeights
     {
-        get => factory.Windowed;
+        get => repeater.Layout is KnownStack;
         set
         {
-            factory.Windowed = value;
-            factory.Unbuilt = value ? new Action(QueueWindow) : null;
-            if (value) repeater.VerticalCacheLength = 1000;
+            if (value == KnownHeights) return;
+            var spacing = Spacing;
+            repeater.Layout = value ? new KnownStack(this) { Spacing = spacing } : new StackLayout { Spacing = spacing };
         }
     }
-    private ScrollViewer? windowViewport;
-    private bool windowQueued;
+    private IReadOnlyList<Row> shown = Array.Empty<Row>();  // what the repeater shows (KnownStack reads its rows)
+    // A row's known height: its height when last built (RememberHeights), else its estimate.
+    private double KnownHeight(int index)
+    {
+        if (index >= shown.Count) return 40;
+        var row = shown[index];
+        return factory.Heights is { } heights && StableKey(row.Key) is { } stable && heights.TryGetValue(stable, out var built) ? built : row.Estimate;
+    }
     private static string? StableKey(string? key)
     {
         if (key == null) return null;
@@ -136,55 +142,6 @@ internal sealed class VirtualRows : Grid
         repeater.ItemTemplate = factory;
         base.Children.Add(repeater);
         Unloaded += (_, _) => StopFollowingLast();
-        Loaded += (_, _) => { if (factory.Windowed) { AttachWindow(); QueueWindow(); } };
-    }
-    private void AttachWindow()
-    {
-        if (windowViewport != null) return;
-        DependencyObject? node = this;
-        while (node != null && node is not ScrollViewer) node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node);
-        if (node is not ScrollViewer viewport) return;
-        windowViewport = viewport;
-        viewport.ViewChanged += (_, _) => QueueWindow();
-        viewport.SizeChanged += (_, _) => QueueWindow();
-    }
-    private void QueueWindow()
-    {
-        if (windowQueued) return;
-        windowQueued = true;
-        if (!dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () => { windowQueued = false; UpdateWindow(); }))
-            windowQueued = false;
-    }
-    // BuildNearView: builds the rows within a screen of the view, and drops the content of rows more than three
-    // screens away. Rows are laid out in index order, so the first row near the view is found by bisection.
-    private void UpdateWindow()
-    {
-        if (!factory.Windowed || windowViewport is not { } viewport || !IsLoaded || Children.Count == 0) return;
-        double top;
-        try { top = -repeater.TransformToVisual(viewport).TransformPoint(new Windows.Foundation.Point(0, 0)).Y; }
-        catch (Exception) { return; }
-        var screen = Math.Max(viewport.ViewportHeight, 1);
-        double nearTop = top - screen, nearBottom = top + 2 * screen, farTop = top - 3 * screen, farBottom = top + 4 * screen;
-        var count = Children.Count; int low = 0, high = count - 1, first = count;
-        while (low <= high)
-        {
-            var middle = (low + high) / 2;
-            // Not realized yet: the arrange that realizes it queues this again.
-            if (repeater.TryGetElement(middle) is not FrameworkElement element) return;
-            if (element.ActualOffset.Y + element.ActualHeight > nearTop) { first = middle; high = middle - 1; }
-            else low = middle + 1;
-        }
-        // At most 120 rows a time: a screen holds a few dozen, and rows not arranged yet all sit at the top.
-        for (var index = first; index < count && index < first + 120; index++)
-        {
-            if (repeater.TryGetElement(index) is not Border host || host.ActualOffset.Y >= nearBottom) break;
-            factory.Enqueue(host);
-        }
-        foreach (var host in factory.Built.ToArray())
-        {
-            var y = host.ActualOffset.Y;
-            if (y + host.ActualHeight < farTop || y > farBottom) factory.Drop(host);
-        }
     }
     internal void Commit()
     {
@@ -207,7 +164,9 @@ internal sealed class VirtualRows : Grid
         }
         ItemsReplacing?.Invoke();
         live = InPlace ? new System.Collections.ObjectModel.ObservableCollection<Row>(Children) : null;
-        repeater.ItemsSource = live != null ? live : (object)Children.ToArray();
+        IReadOnlyList<Row> items = live != null ? live : Children.ToArray();
+        shown = items;
+        repeater.ItemsSource = items;
         hasSuggestedAnchor = false;
         if (reading != null)
         {
@@ -727,11 +686,104 @@ internal sealed class VirtualRows : Grid
         using var timing = PerformanceTrace.Measure(TraceName + ".arrange");
         var result = base.ArrangeOverride(finalSize);
         arrangeRevision++;
-        if (factory.Windowed) QueueWindow();
         QueueArrangedBring();
         QueueReadingCheck();
         QueueFollowCheck();
         return result;
+    }
+    // KnownHeights' layout: rows top to bottom, a realized row at its measured height and any other row at its known
+    // height, so the list's height does not depend on which rows are realized. Realizes the rows in the repeater's
+    // realization rect (the view and CacheLength screens around it), or around a row asked for far from it.
+    private sealed class KnownStack : VirtualizingLayout
+    {
+        private readonly VirtualRows owner;
+        private double[] tops = Array.Empty<double>(), heights = Array.Empty<double>();
+        private int first = -1, last = -1;  // the realized rows
+        internal double Spacing;
+        internal KnownStack(VirtualRows owner) { this.owner = owner; }
+        private double Place(int count)
+        {
+            var y = 0d;
+            for (var index = 0; index < count; index++) { tops[index] = y; y += heights[index] + (index < count - 1 ? Spacing : 0); }
+            return y;
+        }
+        // The first row whose bottom is below y.
+        private int FirstEndingAfter(double y, int count)
+        {
+            int low = 0, high = count - 1, found = count;
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+                if (tops[middle] + heights[middle] > y) { found = middle; high = middle - 1; } else low = middle + 1;
+            }
+            return found;
+        }
+        // The last row whose top is above y.
+        private int LastStartingBefore(double y, int count)
+        {
+            int low = 0, high = count - 1, found = -1;
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+                if (tops[middle] < y) { found = middle; low = middle + 1; } else high = middle - 1;
+            }
+            return found;
+        }
+        protected override Windows.Foundation.Size MeasureOverride(VirtualizingLayoutContext context, Windows.Foundation.Size availableSize)
+        {
+            var count = context.ItemCount;
+            if (heights.Length != count) { heights = new double[count]; tops = new double[count]; }
+            for (var index = 0; index < count; index++) heights[index] = owner.KnownHeight(index);
+            Place(count);
+            var rect = context.RealizationRect;
+            var from = FirstEndingAfter(rect.Y, count); var to = LastStartingBefore(rect.Y + rect.Height, count);
+            var anchor = context.RecommendedAnchorIndex;
+            if (anchor >= 0 && anchor < count && (anchor < from || anchor > to)) { from = Math.Max(0, anchor - 1); to = Math.Min(count - 1, anchor + 1); }
+            if (from > to) { from = 0; to = -1; }
+            for (var index = first; index >= 0 && index <= last && index < count; index++)
+                if (index < from || index > to) context.RecycleElement(context.GetOrCreateElementAt(index));
+            var width = availableSize.Width; var widest = 0d;
+            var size = new Windows.Foundation.Size(width, double.PositiveInfinity);
+            for (var index = from; index <= to; index++)
+            {
+                var element = context.GetOrCreateElementAt(index);
+                element.Measure(size);
+                heights[index] = element.DesiredSize.Height;
+                widest = Math.Max(widest, element.DesiredSize.Width);
+            }
+            first = from <= to ? from : -1; last = from <= to ? to : -1;
+            var extent = Place(count);
+            return new Windows.Foundation.Size(double.IsInfinity(width) ? widest : width, extent);
+        }
+        protected override Windows.Foundation.Size ArrangeOverride(VirtualizingLayoutContext context, Windows.Foundation.Size finalSize)
+        {
+            for (var index = first; index >= 0 && index <= last && index < context.ItemCount && index < tops.Length; index++)
+                context.GetOrCreateElementAt(index).Arrange(new Windows.Foundation.Rect(0, tops[index], finalSize.Width, heights[index]));
+            return finalSize;
+        }
+        // The repeater has already cleared the elements of removed or replaced rows and given the others their new
+        // indices; keep the realized range on the same rows.
+        protected override void OnItemsChangedCore(VirtualizingLayoutContext context, object source, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+        {
+            if (first >= 0)
+            {
+                if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                {
+                    var added = args.NewItems?.Count ?? 0;
+                    if (args.NewStartingIndex <= first) { first += added; last += added; }
+                    else if (args.NewStartingIndex <= last) last += added;
+                }
+                else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+                {
+                    var at = args.OldStartingIndex; var removed = args.OldItems?.Count ?? 0;
+                    first = first < at ? first : first >= at + removed ? first - removed : at;
+                    last = last < at ? last : last >= at + removed ? last - removed : at - 1;
+                    if (last < first) first = last = -1;
+                }
+                else if (args.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace) first = last = -1;
+            }
+            InvalidateMeasure();
+        }
     }
     private sealed class RowFactory : IElementFactory
     {
@@ -743,10 +795,6 @@ internal sealed class VirtualRows : Grid
         internal string TrackKind = "VirtualRow.rows";
         internal Action<UIElement>? Recycling;
         internal Dictionary<string, double>? Heights;  // stable row key -> its height when last built (RememberHeights)
-        internal bool Windowed;  // BuildNearView: a row is built only when its owner asks (Enqueue)
-        internal Action? Unbuilt;  // BuildNearView: a holder was realized without being built
-        internal readonly HashSet<Border> Built = new();  // BuildNearView: holders that have content
-        private readonly HashSet<Border> queued = new();
         public UIElement GetElement(ElementFactoryGetArgs args)
         {
             Border host;
@@ -760,16 +808,6 @@ internal sealed class VirtualRows : Grid
             var row = (Row)args.Data;
             host.Tag = row; Realized++;
             host.MinHeight = Heights != null && StableKey(row.Key) is { } stable && Heights.TryGetValue(stable, out var built) ? built : row.Estimate;
-            if (Windowed) { Unbuilt?.Invoke(); return host; }
-            Enqueue(host, row);
-            return host;
-        }
-        internal void Enqueue(Border host)
-        {
-            if (host.Child == null && host.Tag is Row row && queued.Add(host)) Enqueue(host, row);
-        }
-        private void Enqueue(Border host, Row row)
-        {
             pending.Enqueue((this, host, row)); Interlocked.Increment(ref PendingBuilds);
             if (pumpTimer == null)
             {
@@ -778,15 +816,7 @@ internal sealed class VirtualRows : Grid
                 pumpTimer.Tick += (_, _) => Pump();
             }
             if (!pumpTimer.IsRunning) pumpTimer.Start();
-        }
-        // BuildNearView: drops a built row's content far from the view; the holder keeps the row's height.
-        internal void Drop(Border host)
-        {
-            if (host.Child is not { } child) return;
-            var height = host.ActualHeight;
-            Recycling?.Invoke(child);
-            host.Child = null; host.MinHeight = height;
-            Built.Remove(host);
+            return host;
         }
         private static void Pump()
         {
@@ -800,7 +830,6 @@ internal sealed class VirtualRows : Grid
             {
                 try
                 {
-                    work.Owner.queued.Remove(work.Host);
                     if (!ReferenceEquals(work.Host.Tag, work.Row)) continue;
                     // The UI-owned timer guarantees native control creation
                     // stays on the dispatcher even when realization originated
@@ -825,7 +854,6 @@ internal sealed class VirtualRows : Grid
             if (host.Child != null || host.Tag is not Row row) return;
             using var timing = PerformanceTrace.Measure("row.build");
             host.Child = row.Build(); host.MinHeight = 0;
-            if (Windowed) Built.Add(host);
             PerformanceTrace.Track(TrackKind, host.Child);
         }
         public void RecycleElement(ElementFactoryRecycleArgs args)
@@ -833,7 +861,7 @@ internal sealed class VirtualRows : Grid
             using var timing = PerformanceTrace.Measure("row.recycle");
             var host = (Border)args.Element;
             if (host.Child is { } child) Recycling?.Invoke(child);
-            host.Tag = null; host.Child = null; Realized--; Built.Remove(host); queued.Remove(host);
+            host.Tag = null; host.Child = null; Realized--;
             if (empty.Count < 32) empty.Push(host);
         }
     }

@@ -17,12 +17,12 @@ namespace Relic;
 //
 // Each card is a run of rows in a VirtualRows list (its header, what it does, each task, each member, its end), built
 // only around the view (CI measured 255-460 ms when every expanded card was built at once, and keeping every row
-// built made a full UI Automation read hold the UI thread for half a second). Every row keeps a holder at its known
-// height, so the list's height does not depend on which rows are built (BuildNearView). A row's key is "<which
-// row>|<what it shows>": the list remembers each row's built height by the first part, so a row a refresh replaces
-// keeps its height while it is built, and a refresh replaces only the rows whose content changed. At the bottom the
-// view holds its bottom edge; elsewhere the first visible row keeps its place. Times are clock times, so a row does
-// not change just because a minute passed.
+// built or realized made a full UI Automation read hold the UI thread for half a second). A row's key is "<which
+// row>|<what it shows>": the list remembers each row's built height by the first part and lays rows out at those
+// heights (KnownHeights), so the list's height does not depend on which rows are realized, a row a refresh
+// replaces keeps its height while it is built, and a refresh replaces only the rows whose content changed. At the
+// bottom the view holds its bottom edge; elsewhere the first visible row keeps its place. Times are clock times, so
+// a row does not change just because a minute passed.
 public sealed partial class MainWindow
 {
     private JsonNode orgOverviewData = new JsonObject();
@@ -46,7 +46,7 @@ public sealed partial class MainWindow
             orgOverviewTimer.Tick += (_, _) => { if (orgOverviewBody != null) _ = ReadOrgOverview(); };
         }
         // Transparent, not null: the whole list reports the pointer, so a refresh can wait while it is over the rows.
-        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, RememberHeights = true, BuildNearView = true,
+        var body = new VirtualRows { TraceName = "org-overview", InPlace = true, CacheLength = 1, RememberHeights = true, KnownHeights = true,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         AutomationProperties.SetAutomationId(body, "org-overview");
         body.PointerEntered += (_, _) => orgOverviewPointerOver = true;
