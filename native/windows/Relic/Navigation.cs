@@ -29,7 +29,7 @@ public sealed partial class MainWindow
         : VisualCaptureEnabled
         ? System.IO.Path.Combine(Environment.GetEnvironmentVariable("RELIC_VISUAL_STATE_DIR") is { Length: > 0 } directory ? directory
             : System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Environment.GetEnvironmentVariable("RELIC_VISUAL_MANIFEST"))!, "state"), "native-ui.json")
-        : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Relic", "native-ui.json");
+        : System.IO.Path.Combine(ViewStateHome.Folder, "native-ui.json");  // with Relic's data, never redirected (ViewStateHome.cs)
     private void SaveViewState()
     {
         using var timing = PerformanceTrace.Measure("SaveViewState");
