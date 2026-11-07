@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Relic.Core;
 using System.Globalization;
@@ -54,6 +55,7 @@ public sealed partial class MainWindow
             if (orgOverviewPending && orgOverviewBody == body) { orgOverviewPending = false; orgOverviewDrawn = orgOverviewLatest; DrawOrgOverview(); }
         };
         var anchored = false;
+        Action? look = null;
         body.Loaded += (_, _) =>
         {
             DependencyObject? node = body;
@@ -61,24 +63,67 @@ public sealed partial class MainWindow
             if (anchored || node is not ScrollViewer scroll) return;
             anchored = true;
             // At the bottom the view keeps its bottom edge where it is, so the last row stays in view while rows above
-            // it change height; elsewhere the first visible row keeps its place. The height of rows not built yet is
-            // an estimate, so arriving at the bottom brings the real last row into view once (scrolling to the
-            // estimated maximum stopped short of it), and the bottom anchor keeps it there.
-            var arrived = false; double lastMax = 0, lastOffset = 0;
+            // it change height; elsewhere the first visible row keeps its place. Rows not built yet have estimated
+            // heights, so arriving at the bottom is not yet the end: the rows there come out shorter or taller, and the
+            // list's height changes under the view. Once it arrives, the view stays pinned to the end until the person
+            // scrolls away, and when rows have been built and the real last row is not at the bottom, it is brought
+            // there again.
+            var pinned = false; var moving = false; var pressed = false; var ours = false; var placing = false;
+            var repairs = 0; var queued = 0; double lastMax = 0, lastOffset = 0, lastExtent = 0;
+            bool Current() => orgOverviewBody == body && pinned;
+            void ToEnd()
+            {
+                if (!Current() || moving || pressed || VirtualRows.PendingBuilds > 0) return;
+                if (scroll.ScrollableHeight - scroll.VerticalOffset <= 1 || ++repairs > 12) return;
+                ours = true;
+                body.BringLastIntoView(Current);
+            }
             void Anchor()
             {
                 // Rows built after a long scroll change the list's height before this runs, so the view can be short
                 // of the new maximum: it also arrived when it reached the maximum it was scrolled to, or when a jump of
                 // more than a screen stopped within a screen of the end.
                 var offset = scroll.VerticalOffset; var max = scroll.ScrollableHeight; var screen = scroll.ViewportHeight;
+                var extent = scroll.ExtentHeight;
                 var bottom = max > 0 && (offset >= max - 2 || (lastMax > 0 && offset >= lastMax - 2)
                     || (offset - lastOffset > screen && max - offset < screen));
-                lastMax = max; lastOffset = offset;
-                scroll.VerticalAnchorRatio = bottom ? 1 : 0;
-                if (bottom && !arrived) { arrived = true; body.BringLastIntoView(() => orgOverviewBody == body); }
-                else if (!bottom) arrived = false;
+                // Off the end while pinned but not by the person's scrolling: the list's height changed under the view
+                // (rows built or replaced), or a bring to the end has not landed yet. Anything else is the person leaving.
+                var byPerson = moving || pressed;
+                var stay = pinned && !bottom && !byPerson && max - offset < screen && (ours || Math.Abs(extent - lastExtent) > .5);
+                var arriving = bottom && !pinned;
+                lastMax = max; lastOffset = offset; lastExtent = extent; ours = false; moving = false;
+                pinned = bottom || stay;
+                if (bottom || !pinned) repairs = 0;
+                scroll.VerticalAnchorRatio = pinned ? 1 : 0;
+                if (arriving) body.BringLastIntoView(Current);
+                else if (stay) ToEnd();
             }
-            scroll.ViewChanged += (_, args) => { if (!args.IsIntermediate) Anchor(); };
+            // Rows are built a few per frame and change the list's height in the next layout pass. When rows were built
+            // (raised for every row built anywhere, possibly on a worker) or the list or the window changed size, and no
+            // row is waiting any more, look once after that pass whether the view is still at the end.
+            look = () =>
+            {
+                if (Interlocked.Exchange(ref queued, 1) != 0) return;
+                if (!body.DispatcherQueue.TryEnqueue(() =>
+                {
+                    queued = 0;
+                    if (placing || !Current() || VirtualRows.PendingBuilds > 0) return;
+                    placing = true;
+                    void Placed(object? sender, object args) { scroll.LayoutUpdated -= Placed; placing = false; ToEnd(); }
+                    scroll.LayoutUpdated += Placed;
+                })) queued = 0;
+            };
+            PresentationPreparation.Completed += look;
+            body.SizeChanged += (_, _) => look?.Invoke();
+            scroll.SizeChanged += (_, _) => look?.Invoke();
+            // The person's own scrolling: a pointer held on the scroll bar or panning, and any animated move (the wheel,
+            // the keyboard, a touchpad), which reports intermediate views first. A wheel turned at the end moves nothing
+            // and is not leaving it.
+            scroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => pressed = true), true);
+            scroll.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, _) => { pressed = false; look?.Invoke(); }), true);
+            scroll.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler((_, _) => { pressed = false; look?.Invoke(); }), true);
+            scroll.ViewChanged += (_, args) => { if (args.IsIntermediate) moving = true; else Anchor(); };
             Anchor();
         };
         orgOverviewBody = body; orgOverviewPointerOver = orgOverviewPending = false; orgOverviewDrawn = "";
@@ -90,6 +135,7 @@ public sealed partial class MainWindow
         finally
         {
             if (orgOverviewBody == body) { orgOverviewTimer.Stop(); orgOverviewBody = null; }
+            if (look != null) PresentationPreparation.Completed -= look;
             body.Children.Clear();  // rows still waiting to be built are dropped with their hosts
         }
     }

@@ -125,6 +125,10 @@
   height, so rows coming back into view or replaced by a refresh keep their height while they are built. A
   refresh replaces only the rows whose content changed; at the bottom the view keeps its bottom edge, elsewhere
   the first visible row keeps its place.
+- A single jump or drag to the end of the overview ends at the end. On the person's data the rows there came out
+  taller than their estimates once built, after the view had arrived, so the list grew under the view and it
+  stopped 138-163 px short (4 of 4 single jumps at 150%). The view now stays pinned to the end until the person
+  scrolls away, and when rows have been built and the last row is not at the bottom, it is brought there again.
 
 自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
 没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。
