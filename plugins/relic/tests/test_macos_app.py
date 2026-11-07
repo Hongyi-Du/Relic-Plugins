@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import relic_app  # noqa: E402
 from app import files, web  # noqa: E402
-from relic_core import platform_support, process  # noqa: E402
+from relic_core import codex_trust, platform_support, process  # noqa: E402
 
 
 class Request(web.Handler):
@@ -86,10 +86,13 @@ class NativeOpen(unittest.TestCase):
     def test_platform_endpoint_is_guarded_and_has_no_store_dependency(self):
         caps = {"platform": "darwin", "architecture": "arm64", "macos_supported": True,
                 "codex_desktop_wake": False, "chatgpt_delivery": False, "claude_desktop_wake": False}
-        with mock.patch.object(platform_support, "capabilities", return_value=caps) as capabilities:
+        hooks = {"state": "changed", "plugin": "relic@relic-bridge", "hooks": 7, "approved": 0}
+        with mock.patch.object(platform_support, "capabilities", return_value=caps) as capabilities, \
+                mock.patch.object(codex_trust, "status", return_value=hooks):
             request = Request("/api/platform")
             request.do_GET()
-            self.assertEqual(request.response, (200, caps))
+            # the capabilities as they are, and whether Codex skips Relic's hooks (the window's warning bar)
+            self.assertEqual(request.response, (200, dict(caps, codex_hooks=hooks)))
             capabilities.assert_called_once_with()
             request = Request("/api/platform", host="other.example:39321")
             request.do_GET()

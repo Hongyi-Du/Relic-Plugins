@@ -18,7 +18,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from relic_core import __version__, i18n, monitor, platform_support, runner, slack, usage, wake
+from relic_core import __version__, codex_trust, i18n, monitor, platform_support, runner, slack, usage, wake
 from relic_core.sessions import actor_for, all_sessions
 from relic_core.store import OrgError, Store, data_home, person_language
 
@@ -629,7 +629,9 @@ class Handler(BaseHTTPRequestHandler):
                                    "instance": self.app.instance,
                                    "state": "stopping" if self.app.stopping.is_set() else "running"})
             if api == ["platform"]:
-                return self._json(views.platform_info(platform_support.capabilities()))
+                info = dict(views.platform_info(platform_support.capabilities()))
+                info["codex_hooks"] = codex_trust.status()  # the window says when Codex skips Relic's hooks
+                return self._json(info)
             if api == ["events"]:
                 return self._events()
             if api == ["orgs"]:

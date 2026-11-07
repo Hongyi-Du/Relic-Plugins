@@ -168,6 +168,15 @@ def main(argv=None):
               + (' (or the Relic shortcut on the desktop)' if os.name == 'nt' and not args.no_shortcut else '') + '.')
         print('Members you add in the App get Relic from the App. For your own Claude Code and Codex sessions, restart '
               'the host and review and trust the plugin hooks in its settings before relying on protocol enforcement.')
+        if 'Codex' in installed:
+            from relic_core import codex_trust
+            hooks = codex_trust.status(plugin=plugin)
+            if hooks['state'] in ('changed', 'untrusted'):
+                print('Codex: the %d Relic hooks are %s, so Codex skips them: Codex members get no messages between '
+                      'their own Relic calls and strict protocols are not enforced on them. In Codex, run /hooks and '
+                      'trust the hooks of %s. Codex asks again after every upgrade that changes the plugin.'
+                      % (hooks['hooks'], 'not approved for this version' if hooks['state'] == 'changed'
+                         else 'not approved yet', hooks['plugin']))
         print('The earlier Relic Codex edition (relic-organization) keeps its own tools and data; remove it in Codex '
               'if you no longer use it.')
         if sys.platform == 'darwin':

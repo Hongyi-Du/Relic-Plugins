@@ -116,7 +116,7 @@ public sealed partial class MainWindow : Window
             PaintToolbarSurface(); presentationVersion++; toolbarState = null;
             if (ready) { ThemeSurfaces(); Schedule(); }
         };
-        top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 3); top.Children.Add(toolbar); root.Children.Add(top); Grid.SetRow(error, 1); root.Children.Add(error);
+        top.Children.Add(navigationButtons); Grid.SetColumn(menu, 1); top.Children.Add(menu); Grid.SetColumn(toolbar, 3); top.Children.Add(toolbar); root.Children.Add(top); var notices = new StackPanel(); notices.Children.Add(error); notices.Children.Add(codexHooksNotice); Grid.SetRow(notices, 1); root.Children.Add(notices);
         // Only the title gives up space as the window narrows. Navigation,
         // menus and commands stay outside the system caption-button inset.
         Grid.SetColumn(appTitle, 2); top.Children.Add(appTitle);
@@ -209,6 +209,7 @@ public sealed partial class MainWindow : Window
                 var language = Words.Normalize(preferences.Text("lang").Length > 0 ? preferences.Text("lang") : System.Globalization.CultureInfo.CurrentUICulture.Name);
                 await api.Post("/api/prefs", new { lang = language });
                 words.Load(await api.Get("/api/i18n?lang=" + language));
+                ShowCodexHooksNotice();
                 StartupFontWarmup.WarmWords(words.Characters(), words.Language, (float)(root.XamlRoot?.RasterizationScale ?? 1));
                 LoadViewState();
                 if (root.ActualWidth <= ResponsiveLayout.InspectorOverlayWidth) panelOpen = false;

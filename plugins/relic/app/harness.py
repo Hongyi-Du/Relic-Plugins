@@ -195,8 +195,10 @@ def codex_relic_plugin():
     plugins = config.get("plugins") or {}
     enabled = any(isinstance(v, dict) and k.split("@", 1)[0] == "relic" and v.get("enabled", True)
                   for k, v in plugins.items())
-    state = ((config.get("hooks") or {}).get("state") or {}) if isinstance(config.get("hooks"), dict) else {}
-    trusted = any(k.split("@", 1)[0] == "relic" and ":pre_tool_use:" in k for k in state)
+    # Trusted only while Codex's approvals match this plugin's current contents: after an upgrade Codex skips the
+    # hooks until the person approves them again, and the App must then do their work for its Codex members.
+    from relic_core import codex_trust
+    trusted = codex_trust.status(codex_home())["state"] == "trusted"
     hooks_on = (config.get("features") or {}).get("codex_hooks", True)
     return enabled, bool(enabled and trusted and hooks_on)
 
