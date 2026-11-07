@@ -231,6 +231,7 @@ class App:
         with self.store.db() as db:
             row = db.execute("SELECT recipients FROM messages WHERE id=?", (mid,)).fetchone()
         sent_to = json.loads(row[0]) if row else (to or [])
+        self.back_to_work(org_id, "message", sent_to)  # before the turn or the wake-ups this message starts
         if len(sent_to) == 1 and self.hub.managed(org_id, sent_to[0]):
             threading.Thread(target=self._deliver, args=(org_id, sent_to[0], body, mid, reply_to), daemon=True).start()
         else:
@@ -469,9 +470,22 @@ class App:
         if isinstance(to, str):
             to = [t.strip() for t in to.split(",") if t.strip()]
         result = self.store.forward_reply(org_id, a["member"], to, (a.get("body") or "").strip())
+        self.back_to_work(org_id, "forward", [a["member"]])
         threading.Thread(target=self._dispatch, args=(org_id,), daemon=True).start()
         self.bus.publish({"type": "org", "org": org_id})
         return result if isinstance(result, dict) else {"ok": True}
+
+    def back_to_work(self, org_id, via, members):
+        """The person's message ends a Stop or Stop all in force: brakes off, every organization's wake-ups back on,
+        the automations still paused (monitor.back_to_work). The windows redraw what changed."""
+        try:
+            done = monitor.back_to_work(self.store, org_id, via, members)
+        except Exception:  # the message is sent either way; Resume all in the monitor still works
+            return None
+        if done:
+            self.bus.publish({"type": "monitor"})
+            self._changed_all()
+        return done
 
     def lang(self):
         return prefs.load().get("lang") or self.page_lang or person_language()

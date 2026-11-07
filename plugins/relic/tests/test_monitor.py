@@ -1,5 +1,6 @@
 """The person's monitor: who is working on this machine, the tokens each session used (from its own records), and the
-Stop that ends a session's turn and turns off what would start it again, with Resume undoing exactly that.
+Stop that ends a session's turn and turns off what would start it again, with Resume undoing exactly that, and the
+person's next message turning the wake-ups (not the timers) back on.
 Synthetic transcripts, automations and stores in temporary folders; no model, CLI or process is started."""
 import json
 import os
@@ -18,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "hooks"))
 from relic_core import monitor, runner, usage, wake  # noqa: E402
+from app import overview, views  # noqa: E402
 from relic_core.store import Store  # noqa: E402
 import relic_hook  # noqa: E402
 
@@ -286,19 +288,26 @@ class StopAndResume(Base):
         self.assertIn("Stopped by the person", json.dumps(out, ensure_ascii=False))
         self.assertIsNotNone(monitor.brake_for(SESSION))
 
-    def test_the_person_typing_releases_the_brake_but_wake_ups_stay_off_until_resume(self):
+    def test_the_person_typing_to_a_stopped_member_puts_it_back_to_work_with_its_wake_ups(self):
         monitor.stop(self.store, SESSION)
         out = self.hook("UserPromptSubmit", prompt="继续修 App")
         self.assertNotIn("Stopped by the person", json.dumps(out, ensure_ascii=False))
         self.assertIsNone(monitor.brake_for(SESSION))
         allowed = self.hook("PreToolUse", tool_name="Bash", tool_input={"command": "ls"})
         self.assertNotEqual((allowed.get("hookSpecificOutput") or {}).get("permissionDecision"), "deny")
-        self.assertFalse(self.store.get(self.org)["members"]["head"]["auto_wake"])
-        self.assertTrue(self.agent(monitor.snapshot(self.store, self.now), SESSION)["stopped"]["released"])
-        self.assertTrue(monitor.resume(self.store, SESSION)["resumed"])
         self.assertTrue(self.store.get(self.org)["members"]["head"]["auto_wake"])
         self.assertTrue(self.store.get(self.cabinet)["members"]["head"]["auto_wake"])
-        self.assertNotIn(SESSION, monitor._load_brakes().get("agents", {}))
+        self.assertIsNone(self.agent(monitor.snapshot(self.store, self.now), SESSION)["stopped"])
+        self.assertFalse(monitor.resume(self.store, SESSION)["resumed"])  # nothing left to resume
+        self.assertEqual(monitor._load_brakes(), {"agents": {}})
+
+    def test_typing_to_a_stopped_session_without_a_seat_releases_only_that_session(self):
+        monitor.stop(self.store, OTHER)
+        monitor.stop(self.store, SESSION)
+        self.hook("UserPromptSubmit", session=OTHER, prompt="go on")
+        self.assertIsNone(monitor.brake_for(OTHER))
+        self.assertIsNotNone(monitor.brake_for(SESSION))  # not a member's session: Relic stays stopped
+        self.assertFalse(self.store.get(self.org)["members"]["head"]["auto_wake"])
 
     def test_resume_turns_back_on_only_what_stop_turned_off(self):
         self.store.set_seat_auto_wake(self.cabinet, "head", False, reason="the person turned it off earlier")
@@ -370,7 +379,9 @@ class StopAndResume(Base):
         self.assertIsNone(monitor.brake_for(SESSION))
 
 
-class Api(Base):
+class Served(Base):
+    """The Relic App's server on a free port, with the store of the test."""
+
     def setUp(self):
         super().setUp()
         from app import web
@@ -398,6 +409,8 @@ class Api(Base):
             with error:
                 return error.code, json.loads(error.read().decode("utf-8"))
 
+
+class Api(Served):
     def test_the_monitor_needs_the_token_and_stop_and_resume_work_through_it(self):
         self.transcript(lines=[claude_usage("m1", time.time() - 10)])
         self.assertEqual(self.call("/api/monitor", token=False)[0], 403)
@@ -409,6 +422,154 @@ class Api(Base):
         self.assertEqual((code, sorted(done["wake_off"])), (200, sorted([[self.org, "head"], [self.cabinet, "head"]])))
         self.assertTrue(self.call("/api/monitor")[1]["agents"][0]["stopped"])
         self.assertEqual(self.call("/api/monitor/resume", {"key": SESSION})[1]["resumed"], True)
+
+
+class BackToWork(Served):
+    """Stop all, then the person's next message: in the Relic App or typed into a member's session, it releases the
+    brakes and turns every organization's wake-ups back on, so members wake each other with messages; the timers stay
+    paused until Resume all."""
+
+    def setUp(self):
+        super().setUp()
+        from app import web
+        quiet = mock.patch.object(web.App, "_dispatch")  # wake-ups are dispatched below, by hand, with a fake start
+        quiet.start()
+        self.addCleanup(quiet.stop)
+        self.store.add_seat(self.cabinet, "gpt", "codex member", runner.default_config("codex"))
+        self.store.join("codex:th-gpt", self.cabinet, "gpt")
+        self.started = []
+
+    def start(self, org_id, member, prompt, wake_from, wake_hop, wake_message_ids=None):
+        self.started.append((org_id, member, wake_from, wake_hop))
+
+    def dispatch(self, org_id):
+        return wake.dispatch(self.store, org_id, now=time.time() + 60, start=self.start, age=lambda seat: None,
+                             retry=lambda org_id, delay: None)
+
+    def wake_ups(self, org_id):
+        org = self.store.get(org_id)
+        return org.get("auto_wake", True), {m: s.get("auto_wake", True) for m, s in org["members"].items()}
+
+    def resumed(self, org_id):
+        return [e["body"] for e in self.store.events(org_id, ["organization.wake_resumed"])]
+
+    def stop_everything(self):
+        path = self.automation() if not (self.root / "codex" / "automations" / "watch").exists() else None
+        self.stops = getattr(self, "stops", 0) + 1
+        self.transcript(lines=[claude_usage("stop%d" % self.stops, time.time() - 10)])
+        result = monitor.stop_all(self.store)
+        self.assertEqual(result["stopped"], [SESSION])
+        self.assertFalse(self.store.get(self.org)["auto_wake"])
+        return path
+
+    def test_after_stop_all_a_message_in_the_app_resumes_wake_ups_and_leaves_the_automations_paused(self):
+        self.store.set_auto_wake(self.cabinet, False)  # switched off by the person before: it comes back on too
+        self.store.add_seat(self.org, "quiet", "", runner.default_config("codex"))
+        self.store.set_seat_auto_wake(self.org, "quiet", False, reason="set by the person in the Relic App")
+        path = self.stop_everything()
+        self.store.send(SESSION, ["gpt"], "piled up while everyone was stopped", org=self.cabinet)
+        self.assertEqual(self.dispatch(self.cabinet), [])
+        self.assertIsNotNone(monitor.brake_for(SESSION))
+
+        code, sent = self.call("/api/org/%s/send" % self.org, {"to": ["head"], "body": "继续干活", "channel": "private"})
+        self.assertEqual((code, sent["to"]), (200, ["head"]))
+        self.assertIsNone(monitor.brake_for(SESSION))
+        self.assertEqual(self.wake_ups(self.org), (True, {"head": True, "quiet": False}))  # quiet: the person's switch
+        self.assertEqual(self.wake_ups(self.cabinet), (True, {"chief": True, "head": True, "gpt": True}))
+        self.assertIn('status = "PAUSED"', path.read_text(encoding="utf-8"))  # timers stay off
+        [event] = self.resumed(self.org)
+        self.assertEqual(event["why"], "the person wrote to head in 研发部")
+        self.assertEqual((event["via"], event["to"], event["sessions"], event["still_paused"]),
+                         ("message", ["head"], [SESSION], ["watch"]))
+        self.assertEqual(sorted(event["orgs"]), sorted([self.org, self.cabinet]))
+        self.assertEqual(sorted(event["seats"]), sorted([[self.org, "head"], [self.cabinet, "head"]]))
+        reasons = [e["body"].get("reason") for e in self.store.events(self.cabinet, ["organization.auto_wake"])]
+        self.assertEqual(reasons[-1], "the person wrote to head in 研发部")
+        notices = [i["text"] for i in views.chat(self.store, self.org, "group", lang="zh-CN")["items"]
+                   if i["type"] == "notice"]
+        self.assertIn("停止已解除", notices[-1])
+        self.assertIn("全部恢复", notices[-1])
+        # the monitor still offers Resume all for the paused automation; the overview no longer says everything stopped
+        snap = self.call("/api/monitor")[1]
+        self.assertIsNone(self.agent(snap, SESSION)["stopped"])
+        self.assertEqual((snap["stopped_all"]["paused"], snap["stopped_all"]["woken"]["why"]),
+                         ({"watch": "ACTIVE"}, "the person wrote to head in 研发部"))
+        self.assertFalse(overview.overview(self.store)["stopped_all"])
+
+        # the member the person talked to writes to a member of another organization, and that member wakes there
+        self.store.send(SESSION, ["gpt"], "gpt, please take the API part", org=self.cabinet)
+        self.assertEqual(self.dispatch(self.cabinet), ["gpt"])
+        self.assertEqual(self.started, [(self.cabinet, "gpt", ["head"], 1)])
+
+        # a second message changes nothing more; Resume all brings the automation back
+        self.call("/api/org/%s/send" % self.org, {"to": ["head"], "body": "还有一件事", "channel": "private"})
+        self.assertEqual(len(self.resumed(self.org)), 1)
+        self.assertEqual(monitor.resume_all(self.store)["resumed"], ["watch"])
+        self.assertIn('status = "ACTIVE"', path.read_text(encoding="utf-8"))
+        self.assertEqual(monitor._load_brakes(), {"agents": {}})
+        self.assertIsNone(self.call("/api/monitor")[1]["stopped_all"])
+
+    def test_a_group_message_and_a_forwarded_reply_end_the_stop_too(self):
+        self.stop_everything()
+        code, sent = self.call("/api/org/%s/send" % self.cabinet, {"to": ["all"], "body": "大家继续", "channel": "group"})
+        self.assertEqual(code, 200)
+        self.assertEqual(self.resumed(self.cabinet)[0]["why"], "the person wrote to chief, head, gpt in 秘书处")
+        self.assertTrue(self.store.get(self.org)["auto_wake"])
+        self.stop_everything()
+        self.store.add_seat(self.org, "chat", "", runner.default_config("chatgpt"))
+        code, _ = self.call("/api/org/%s/forward" % self.org, {"member": "chat", "to": ["head"], "body": "the reply"})
+        self.assertEqual(code, 200)
+        self.assertEqual(self.resumed(self.org)[-1]["why"], "the person forwarded the reply of chat in 研发部")
+        self.assertTrue(self.store.get(self.org)["auto_wake"])
+        self.assertTrue(self.store.get(self.cabinet)["auto_wake"])
+
+    def test_typing_in_a_members_session_does_the_same(self):
+        path = self.stop_everything()
+        self.store.send(SESSION, ["gpt"], "piled up while everyone was stopped", org=self.cabinet)
+        self.store.clear_focus(SESSION)  # the turn that wrote it ended: the session works for its main seat again
+        out = self.hook("UserPromptSubmit", prompt="你该干活了")
+        self.assertNotIn("Stopped by the person", json.dumps(out, ensure_ascii=False))
+        self.assertIsNone(monitor.brake_for(SESSION))
+        self.assertEqual(self.wake_ups(self.org), (True, {"head": True}))
+        self.assertEqual(self.wake_ups(self.cabinet), (True, {"chief": True, "head": True, "gpt": True}))
+        self.assertIn('status = "PAUSED"', path.read_text(encoding="utf-8"))
+        [event] = self.resumed(self.org)
+        self.assertEqual((event["why"], event["via"]), ("the person typed in the session of head in 研发部", "session"))
+        self.assertEqual(self.dispatch(self.cabinet), ["gpt"])  # what piled up wakes gpt in its organization now
+        self.assertEqual(self.started[0][:2], (self.cabinet, "gpt"))
+
+    def test_prompts_that_relic_or_a_timer_started_do_not_end_the_stop(self):
+        self.stop_everything()
+        for prompt in ("[Relic] protocol P2 blocked Bash\n\n[Relic auto-wake] You hold the seat 'head' ...",
+                       "<heartbeat>\n  <automation_id>watch</automation_id>\n  <instructions>check</instructions>",
+                       "[Relic GUI nonce:ab12] [Relic auto-wake] ...", "You now hold the seat 'head' in ..."):
+            self.assertTrue(monitor.automatic(prompt), prompt)
+            self.hook("UserPromptSubmit", prompt=prompt)
+        self.assertFalse(monitor.automatic("[Relic App] The person (human) writes to you directly:\n\ngo on"))
+        self.assertFalse(self.store.get(self.org)["auto_wake"])
+        self.assertIsNotNone(monitor.brake_for(SESSION))
+        self.assertEqual(self.resumed(self.org), [])
+
+    def test_nothing_changes_when_nothing_was_stopped(self):
+        self.store.set_auto_wake(self.cabinet, False)  # the person's own switches keep working
+        self.store.set_seat_auto_wake(self.org, "head", False, reason="set by the person in the Relic App")
+        self.call("/api/org/%s/send" % self.org, {"to": ["head"], "body": "hello", "channel": "private"})
+        self.hook("UserPromptSubmit", prompt="hello")
+        self.assertIsNone(monitor.back_to_work(self.store, self.org, "message", ["head"]))
+        self.assertFalse(monitor.brakes_path().exists())
+        self.assertFalse(self.store.get(self.cabinet)["auto_wake"])
+        self.assertFalse(self.store.get(self.org)["members"]["head"]["auto_wake"])
+        self.assertEqual(self.resumed(self.org) + self.resumed(self.cabinet), [])
+        # nor after a stop has been lifted: a switch the person turns off then stays off
+        self.stop_everything()
+        self.hook("UserPromptSubmit", prompt="back to work")
+        self.assertTrue(self.store.get(self.cabinet)["auto_wake"])
+        self.assertFalse(self.store.get(self.org)["members"]["head"]["auto_wake"])  # switched off before the Stop
+        self.store.set_auto_wake(self.cabinet, False)
+        self.call("/api/org/%s/send" % self.org, {"to": ["head"], "body": "and this", "channel": "private"})
+        self.hook("UserPromptSubmit", prompt="and this")
+        self.assertFalse(self.store.get(self.cabinet)["auto_wake"])
+        self.assertEqual(len(self.resumed(self.org)), 1)
 
 
 if __name__ == "__main__":

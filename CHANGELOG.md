@@ -2,6 +2,31 @@
 
 ## Unreleased / 未发布
 
+- After Stop or Stop all, the person's next message puts the organizations back to work. The message can be sent in
+  the Relic App (private chat, group chat, a forwarded reply) or typed into any member's own session.
+  - Every brake comes off. Auto-wake comes back on for the seats Stop turned off and for every active organization,
+    including organizations whose switch the person had turned off. The members the person talks to then wake the
+    others, in their own organization or in another one, just by messaging them.
+  - Timers stay off: Codex automations that Stop paused stay paused until Resume all or their own Resume. Claude
+    scheduled tasks are never touched. Prompts started by Relic or by a Codex automation do not count as the
+    person's message.
+  - Each resume is recorded as `organization.wake_resumed` in the organization the person wrote in: why ("the person
+    wrote to head in 研发部"), which organizations, seats and sessions came back, and which automations stay paused.
+    Its group chat shows a notice, and each switch event carries the same reason.
+  - Without a Stop in force nothing changes: seat and organization switches the person turns off stay off.
+  - The monitor, Overview and Stop texts say this in both languages. Before, typing to a stopped session released only
+    that session, and wake-ups stayed off until Resume.
+  - 「停止」或「全部停止」之后，人的下一条消息会让各组织回到干活状态。消息可以在 Relic App 里发（私聊、群聊、转发
+    回复），也可以在任何成员自己的会话里打字。
+    - 所有刹车松开。停止关掉的席位重新打开自动唤醒，每个在用的组织也重新打开自动唤醒，包括人自己关掉开关的组织。
+      人对话的成员给别人发消息，就能叫醒本组织或别的组织里的成员。
+    - 定时任务不跟着恢复：停止暂停的 Codex 定时任务一直暂停，等人点「全部恢复」或单独恢复；Claude 的定时任务从来不碰。
+      Relic 自己发起的轮次和 Codex 定时任务发起的轮次，不算人的消息。
+    - 每次自动恢复都记成事件 `organization.wake_resumed`，记在人发消息的那个组织里：原因（英文，例如 "the person
+      wrote to head in 研发部"）、恢复了哪些组织、席位和会话、哪些定时任务仍暂停。那个组织的群聊里会显示一条提示，
+      每个开关的事件也带同样的原因。
+    - 没有停止时什么都不变：人自己关掉的席位和组织开关保持关着。
+    - 运行监控、总览和停止的说明文字（中英文）都已改成这样。以前在停止的会话里打字只放开这一个会话，自动唤醒要等点「恢复」。
 - The person's Slack, read-only, as background for every member. In the Relic App (Settings, Slack) the person creates
   an internal Slack app of their own from the manifest shown there (read scopes only, no bot user, nothing that
   posts), installs it and pastes its User OAuth Token. The token is kept encrypted for the Windows user (DPAPI; a file
