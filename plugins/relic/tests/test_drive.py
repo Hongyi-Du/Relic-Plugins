@@ -241,22 +241,27 @@ class Drive(unittest.TestCase):
     def test_any_dispatch_runs_the_checks_that_are_due(self):
         self.drive()
         wake.dispatch(self.store, self.child, now=time.time() + 700, start=self.start,
-                      age=lambda seat: None, retry=lambda org_id, delay: None)
+                      age=lambda seat: None, retry=lambda org_id, delay: None, arm=lambda delay: None)
         self.assertEqual([(s[0], s[1]) for s in self.started], [(self.oid, "cody")])
 
-    def test_the_next_check_always_has_a_retry_coming(self):
-        """Whoever runs the checks arms a delayed dispatch for the earliest next one, so the checks go on with the
-        Relic App closed and no hook of this version running."""
+    def test_the_next_check_always_has_one_delayed_check_coming(self):
+        """Whoever runs the checks arms one delayed check for the earliest next one, so the checks go on with the
+        Relic App closed and no hook of this version running; processes getting there together arm it once (on the
+        real machine three of them armed one each, every five minutes)."""
         self.drive()
         armed = []
         runner.write_state(self.child, "bob", {"status": "running", "started": time.time(), "pid": os.getpid()})
         at = time.time() + 700
         [(org_id, outcome)] = wake.drive_due(self.store, at, start=self.start, age=lambda seat: None,
-                                             retry=lambda org_id, delay: armed.append((org_id, delay)))
+                                             retry=lambda org_id, delay: None, arm=armed.append)
         self.assertEqual((org_id, outcome["state"]), (self.oid, "busy"))
-        self.assertEqual(armed, [(self.oid, wake.DRIVE_RECHECK + 1)])
-        self.assertEqual(wake.drive_due(self.store, at + 1, retry=lambda org_id, delay: armed.append(delay)), [])
-        self.assertEqual(armed[-1], wake.DRIVE_RECHECK)  # nothing due yet: the same retry is armed again
+        self.assertEqual(armed, [wake.DRIVE_RECHECK + 1])
+        for moment in (at + 1, at + 2, at + 100):  # the App, a hook, another delayed check: one is coming already
+            self.assertEqual(wake.drive_due(self.store, moment, arm=armed.append), [])
+        self.assertEqual(len(armed), 1)
+        wake.drive_due(self.store, at + wake.DRIVE_RECHECK + 2, start=self.start, age=lambda seat: None,
+                       retry=lambda org_id, delay: None, arm=armed.append)  # it ran: the next one is armed
+        self.assertEqual(len(armed), 2)
 
     def test_the_leader_or_an_organization_above_switches_it(self):
         with self.assertRaises(OrgError):

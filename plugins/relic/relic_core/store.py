@@ -471,10 +471,12 @@ class Store:
                 CREATE TABLE IF NOT EXISTS cc(id INTEGER PRIMARY KEY AUTOINCREMENT, org_id TEXT, protocol_id TEXT,
                     body TEXT, at TEXT, read_at TEXT);
                 CREATE TABLE IF NOT EXISTS drive(org_id TEXT PRIMARY KEY, next_check REAL);
+                CREATE TABLE IF NOT EXISTS drive_wake(id INTEGER PRIMARY KEY, due REAL);
             """)
             # drive: the organizations with keep-going on and when wake.drive_check looks at each next (epoch seconds);
             # the setting itself (goal, driver, notices sent) is the organization's "drive". A row is all that every
-            # dispatch has to read to know whether any check is due.
+            # dispatch has to read to know whether any check is due. drive_wake: when the one delayed background check
+            # (wake.schedule_drive) is due, so that processes running checks together schedule one, not one each.
             # check_counts: how often each protocol's check programs allowed, denied, sent for review or failed
             # ("error:<kind>"), kept by the organization the protocol belongs to; allowed calls are only counted.
             # check_alerts: when a failure of each kind was last announced (once a day per protocol and kind).
@@ -2178,6 +2180,17 @@ class Store:
         """{org_id: next check} for every organization with keep-going on."""
         with self.db() as db:
             return {r[0]: r[1] for r in db.execute("SELECT org_id, next_check FROM drive")}
+
+    def arm_drive(self, at, now_ts):
+        """Whether the caller is to schedule the delayed keep-going check for `at`: no scheduled one that has not run
+        yet comes by then. Recorded at once, so that of all the processes asking together exactly one schedules it."""
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT due FROM drive_wake WHERE id=1").fetchone()
+            if row and row[0] is not None and now_ts < row[0] <= at + 5:
+                return False
+            db.execute("INSERT OR REPLACE INTO drive_wake(id, due) VALUES(1, ?)", (at,))
+            return True
 
     def send_system(self, org_id, to, body):
         """A message from the plugin itself (SYSTEM): a keep-going notice. hop 0: it starts a new exchange."""

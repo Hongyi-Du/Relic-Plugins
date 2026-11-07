@@ -333,16 +333,17 @@ def finish(store, org_id, member, error=None):
     return _settle(store, org_id, member, mine.get("last_at") or time.time(), error)
 
 
-def dispatch(store, org_id, now=None, start=None, age=None, retry=None):
+def dispatch(store, org_id, now=None, start=None, age=None, retry=None, arm=None):
     """Wake every seat that is due; returns the members started. Seats that must wait get a delayed retry. Then the
-    keep-going checks that are due run (drive_due), in any organization: one small query when none is."""
+    keep-going checks that are due run (drive_due, arm: its delayed check), in any organization: one small query when
+    none is."""
     now = time.time() if now is None else now
     start = start or runner.start_turn
     age = age or transcript_age
     retry = retry or schedule_retry
     started = _dispatch(store, org_id, now, start, age, retry)
     try:
-        drive_due(store, now, start, age, retry)
+        drive_due(store, now, start, age, retry, arm)
     except Exception:  # keep-going must never stand in the way of a wake-up
         pass
     return started
@@ -596,12 +597,13 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
     return {"state": "nudged", "next": now + DRIVE_QUIET, "driver": driver, "message_id": mid}
 
 
-def drive_due(store, now=None, start=None, age=None, retry=None):
+def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
     """Run the keep-going checks that are due (Store.drive_due claims them); returns [(org_id, outcome)]. Then make
-    sure a delayed dispatch comes for the earliest next check (schedule_retry keeps one per organization), so the
-    checks go on when no member's hooks run this code and the Relic App is closed: a look on this machine, no turn."""
+    sure one delayed check comes for the earliest next one (arm, default schedule_drive; Store.arm_drive makes it one,
+    however many processes get here at once), so the checks go on when no member's hooks run this code and the Relic
+    App is closed: a look on this machine, no turn. retry: delayed wake-ups (the driver's, after a notice)."""
     now = time.time() if now is None else now
-    retry = retry or schedule_retry
+    arm = arm or schedule_drive
     results = []
     for org_id in store.drive_due(now):
         try:
@@ -611,9 +613,22 @@ def drive_due(store, now=None, start=None, age=None, retry=None):
             results.append((org_id, {"state": "error", "error": str(error)[-300:]}))
     checks = store.drive_checks()
     if checks:
-        org_id, at = min(checks.items(), key=lambda item: item[1])
-        retry(org_id, max(1.0, at - now) + 1)
+        at = max(min(checks.values()), now) + 1
+        if store.arm_drive(at, now):
+            arm(at - now)
     return results
+
+
+def schedule_drive(delay):
+    """The delayed keep-going check (scripts/relic_dispatch.py --drive), in the background like schedule_retry."""
+    python = Path(sys.executable)
+    if runner.WINDOWS and python.with_name("pythonw.exe").exists():
+        python = python.with_name("pythonw.exe")
+    script = Path(__file__).resolve().parents[1] / "scripts" / "relic_dispatch.py"
+    flags = (runner.NO_WINDOW | 0x00000200) if runner.WINDOWS else 0
+    subprocess.Popen([str(python), "-X", "utf8", str(script), "--drive", "--after", "%.0f" % delay],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True)
 
 
 def dispatch_for_actor(store, actor):
