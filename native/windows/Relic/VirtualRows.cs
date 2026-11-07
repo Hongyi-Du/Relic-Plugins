@@ -33,6 +33,7 @@ internal sealed class VirtualRows : Grid
     // shrank the rows it replaced until they were built, which moved a view at the bottom up. With it, Reconcile
     // replaces only the rows whose key changed while the rows keep their stable keys, one row at a time, and
     // leaves the realized rows around them (and the row the scroll position is anchored to) as they are.
+    // Set it before the list builds rows: only rows built from then on listen for their size.
     internal bool RememberHeights { get => factory.Heights != null; set => factory.Heights = value ? new(StringComparer.Ordinal) : null; }
     private static string? StableKey(string? key)
     {
@@ -676,7 +677,12 @@ internal sealed class VirtualRows : Grid
         {
             Border host;
             if (empty.Count > 0) host = empty.Pop();
-            else { host = new Border { HorizontalAlignment = HorizontalAlignment.Stretch }; host.SizeChanged += RememberHeight; }
+            else
+            {
+                host = new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
+                // Only a list that remembers heights listens for its rows' sizes; every other list stays as it was.
+                if (Heights != null) host.SizeChanged += RememberHeight;
+            }
             var row = (Row)args.Data;
             host.Tag = row; Realized++;
             host.MinHeight = Heights != null && StableKey(row.Key) is { } stable && Heights.TryGetValue(stable, out var built) ? built : row.Estimate;
