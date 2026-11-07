@@ -693,12 +693,13 @@ internal sealed class VirtualRows : Grid
     }
     // KnownHeights' layout: rows top to bottom, a realized row at its measured height and any other row at its known
     // height, so the list's height does not depend on which rows are realized. Realizes the rows in the repeater's
-    // realization rect (the view and CacheLength screens around it), or around a row asked for far from it.
+    // realization rect (the view and CacheLength screens around it), and a row asked for outside it (the repeater's
+    // recommended anchor, from GetOrCreateElement) as well.
     private sealed class KnownStack : VirtualizingLayout
     {
         private readonly VirtualRows owner;
         private double[] tops = Array.Empty<double>(), heights = Array.Empty<double>();
-        private int first = -1, last = -1;  // the realized rows
+        private int first = -1, last = -1, extra = -1;  // the realized rows, and one asked for outside them
         internal double Spacing;
         internal KnownStack(VirtualRows owner) { this.owner = owner; }
         private double Place(int count)
@@ -737,11 +738,12 @@ internal sealed class VirtualRows : Grid
             Place(count);
             var rect = context.RealizationRect;
             var from = FirstEndingAfter(rect.Y, count); var to = LastStartingBefore(rect.Y + rect.Height, count);
-            var anchor = context.RecommendedAnchorIndex;
-            if (anchor >= 0 && anchor < count && (anchor < from || anchor > to)) { from = Math.Max(0, anchor - 1); to = Math.Min(count - 1, anchor + 1); }
             if (from > to) { from = 0; to = -1; }
+            var anchor = context.RecommendedAnchorIndex;
+            var wanted = anchor >= 0 && anchor < count && (anchor < from || anchor > to) ? anchor : -1;
             for (var index = first; index >= 0 && index <= last && index < count; index++)
-                if (index < from || index > to) context.RecycleElement(context.GetOrCreateElementAt(index));
+                if ((index < from || index > to) && index != wanted) context.RecycleElement(context.GetOrCreateElementAt(index));
+            if (extra >= 0 && extra < count && extra != wanted && (extra < from || extra > to)) context.RecycleElement(context.GetOrCreateElementAt(extra));
             var width = availableSize.Width; var widest = 0d;
             var size = new Windows.Foundation.Size(width, double.PositiveInfinity);
             for (var index = from; index <= to; index++)
@@ -751,7 +753,13 @@ internal sealed class VirtualRows : Grid
                 heights[index] = element.DesiredSize.Height;
                 widest = Math.Max(widest, element.DesiredSize.Width);
             }
-            first = from <= to ? from : -1; last = from <= to ? to : -1;
+            if (wanted >= 0)
+            {
+                var element = context.GetOrCreateElementAt(wanted);
+                element.Measure(size);
+                heights[wanted] = element.DesiredSize.Height;
+            }
+            first = from <= to ? from : -1; last = from <= to ? to : -1; extra = wanted;
             var extent = Place(count);
             return new Windows.Foundation.Size(double.IsInfinity(width) ? widest : width, extent);
         }
@@ -759,12 +767,25 @@ internal sealed class VirtualRows : Grid
         {
             for (var index = first; index >= 0 && index <= last && index < context.ItemCount && index < tops.Length; index++)
                 context.GetOrCreateElementAt(index).Arrange(new Windows.Foundation.Rect(0, tops[index], finalSize.Width, heights[index]));
+            if (extra >= 0 && extra < context.ItemCount && extra < tops.Length)
+                context.GetOrCreateElementAt(extra).Arrange(new Windows.Foundation.Rect(0, tops[extra], finalSize.Width, heights[extra]));
             return finalSize;
         }
         // The repeater has already cleared the elements of removed or replaced rows and given the others their new
         // indices; keep the realized range on the same rows.
         protected override void OnItemsChangedCore(VirtualizingLayoutContext context, object source, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
         {
+            if (extra >= 0)
+            {
+                if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                { if (args.NewStartingIndex <= extra) extra += args.NewItems?.Count ?? 0; }
+                else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+                {
+                    var gone = args.OldStartingIndex; var count = args.OldItems?.Count ?? 0;
+                    extra = extra < gone ? extra : extra >= gone + count ? extra - count : -1;
+                }
+                else if (args.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace) extra = -1;
+            }
             if (first >= 0)
             {
                 if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
