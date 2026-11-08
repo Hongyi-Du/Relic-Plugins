@@ -107,6 +107,13 @@ def payload(request):
             "or in a Relic message reply for this request." % marker(request))
 
 
+def ended(folder):
+    """Whether the session got this request's router prompt and has ended a turn since, though no receipt bound: a
+    human prompt came in between, or the turn ended without public text. The request was delivered and the session
+    is free for the next one; a receipt can still answer it later, by the usual rules."""
+    return (folder / "ended.json").exists()
+
+
 def receipt_matches(receipt, request):
     return (all(receipt.get(k) == request.get(k) for k in ("org_id", "member", "carrier", "nonce")) and
             receipt.get("session_id") == request["carrier"] and receipt.get("event") == "Stop" and
@@ -160,6 +167,9 @@ def capture(event, output, store, actor):
     public final reply that quotes a nonce binds that request, and a human prompt invalidates every earlier binding.
     A late Stop for an older request answers that request, never a newer one: a quoted nonce outranks the router
     prompt of a request whose nonce the reply leaves out.
+
+    A router prompt is also remembered on its own (prompted.json; a human prompt does not undo it), and the first
+    final Stop after it that answers nothing marks the request ended (ended): delivered, with no reply to report.
     """
     observe_desktop_stop(event, output, store, actor)
     if event.get("agent_id") or event.get("session_id") != actor:
@@ -188,6 +198,8 @@ def capture(event, output, store, actor):
         for request, folder in requests:
             if request["nonce"] == carried:
                 binding = {"matched_by": "prompt"}
+                if not (folder / "prompted.json").exists():
+                    _write(folder / "prompted.json", {"at": time.time()})
             elif carried:
                 # Another request's router prompt: this turn answers that one; this request keeps only its nonce.
                 binding = {"matched_by": None}
@@ -203,24 +215,37 @@ def capture(event, output, store, actor):
                     _write(folder / "binding.json", {"matched_by": "relic"})
     elif name == "Stop" and output.get("decision") != "block" and not (output.get("hookSpecificOutput") or {}).get("additionalContext"):
         text = event.get("last_assistant_message")
-        if not isinstance(text, str) or not text.strip():
-            return
-        quoted = {request["nonce"] for request, _ in requests if marker(request) in text}
+        quoted = {r["nonce"] for r, _ in requests if isinstance(text, str) and marker(r) in text}
+        _answer(event, requests)
         for request, folder in requests:
-            binding_path = folder / "binding.json"
-            observed = _read(binding_path)
-            binding = observed.get("matched_by")
-            if marker(request) in text and not observed.get("human_prompt"):
-                binding = "public"
-            elif binding == "prompt" and quoted - {request["nonce"]}:
-                # The reply quotes another request's nonce and not this one's: it is that request's (late) reply, and
-                # this request's router prompt does not claim it too. This request is still owed its Stop; its binding
-                # stays, and a Relic message that quotes its nonce (binding "relic") is evidence of its own.
-                continue
-            if binding not in ("prompt", "relic", "public"):
-                continue
-            receipt = {k: request[k] for k in ("org_id", "member", "carrier", "nonce")}
-            receipt.update(session_id=event["session_id"], event="Stop", entrypoint="claude-desktop",
-                           matched_by=binding, last_assistant_message=text, at=time.time())
-            _write(folder / "receipt.json", receipt)
-            binding_path.unlink(missing_ok=True)
+            # A turn ended after the router prompt, with no receipt to show for it. A reply that quotes another
+            # request's nonce is that request's: this one is still owed its Stop.
+            if ((folder / "prompted.json").exists() and not (folder / "receipt.json").exists() and
+                    not ended(folder) and not quoted - {request["nonce"]}):
+                _write(folder / "ended.json", {"at": time.time()})
+
+
+def _answer(event, requests):
+    """Write the receipts a final Stop gives: to the requests its public text or an earlier binding points at."""
+    text = event.get("last_assistant_message")
+    if not isinstance(text, str) or not text.strip():
+        return
+    quoted = {request["nonce"] for request, _ in requests if marker(request) in text}
+    for request, folder in requests:
+        binding_path = folder / "binding.json"
+        observed = _read(binding_path)
+        binding = observed.get("matched_by")
+        if marker(request) in text and not observed.get("human_prompt"):
+            binding = "public"
+        elif binding == "prompt" and quoted - {request["nonce"]}:
+            # The reply quotes another request's nonce and not this one's: it is that request's (late) reply, and
+            # this request's router prompt does not claim it too. This request is still owed its Stop; its binding
+            # stays, and a Relic message that quotes its nonce (binding "relic") is evidence of its own.
+            continue
+        if binding not in ("prompt", "relic", "public"):
+            continue
+        receipt = {k: request[k] for k in ("org_id", "member", "carrier", "nonce")}
+        receipt.update(session_id=event["session_id"], event="Stop", entrypoint="claude-desktop",
+                       matched_by=binding, last_assistant_message=text, at=time.time())
+        _write(folder / "receipt.json", receipt)
+        binding_path.unlink(missing_ok=True)

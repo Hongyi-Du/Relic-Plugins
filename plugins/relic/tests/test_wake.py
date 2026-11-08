@@ -317,6 +317,19 @@ class Wake(unittest.TestCase):
         relic_run.receipt(self.store, self.oid, "cody", ["lead"], since, {"status": "failed", "error": "boom"})
         self.assertIn("the turn failed: boom", self.store.history(self.oid, 1)[-1]["body"])
 
+    def test_a_retry_that_fails_the_same_way_stays_quiet_until_a_turn_goes_through(self):
+        # 2026-11-08: each retry for one absent Desktop session sent every waker the same receipt again.
+        quiet = lambda error, ids: wake.repeated_failure(self.store, self.oid, "cody", error, ids)
+        self.assertFalse(quiet("send failed (attempt 1, nonce 1a2b3c4d5e)", [7]))
+        self.assertTrue(quiet("send failed (attempt 2, nonce 9f8e7d6c5b)", [7]))  # same failure, same message
+        self.assertFalse(quiet("send failed (attempt 3, nonce 00aa11bb22)", [7, 8]))  # a newer message: told
+        self.assertTrue(quiet("send failed (attempt 4, nonce 33cc44dd55)", [8]))
+        self.assertFalse(quiet("another failure", [7, 8]))  # the failure changed: told
+        with self.store.change(self.oid) as (org, db):
+            org["wake"]["members"]["cody"]["claim"] = {}
+        wake.finish(self.store, self.oid, "cody")  # a turn went through
+        self.assertFalse(quiet("another failure", [7, 8]))
+
     def test_members_answering_each_other_stop_after_max_hops(self):
         actors = {"cody": CODY, "ana": ANA}
         self.store.send(LEAD, ["cody"], "start the review")
