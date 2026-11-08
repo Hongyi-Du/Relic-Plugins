@@ -17,7 +17,8 @@ on hook events of every member, when a runner turn ends, and from a delayed retr
     start is over, and the organization is
     under HOURLY_CAP wakes in the past hour
 A seat that has to wait is retried later; a start that fails gives its claim back and is retried with back-off, so a
-message is never stranded.
+message is never stranded. Its wakers get one receipt for the failure; the retries that fail the same way for the same
+messages stay quiet (repeated_failure).
 A Codex chat open in the Codex desktop app gets its turn through the app (desktop.py); while a turn is already running
 there the wake-up waits GAP and tries again. A chat held by something Relic cannot reach (a Codex CLI session in a
 terminal) is looked at again every RECHECK seconds, MAX_IN_USE times, and then its messages wait for normal delivery.
@@ -25,6 +26,7 @@ terminal) is looked at again every RECHECK seconds, MAX_IN_USE times, and then i
 import calendar
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -183,7 +185,9 @@ def receipt(store, org_id, member, wake_from, after, state):
     if state.get("status") == "done":
         status = "the turn finished"
     elif state.get("status") == "failed":
-        status = "the turn failed: " + (state.get("error") or "no completion confirmed")[-1200:]
+        status = ("the turn failed: " + (state.get("error") or "no completion confirmed")[-1200:] +
+                  ". Relic retries a few times without repeating this receipt; if the retries fail too, the messages "
+                  "wait in %s's inbox for its next turn" % member)
     else:
         status = "the turn is not complete: " + (state.get("error") or "no completion confirmed")[-1200:]
     sent = []
@@ -201,6 +205,27 @@ def receipt(store, org_id, member, wake_from, after, state):
         sent.append(store.send_as(org_id, member, [sender], body,
                                   reply_to=next(iter(roots)) if len(roots) == 1 else None))
     return sent
+
+
+def _failure_kind(error):
+    """A failure's text without the numbers and ids that change from one attempt to the next."""
+    return re.sub(r"[0-9a-f]{8,}|\d+", "#", str(error or ""))[-300:]
+
+
+def repeated_failure(store, org_id, member, error, message_ids):
+    """Whether a failed wake-up only repeats a failure its wakers already have a receipt for: the same failure, for
+    messages they were all told about. Otherwise it is remembered, so the retries that fail the same way stay quiet;
+    a turn that goes through forgets it (_settle). A retry that also carries a newer message gets a receipt."""
+    kind = _failure_kind(error)
+    ids = {i for i in message_ids or () if isinstance(i, int)}
+    with store.change(org_id) as (org, db):
+        mine = org.setdefault("wake", {}).setdefault("members", {}).setdefault(member, {})
+        told = mine.get("told") or {}
+        known = set(told.get("ids") or []) if told.get("kind") == kind else set()
+        if ids and ids <= known:
+            return True
+        mine["told"] = {"kind": kind, "ids": sorted(known | ids)}
+        return False
 
 
 def _cache_path():
@@ -288,7 +313,7 @@ def _settle(store, org_id, member, claimed_at, error=None, busy=False):
         mine = wake.setdefault("members", {}).setdefault(member, {})
         claim = mine.pop("claim", {})
         if error is None:
-            for key in ("failures", "error", "retry_at", "in_use", "waiting_since", "gave_up_at"):
+            for key in ("failures", "error", "retry_at", "in_use", "waiting_since", "gave_up_at", "told"):
                 mine.pop(key, None)
             return None
         busy = busy or desktop.BUSY in str(error) or gui_receipt.WAITING in str(error)

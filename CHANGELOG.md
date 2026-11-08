@@ -2,6 +2,24 @@
 
 ## Unreleased / 未发布
 
+- Wake-ups of a Claude desktop seat no longer stall or repeat themselves.
+  - A Relic request the session has taken no longer holds the session after its turn ends, even when no receipt
+    bound (a human prompt came in between, or the turn ended without public text). Such a request used to hold the
+    session for 6 hours: on 2026-11-08 a newer message waited an hour while the session was up, and went out two
+    minutes after the session had been stopped. The runner sees it too, so it no longer waits up to an hour for a
+    receipt that will not come. A reply that quotes another request's nonce is still that request's.
+  - A retry that fails the same way for messages its wakers were already told about sends no receipt. The same
+    morning, four retries for one stopped desktop session sent every waker the same failure receipt four times. The
+    first failure receipt now says Relic retries quietly and where the messages wait; a newer message, a different
+    failure, or a turn that goes through is reported as before.
+  - Claude 桌面席位的自动唤醒不再卡住，也不再反复发同样的回执。
+    - 会话已经接到的 Relic 请求，在那一轮结束后就不再占住会话，即使回执没对上（中间来了人的提示，或那一轮结束时没有
+      公开正文）。以前这种请求会占住会话 6 小时：2026-11-08 有一条新消息在会话在线时等了一个小时，等会话被停掉两分钟后
+      才去送。派送进程也认这一点，不再为等不来的回执空等最多一小时。只引用另一条请求编号的回复仍算那条请求的。
+    - 重试失败的情况和上次一样、涉及的消息发信人也都已知道时，不再发回执。同一天早上，一个被停掉的桌面会话的四次重试
+      给每个发信人各发了四遍同样的失败回执。现在第一条失败回执会说明 Relic 会安静地再试几次、消息在哪里等；有新消息、
+      失败情况变了、或者这一轮成功了，照常回执。
+
 - Keep-going: an organization can carry its work on without the person. With keep-going on, when nobody in the
   organization or the ones below it has worked for 10 minutes, nothing is waiting to be delivered and work is
   unfinished, its driver (the leader by default) gets a notice with the person's standing instruction and the

@@ -380,6 +380,12 @@ def route(request, config, folder, execute=None):
     return outcome
 
 
+def _ended(folder):
+    """gui_receipt.ended, read here: a long-running process that loaded an older gui_receipt before an upgrade can
+    still load this module later."""
+    return (folder / "ended.json").exists()
+
+
 # A request that no GUI Stop answers stops holding its Desktop session after this long. Its delivery stays unknown
 # (it may have been sent), so it is never sent again; a late Stop that quotes its nonce still answers it.
 PENDING_EXPIRY = 6 * 3600
@@ -396,11 +402,11 @@ def address(store, org, member):
 
 def blocking(store, carrier, now=None):
     """Unanswered requests that still hold this Desktop session: possibly delivered (the router neither refused
-    nor found no target) and younger than PENDING_EXPIRY. The session takes one Relic request at a time, whichever
-    of its seats the request is for."""
+    nor found no target), not yet seen through a turn of the session (gui_receipt.ended), and younger than
+    PENDING_EXPIRY. The session takes one Relic request at a time, whichever of its seats the request is for."""
     now = time.time() if now is None else now
     return [(request, folder) for request, folder in gui_receipt.unresolved(store, carrier, now)
-            if now - request["created"] < PENDING_EXPIRY and
+            if now - request["created"] < PENDING_EXPIRY and not _ended(folder) and
             _read(folder / "delivery.json").get("outcome") not in ("refused", "unavailable")]
 
 
@@ -415,7 +421,7 @@ def _expire(store, carrier, now):
     for request, folder in gui_receipt.unresolved(store, carrier, now):
         outcome = _read(folder / "delivery.json").get("outcome", "unknown")
         if (outcome in ("refused", "unavailable") or now - request["created"] < PENDING_EXPIRY or
-                (folder / "expired.json").exists()):
+                (folder / "expired.json").exists() or _ended(folder)):
             continue
         _write(folder / "expired.json", {"at": now, "outcome": outcome, "age": round(now - request["created"])})
         try:
@@ -464,6 +470,8 @@ def run_turn(store, org, member, config, prompt, new, cwd, route_message=None, t
         receipt = _read(folder / "receipt.json")
         if receipt_matches(receipt, request):
             return carrier, receipt["last_assistant_message"], False, None
+        if _ended(folder):
+            return carrier, "", False, None  # the session took the request and ended its turn; no reply to quote
         if clock() >= deadline:
             raise TransportError(outcome, "no matching GUI Stop receipt; not complete and not sent again (nonce %s)" % request["nonce"], True)
         sleep(1)

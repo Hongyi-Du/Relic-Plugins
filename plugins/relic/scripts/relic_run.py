@@ -158,6 +158,15 @@ def receipt(store, org_id, member, wake_from, after, state):
     return wake.receipt(store, org_id, member, wake_from, after, state)
 
 
+def repeated(store, org_id, member, error, state):
+    """wake.repeated_failure, failing open: when it cannot tell, the wakers get the receipt, and the wake-up is still
+    settled after it."""
+    try:
+        return wake.repeated_failure(store, org_id, member, error, state.get("wake_message_ids"))
+    except Exception:
+        return False
+
+
 def needs_receipt(harness, error):
     """No receipt when no turn ran (the chat was held or busy elsewhere: retried quietly), nor after a ChatGPT chat's
     turn that went through: its reply already reached the writers as its message."""
@@ -233,7 +242,8 @@ def main():
             wake_from = [m for m in a.wake_from.split(",") if m]
             if wake_from:
                 error = None if state.get("status") == "done" else str(state.get("error") or state.get("reply") or "failed")
-                if needs_receipt(harness, error):
+                # A retry that fails like the last one, for messages the wakers were told about, adds nothing.
+                if needs_receipt(harness, error) and not (error and repeated(store, a.org, a.member, error, state)):
                     receipt(store, a.org, a.member, wake_from, after, state)
                 # A held/unknown/sent GUI request can still arrive. Consume this wake
                 # claim without calling it complete or scheduling a duplicate send.
