@@ -300,6 +300,7 @@
  "drive.more_tasks": "（另有 {n} 个更早的任务没列出）",
  "drive.notice": "[Relic 持续推进] {org}（连同下属组织）已经 {minutes} 分钟没人在干活，也没有待送的消息，工作停在这里。\n人的长期指令（{by}，{when}）：{goal}\n{tasks}请你作为推进人现在接着干：看最近的结果，定下一步，用 message 派给要做的成员，或者自己做。不要停下来等人确认。\n只有按规矩必须由人做的事（花钱、超出已批准的规模、对外发布、删人的数据、登录凭据、改目标本身）才写给 human：写明要人做什么、你建议怎么做，同时继续做不受影响的部分。\n目标已经达成，就给 human 发一条总结。这条提醒不用回复。",
  "drive.off_by": "{member} 关掉了「{org}」的持续推进：{reason}",
+ "purpose.changed_by": "{member} 更新了「{org}」的组织宗旨。原因：{reason}\n\n现在是：\n{new}\n\n原来是：\n{old}",
  "drive.tasks": "还没做完的任务：\n{list}\n",
  "drive.unreachable": "「{org}」开着持续推进，但推进人 {driver} 叫不醒（这个席位没有能自动唤醒的会话）。工作停下时不会有人接着干：请给 {driver} 配一个会话，或者换一个推进人。",
  "details.ask": "问问 {name}",

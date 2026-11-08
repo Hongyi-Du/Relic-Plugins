@@ -150,6 +150,9 @@ The person places an organization under another one in the Relic App; a member c
   - `message {org, to, body}`: write to its members; they are woken as usual and can answer you.
   - `work {org, op: "task", ...}` assigns or updates its tasks (a new task needs an owner, one of its members);
     `work {org, op: "doc_read"}` reads its documents.
+  - `work {org, op: "purpose", purpose, reason}` brings its purpose up to date when it no longer says what holds
+    (for example after the person changed a rule it states). Give the whole new text, keep what still holds, and say
+    why: the person is told, with the text it replaces. A leader does the same in its own organization without `org`.
   - `protocol {org, op: "propose", ...}` issues a protocol there: it takes effect directly, without a vote. Revise or
     retire it the same way (`supersedes`, `retire_target`).
 - **inherit** (older name: `downward`): a protocol binds its own organization only. `protocol op=propose` with

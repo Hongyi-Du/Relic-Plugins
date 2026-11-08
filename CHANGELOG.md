@@ -2,6 +2,18 @@
 
 ## Unreleased / 未发布
 
+- An organization's purpose can be brought up to date: `work op=purpose {purpose, reason}`, by its leader or from an
+  organization above. The person is told, with the text it replaces; members read the new purpose from their next
+  context on. Before, a purpose could only be set when the organization was made: on 2026-11-08 a research
+  organization's purpose still named the model the person had replaced, and its members took it for a current
+  instruction.
+  - A request kind an older version does not know is no longer carried out as "dissolve": approving it changes nothing
+    and says so.
+  - 组织宗旨可以更新了：`work op=purpose {purpose, reason}`，由负责人或上级组织的成员来改。改了会告诉人，并附上被替换
+    的原文；成员下一次看上下文起就读到新宗旨。以前宗旨只能在建组织时写：2026-11-08 有个科研组织的宗旨还写着人已经换掉
+    的模型，成员把它当成了现行要求。
+    - 旧版本不认识的请求种类不再被当成「解散」执行：批准它什么也不改，并说明原因。
+
 - Wake-ups of a Claude desktop seat no longer stall or repeat themselves.
   - A Relic request the session has taken no longer holds the session after its turn ends, even when no receipt
     bound (a human prompt came in between, or the turn ended without public text). Such a request used to hold the

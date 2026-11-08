@@ -100,11 +100,14 @@ TOOLS = [
          "for 10 minutes and work is unfinished, the driver (default: the leader) gets a notice with the goal to "
          "decide the next step. goal: the person's standing instruction, in their words; switching it off needs a "
          "reason, which the person is told. "
+         "purpose {purpose, reason}: bring the organization's purpose up to date (the whole new text), e.g. after the "
+         "person changed a rule it states; the leader, or from an organization above. The person is told, with the "
+         "text it replaces. "
          "The person reads the tasks: write task titles in the person's language, and mark a task done with evidence "
          "and a short report (at most 1000 characters, Markdown) of what it achieved and how it turned out, in the "
          "person's language too.",
-         {"op": {"enum": ["doc_write", "doc_read", "task", "role", "note", "drive"]}, "key": S, "body": S,
-          "on": {"type": "boolean"}, "goal": S, "driver": S, "reason": S,
+         {"op": {"enum": ["doc_write", "doc_read", "task", "role", "note", "drive", "purpose"]}, "key": S, "body": S,
+          "on": {"type": "boolean"}, "goal": S, "driver": S, "reason": S, "purpose": S,
           "expected_revision": {"type": "integer"}, "task_id": S, "title": S, "owner": S, "status": S,
           "evidence": SL,
           "report": dict(S, description="Required when a task becomes done; a done task's report can also be added "
@@ -112,8 +115,8 @@ TOOLS = [
                                         "turned out, in the person's language: Markdown, at most 1000 characters."),
           "member": S, "role": S,
           "org": dict(ORG, description="An organization below yours: read its documents (doc_read), assign or "
-                                       "update its tasks (task; a new task needs an owner, one of its members) and "
-                                       "switch its keep-going (drive).")},
+                                       "update its tasks (task; a new task needs an owner, one of its members), "
+                                       "switch its keep-going (drive) and bring its purpose up to date (purpose).")},
          ["op"]),
     tool("episode", "Episodes bound a piece of work so the organization can learn from it. op=open {title, participants?} | "
          "close {episode_id, outcome: success|failure|partial|cancelled, summary, evidence?} | reflect {episode_id, body}. "

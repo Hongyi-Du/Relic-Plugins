@@ -1130,7 +1130,9 @@ class Store:
             return "place %s under %s" % (a.get("org_name") or a.get("org"), a.get("parent_name") or a.get("parent") or "nothing")
         if r["kind"] == "leader":
             return "make %s the leader of %s" % (a.get("member"), a.get("org_name") or a.get("org"))
-        return "dissolve %s" % (a.get("org_name") or a.get("org"))
+        if r["kind"] == "dissolve":
+            return "dissolve %s" % (a.get("org_name") or a.get("org"))
+        return "%s (a request kind this version does not know)" % r["kind"]
 
     def requests(self, org_id=None):
         """Every request kept in org_id (default: in any organization), newest first."""
@@ -1181,7 +1183,10 @@ class Store:
             return self.set_parent(a["org"], a.get("parent"))
         if r["kind"] == "leader":
             return self.set_leader(a["org"], a["member"], by=qualified(who["org"], who["member"]) if who.get("org") else HUMAN)
-        return self.dissolve(a["org"], by=qualified(who["org"], who["member"]) if who.get("org") else HUMAN)
+        if r["kind"] == "dissolve":
+            return self.dissolve(a["org"], by=qualified(who["org"], who["member"]) if who.get("org") else HUMAN)
+        # Never fall through to another kind: a request filed by a newer version must not dissolve anything here.
+        raise OrgError("Request kind %s is not known to this version of Relic; nothing was changed." % r["kind"])
 
     def _tell_requester(self, home_id, r, by):
         """The requester learns the decision in its own organization (a created one: the new organization)."""
@@ -1702,9 +1707,10 @@ class Store:
         return dict({"message_id": cur.lastrowid, "to": recipients, "org_id": target["id"]}, **thread)
 
     def _work_below(self, own, member, target, op, a):
-        if op not in ("task", "doc_read", "drive"):
+        if op not in ("task", "doc_read", "drive", "purpose"):
             raise OrgError("In an organization below yours you read documents (doc_read), assign or update tasks "
-                           "(task) and switch keep-going (drive); the rest of its work belongs to its members.")
+                           "(task), switch keep-going (drive) and bring its purpose up to date (purpose); the rest "
+                           "of its work belongs to its members.")
         if op == "task" and not a.get("task_id") and not a.get("owner"):
             raise OrgError("A task you assign in another organization needs an owner: one of its members.")
         result = self._work(target, qualified(own["id"], member), op, a)
@@ -2290,7 +2296,37 @@ class Store:
                 return {"private_notes": len(org["members"][member]["notes"])}
             if op == "drive":
                 return self._drive_op(org, db, member, a)
+            if op == "purpose":
+                return self._purpose_op(org, db, member, a)
             raise OrgError("Unknown work op " + str(op))
+
+    PURPOSE_LIMIT = 4000
+
+    def _purpose_op(self, org, db, member, a):
+        """work op=purpose: the leader brings its own organization's purpose up to date, or a member of an
+        organization above does it there (member "<org id>/<name>"), e.g. after the person changed a rule the purpose
+        states. It takes a reason; the person is told, with the purpose it replaces."""
+        if "/" not in member and org.get("governance") == "leader" and org.get("leader") != member:
+            raise OrgError("The purpose is changed by the leader (%s), or from an organization above."
+                           % org.get("leader"))
+        text = (a.get("purpose") or "").strip()
+        if not text:
+            raise OrgError("purpose needs the new purpose text: the whole text, as members should read it.")
+        if len(text) > self.PURPOSE_LIMIT:
+            raise OrgError("Keep the purpose under %d characters; put the details in a document." % self.PURPOSE_LIMIT)
+        reason = (a.get("reason") or "").strip()
+        if not reason:
+            raise OrgError("Say why the purpose changes (reason): the person is told.")
+        old = org.get("purpose") or ""
+        if text == old:
+            return {"org": org["id"], "purpose": text, "changed": False}
+        org["purpose"] = text
+        self._event(db, org["id"], member, "organization.purpose",
+                    {"by": member, "reason": reason[:500], "old": old, "new": text})
+        from . import i18n
+        self._post(db, org["id"], member, [HUMAN],
+                   i18n.t("purpose.changed_by", member=member, org=org["name"], reason=reason, old=old, new=text))
+        return {"org": org["id"], "purpose": text, "previous": old, "changed": True}
 
     def _drive_op(self, org, db, member, a):
         """work op=drive: the leader switches keep-going in its own organization, or a member of an organization above
