@@ -114,6 +114,10 @@
           "type": "string",
           "description": "With recommend: the member who goes ahead when the time is up (default: you)."
         },
+        "ask_key": {
+          "type": "string",
+          "description": "With recommend: the decision's own name, the same for whoever asks it; a question with the same key that is still open is not asked again and keeps its first deadline (default: the question and the recommendation)."
+        },
         "org": {
           "type": "string",
           "description": "An organization you hold a seat in always selects that seat, even above your main organization. Otherwise write to one below yours, or one above it to report. A sender named <org id>/<member> is answered with to=['<org id>/<member>'] or with org=<org id>, to=[member]."
