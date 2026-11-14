@@ -2,6 +2,47 @@
 
 ## Unreleased / 未发布
 
+- Pauses end and questions to the person run out (the person, 2026-11-12/14: stops must come with the condition that
+  ends them; "I am not at the computer all the time, I don't look and nothing moves"; a Falcon run waited 23 hours on a
+  confirmation inside the scope the person had already approved).
+  - A member who switches an organization's or a seat's auto-wake, or keep-going, off pauses it: `until` names the end
+    (a time, `6h`, `90m`, `quota:codex` once the Codex weekly limit has really reset, or `idle` once the person has left
+    the computer and no game runs), and Relic switches it back on then and tells the member. A pause without `until`
+    is never restarted blindly: Relic asks its pauser every 2 hours whether the reason is still there. Switches an older
+    plugin turned off with a member's reason become such reviewed pauses. The person's own switches (the Relic App,
+    Stop, Stop all) end with the person's next message, as before, never with a timer.
+  - A question to the person is a message to `human` with `recommend` (and `within`, at most 60 minutes, and an
+    `executor`). The message says until when (Chicago time); if the person has not written to the asker by then, the
+    executor gets one notice to go ahead with the recommendation, after looking at what the person said since, the
+    quota and the hard protections. Nothing happens if the person answered or stopped the work meanwhile.
+  - Timers live in the store: a restart of the App or a member keeps them, and two processes fire each once. Every
+    dispatch fires the due ones, and the delayed background check comes for the next one too.
+  - `work op=said {query?, limit?, hours?}`: what the person typed lately into the sessions of seats in your
+    organization and the ones below it, with where and when, keys and passwords masked. Members read it instead of
+    asking each other for the person's exact words; the person's other chats are not kept.
+  - The context shows the pauses that touch a member, with their reason and end, and the member's running questions.
+- A strong rule stops one call, never the work. A call a rule sends to review (`require_review`, a check program's
+  `review`) gets one request, and Relic asks the members who can approve it at once (the leader, otherwise the
+  others), so nobody waits for someone who does not know; the approved member hears it and makes the call again. The
+  blocked member goes on with the rest meanwhile, and the block message and the context say not to stop and wait for
+  the person. Nobody approves their own call, and a call a rule denies stays a hard protection with no request.
+  - 「停」会到点结束，问人的事会到点按推荐执行（人 2026-11-12/14：停必须带恢复条件；「我不是所有时间全都在电脑前面的，
+    我不看就不动」；Falcon 一轮在人已批准的范围内为一次确认空等了 23 小时）。
+  - 成员关掉组织或席位的自动唤醒、或持续推进，就是一次暂停：`until` 写结束条件（时间、`6h`、`90m`、`quota:codex`
+    即 Codex 周额度真的重置以后、`idle` 即人离开电脑且没在玩游戏），到时 Relic 自动打开并告诉关的人。没写 `until`
+    的暂停不会被盲目打开：Relic 每 2 小时问一次关的人原因还在不在。旧版插件带成员理由关掉的开关也按这种方式复查。
+    人自己的开关（Relic App、停止、全部停止）照旧在人下一次发话时恢复，不受计时器影响。
+  - 问人：发给 `human` 的消息带 `recommend`（可加 `within`，最多 60 分钟，和执行人 `executor`）。消息里写明截止时间
+    （芝加哥时间）；到点人没给提问方发话，执行人收到一条通知：先看人之后说过的话、额度和硬保护，然后按推荐执行。
+    人已经回复、或在此期间叫停了，就什么也不发。
+  - 计时记在库里：App 或成员重启不会丢，多个进程同时检查也只触发一次。
+  - `work op=said {query?, limit?, hours?}`：人最近在本组织及下属组织席位的会话里亲手打的字，带地点和时间，密钥和
+    密码已遮掉。成员直接查，不再互相要原话；人的其他对话不记录。
+  - 上下文里显示和成员有关的暂停（原因、结束条件）以及它正在等的提问。
+  - 强规则只拦一次调用，不卡死工作：送审的调用（`require_review`、检查程序判 `review`）生成一个请求，Relic 马上通知
+    能批的人（负责人；负责人本人被拦时通知其他成员），批准后被拦的成员会收到通知再做一次。等待期间被拦的成员接着做
+    别的，拦截消息和上下文都写明不要因此停下等人。谁也不能批自己的调用；被 deny 拦下的调用是硬保护，没有请求可批。
+
 - An organization's purpose can be brought up to date: `work op=purpose {purpose, reason}`, by its leader or from an
   organization above. The person is told, with the text it replaces; members read the new purpose from their next
   context on. Before, a purpose could only be set when the organization was made: on 2026-11-08 a research

@@ -2,9 +2,43 @@
 import json
 import time
 
-from .store import has_check, language_name
+from .store import REPLY, WAY_PAST, has_check, language_name
 
 RECENT_TROUBLE = 24 * 3600  # a check program's failures are mentioned for a day after the latest one
+
+
+def _pause_text(what, pause):
+    end = ("Relic asks %s every 2 hours whether the reason is still there; to end it at a set time, switch it off again "
+           "with until" % (pause.get("by") or "whoever paused it")) if pause.get("review") else (
+        "it ends %s%s" % (pause.get("until"), {"quota:codex": " once the Codex limit has really reset",
+                                                "idle": " once the person has left the computer"}.get(
+                                                    pause.get("wait_for"), "")))
+    return "%s is paused by %s since %s (%s): %s." % (what, pause.get("by") or "?", pause.get("at"),
+                                                     (pause.get("reason") or "no reason given")[:200], end)
+
+
+def pause_lines(store, org, member):
+    """Pauses that touch this member, and the member's questions to the person that are running."""
+    lines = []
+    if org.get("pause") and not org.get("auto_wake", True):
+        lines.append(_pause_text("Auto-wake in this organization", org["pause"]))
+    seat = org["members"].get(member) or {}
+    if seat.get("pause") and not seat.get("auto_wake", True):
+        lines.append(_pause_text("Your seat's auto-wake", seat["pause"]))
+    drive = org.get("drive") or {}
+    if drive.get("pause") and not drive.get("on"):
+        lines.append(_pause_text("Keep-going here", drive["pause"]))
+    for ask in sorted((org.get("asks") or {}).values(), key=lambda a: a.get("due") or ""):
+        if ask.get("status") == "open" and member in (ask.get("asker"), ask.get("executor")):
+            lines.append("Question to the person (message #%s by %s): if the person has not written to %s by %s, %s goes "
+                         "ahead with: %s" % (ask["message_id"], ask["asker"], ask["asker"], ask["due"],
+                                             ask.get("executor") or ask["asker"], ask["recommend"][:300]))
+    return lines
+
+
+def _stops_calls(protocol):
+    """Whether a protocol has a strong rule on tool calls (a rule on Reply judges the reply instead)."""
+    return protocol.get("strength") == "strong" and any(r.get("tools") != [REPLY] for r in protocol.get("rules") or [])
 
 
 def _rule_text(rule):
@@ -142,6 +176,9 @@ def render(store, org, member, unread_count=None, full=True):
     for above, p, level, by, how in lineage["replaced"]:
         lines.append("- %s/%s '%s' of %s is %s by %s %s and does not bind here." % (
             above["id"], p["id"], p["title"], above["name"], how, level["name"], by))
+    if any(_stops_calls(p) for p in active) or any(_stops_calls(p) for _, p in inherited):
+        lines.append(WAY_PAST)
+    lines += pause_lines(store, org, member)
     for ref, title, kinds, latest in store.check_trouble(org):
         if time.time() - latest < RECENT_TROUBLE:
             lines.append("The check program of %s '%s' has failed (%s; latest %s UTC): calls it covers are allowed or "
@@ -157,7 +194,8 @@ def render(store, org, member, unread_count=None, full=True):
         lines.append("Proposal awaiting your vote: %s '%s' by %s (%s)." % (p["id"], p["title"], p["author"], p["strength"])
                      + (" It runs a check program: read its code and examples with protocol op=list protocol_id=%s "
                         "before you vote, and say in your vote what you checked." % p["id"] if has_check(p) else ""))
-    reviews = [r for r in org["reviews"].values() if r["status"] == "pending" and r["subject"] != member]
+    reviews = [r for r in org["reviews"].values()
+               if r["status"] == "pending" and r["subject"] != member and r.get("kind", "review") == "review"]
     for r in reviews[:5]:
         lines.append("Review requested: %s by %s for %s: %s%s" % (r["id"], r["subject"], r["tool"], r["summary"][:120],
                                                                  (" (why: %s)" % r["why"][:160]) if r.get("why") else ""))

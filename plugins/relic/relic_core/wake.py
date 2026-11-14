@@ -630,15 +630,24 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
     now = time.time() if now is None else now
     arm = arm or schedule_drive
     results = []
+    try:  # pauses that end and questions to the person that run out (Store.fire_timers), then wake who heard of it
+        store.fire_timers(now)
+        for org_id in dict.fromkeys(store.__dict__.pop("posted", [])):
+            _dispatch(store, org_id, now, start or runner.start_turn, age or transcript_age, retry or schedule_retry)
+    except Exception:  # timers must never stand in the way of keep-going or a wake-up
+        pass
     for org_id in store.drive_due(now):
         try:
             results.append((org_id, drive_check(store, org_id, now, age, start, retry)))
         except Exception as error:  # a check that breaks is not retried on every call
             store.set_drive_check(org_id, now + DRIVE_QUIET)
             results.append((org_id, {"state": "error", "error": str(error)[-300:]}))
-    checks = store.drive_checks()
-    if checks:
-        at = max(min(checks.values()), now) + 1
+    due = list(store.drive_checks().values())
+    next_timer = store.next_timer()
+    if next_timer is not None:
+        due.append(next_timer)
+    if due:
+        at = max(min(due), now) + 1
         if store.arm_drive(at, now):
             arm(at - now)
     return results
