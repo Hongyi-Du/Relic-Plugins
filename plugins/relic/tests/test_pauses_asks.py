@@ -262,7 +262,7 @@ class ThePersonsWords(Base):
         self.assertEqual(s.work(CHIEF, "said", {"query": "跑"})["said"][0]["place"], "%s/dev" % self.team)
 
     def test_secrets_are_masked(self):
-        self.assertNotIn("sk-abcdefghijklmnopqrstuv", mask_secrets("key sk-abcdefghijklmnopqrstuv please"))
+        self.assertNotIn("sk-TESTabcdefghijklmnopqr", mask_secrets("key sk-TESTabcdefghijklmnopqr please"))
         self.assertNotIn("hunter2", mask_secrets("密码：hunter2"))
         self.assertEqual(mask_secrets("跑啊 为什么我不回复就这么保守呢"), "跑啊 为什么我不回复就这么保守呢")
 
