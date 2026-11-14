@@ -111,27 +111,68 @@ def mask_secrets(text):
     return _SECRET.sub("[已隐藏]", str(text or ""))
 
 
-def codex_reset():
-    """When the Codex plan's weekly limit resets (epoch seconds), from the latest rate limits the Relic App's usage
-    reader kept; None when unknown."""
+def _rollout_limits():
+    """The Codex plan's weekly limit from the newest Codex session files' own token_count events:
+    {used_percent, resets_at, window_minutes, at}, or {}. Fresher than the Relic App's usage reader whenever the App is
+    not reading (on 2026-11-14 its copy was five days old)."""
+    root = Path(os.getenv("CODEX_HOME") or Path.home() / ".codex") / "sessions"
     try:
-        with contextlib.closing(sqlite3.connect(data_home() / "usage.sqlite3", timeout=2)) as db:
-            row = db.execute("SELECT value FROM meta WHERE key='codex_limits'").fetchone()
-        limits = (json.loads(row[0]) if row else {}).get("value") or {}
-        resets = (limits.get("primary") or {}).get("resets_at")
-        return float(resets) if resets else None
-    except (sqlite3.Error, ValueError, TypeError, AttributeError):
-        return None
+        days = []
+        for year in sorted(p for p in root.iterdir() if p.is_dir())[-2:]:
+            for month in sorted(p for p in year.iterdir() if p.is_dir())[-2:]:
+                days += sorted(p for p in month.iterdir() if p.is_dir())
+        files = sorted((f for d in days[-3:] for f in d.glob("rollout-*.jsonl")), key=lambda f: f.stat().st_mtime,
+                       reverse=True)[:6]
+    except OSError:
+        return {}
+    best = {}
+    for path in files:
+        try:
+            with open(path, "rb") as handle:
+                handle.seek(max(0, path.stat().st_size - 512 * 1024))
+                lines = handle.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if '"rate_limits"' not in line:
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            primary = ((record.get("payload") or {}).get("rate_limits") or {}).get("primary") or {}
+            at = epoch(str(record.get("timestamp") or "")[:19] + "Z")
+            if primary and at and at > best.get("at", 0):
+                best = dict(primary, at=at)
+            break
+    return best
 
 
 def codex_limits():
-    """The Codex plan's latest weekly limit as the usage reader kept it: {used_percent, resets_at}, or {}."""
+    """The Codex plan's weekly limit, the fresher of the Relic App's usage reader and the newest Codex session files:
+    {used_percent, resets_at, at}, or {}."""
+    found = []
     try:
         with contextlib.closing(sqlite3.connect(data_home() / "usage.sqlite3", timeout=2)) as db:
             row = db.execute("SELECT value FROM meta WHERE key='codex_limits'").fetchone()
-        return ((json.loads(row[0]) if row else {}).get("value") or {}).get("primary") or {}
+        kept = json.loads(row[0]) if row else {}
+        primary = (kept.get("value") or {}).get("primary") or {}
+        if primary:
+            found.append(dict(primary, at=float(kept.get("at") or 0)))
     except (sqlite3.Error, ValueError, TypeError, AttributeError):
-        return {}
+        pass
+    found.append(_rollout_limits())
+    found = [limits for limits in found if limits]
+    return max(found, key=lambda limits: limits.get("at") or 0) if found else {}
+
+
+def codex_reset():
+    """When the Codex plan's weekly limit resets next (epoch seconds); None when unknown or already past."""
+    try:
+        resets = float(codex_limits().get("resets_at") or 0)
+    except (TypeError, ValueError):
+        return None
+    return resets if resets > time.time() else None
 
 
 IDLE_AFTER = 600  # seconds without keyboard or mouse input: the person has left the computer
@@ -634,6 +675,10 @@ class Store:
             # its Relic calls use when they name no organization. Bindings written before seats existed, or by an older
             # plugin that knows only actors, are seats too.
             db.execute("INSERT OR IGNORE INTO seats SELECT actor, org_id, member, bound_at FROM actors")
+            # A timers table written before timers named their record gets the column; its rows name none, so the
+            # pause or question they belong to is handled again by the scan (old pauses) or not at all (questions).
+            if "ref" not in {r[1] for r in db.execute("PRAGMA table_info(timers)")}:
+                db.execute("ALTER TABLE timers ADD COLUMN ref TEXT")
             # hop: how many automatic wake-ups led to this message (0 = sent outside an automatically started turn)
             if "hop" not in {r[1] for r in db.execute("PRAGMA table_info(messages)")}:
                 try:
@@ -2380,8 +2425,10 @@ class Store:
     LEASE = 60  # a claimed timer comes again after this if its process died before finishing it
 
     def next_timer(self):
+        """When the next pause or question is due: what the delayed background check is armed for. The scan of old
+        switch-offs is not one: it runs when members' hooks do, and never keeps a background check coming by itself."""
         with self.db() as db:
-            row = db.execute("SELECT MIN(due) FROM timers").fetchone()
+            row = db.execute("SELECT MIN(due) FROM timers WHERE kind<>'scan'").fetchone()
         return row[0] if row and row[0] is not None else None
 
     def fire_timers(self, now_ts=None):
@@ -2391,6 +2438,11 @@ class Store:
         lease runs out; a timer whose record changed meanwhile (switched back on, paused anew, answered) does nothing.
         Every SCAN_EVERY seconds it also gives an end to switches an older plugin turned off without one."""
         now_ts = time.time() if now_ts is None else now_ts
+        with self.db() as db:  # every hook asks: nothing due costs one read, no write lock
+            nothing_due = db.execute("SELECT 1 FROM timers WHERE due<=? LIMIT 1", (now_ts,)).fetchone() is None
+            scanned = db.execute("SELECT 1 FROM timers WHERE kind='scan'").fetchone() is not None
+        if nothing_due:
+            return [] if scanned else self._scan_pauses(now_ts)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             due = db.execute("SELECT kind, key, ref FROM timers WHERE due<=? ORDER BY due", (now_ts,)).fetchall()

@@ -221,5 +221,28 @@ class TimersActOnlyOnTheirOwnRecord(Base):
         self.assertEqual(len(self.notices(CHIEF)), 1)
 
 
+class NoEndlessBackgroundChecks(Base):
+    def test_the_scan_never_arms_the_background_check_by_itself(self):
+        self.store.fire_timers()  # first run: the scan, which writes its own marker row
+        with self.store.db() as db:
+            self.assertIsNotNone(db.execute("SELECT 1 FROM timers WHERE kind='scan'").fetchone())
+        self.assertIsNone(self.store.next_timer(), "nothing to arm a background check for")
+        self.store.set_auto_wake(self.team, False, reason="x", until="90m", by=self.chief)
+        self.assertIsNotNone(self.store.next_timer())
+
+    def test_an_older_timers_table_gets_its_ref_column(self):
+        path = Path(os.environ["RELIC_HOME"]) / "old" / "relic.sqlite3"
+        path.parent.mkdir(parents=True)
+        import sqlite3
+        with sqlite3.connect(path) as db:
+            db.execute("CREATE TABLE timers(kind TEXT, key TEXT, due REAL, PRIMARY KEY(kind, key))")
+            db.execute("INSERT INTO timers VALUES('scan', 'all', 1)")
+        os.environ["RELIC_HOME"] = str(path.parent)
+        store = Store()
+        with store.db() as db:
+            self.assertIn("ref", [r[1] for r in db.execute("PRAGMA table_info(timers)")])
+        store.fire_timers()  # works on the migrated table
+
+
 if __name__ == "__main__":
     unittest.main()

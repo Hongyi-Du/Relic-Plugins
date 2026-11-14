@@ -142,6 +142,25 @@ class MemberPauses(Base):
         self.assertTrue(drive["on"])
         self.assertEqual(drive["goal"], "keep the study going")
 
+    def test_the_fresher_of_the_apps_copy_and_codexs_own_session_file_decides(self):
+        stale_reset = time.time() - 5 * 86400
+        path = Path(os.environ["RELIC_HOME"]) / "usage.sqlite3"  # the App's usage reader stopped five days ago
+        with sqlite3.connect(path) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            db.execute("INSERT OR REPLACE INTO meta VALUES('codex_limits', ?)", (json.dumps(
+                {"at": time.time() - 5 * 86400, "value": {"primary": {"used_percent": 98, "resets_at": stale_reset}}}),))
+        day = Path(os.environ["CODEX_HOME"]) / "sessions" / "2026" / "11" / "14"
+        day.mkdir(parents=True)
+        fresh_reset = time.time() + 40 * 3600
+        record = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                  "type": "event_msg", "payload": {"type": "token_count", "rate_limits": {
+                      "primary": {"used_percent": 86.0, "window_minutes": 10080, "resets_at": fresh_reset}}}}
+        (day / "rollout-2026-11-14T10-00-00-0000.jsonl").write_text(json.dumps(record) + chr(10), encoding="utf-8")
+        limits = store_module.codex_limits()
+        self.assertEqual((limits["used_percent"], limits["resets_at"]), (86.0, fresh_reset))
+        self.assertEqual(store_module.codex_reset(), fresh_reset)
+        self.assertEqual(store_module.pause_end("quota:codex", time.time()), fresh_reset)
+
     def test_idle_waits_for_the_person_to_leave_the_computer(self):
         self.store.set_auto_wake(self.team, False, reason="the person is playing", until="idle", by=self.chief)
         due = self.due("wake", self.team)
