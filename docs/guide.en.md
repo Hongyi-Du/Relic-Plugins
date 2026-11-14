@@ -50,8 +50,8 @@ Add member (in the sidebar, the Overview pane, or File → Add member…) offers
 
 - **Run in the App**: the App hosts the member's session. Choose Claude Code or Codex, a model and a folder (by default `~/.relic/workspaces/<org>/<member>`); the member can also be made the organization's secretary. It takes its seat, reads the organization and waits for its task.
 - **Command line or desktop**: the member's sessions run in Claude Code or Codex itself. Choose the model, reasoning effort, folder or a git worktree of its own, permission and environment variables. Relic starts its sessions and wakes it when messages arrive.
-  - A Claude Desktop session is reached by its title, which must be exactly `<organization> · <member>` of the seat configured for the desktop app.
-  - The session's seats in other organizations need no configuration of their own: they reach it at the same title.
+  - A Claude Desktop session is woken through its own inbox, the way Claude Code's sessions message each other: Relic finds the live session by the seat's session id (else by its title, exactly `<organization> · <member>`) and writes the request there. No CLI sign-in and no extra model call is needed; a session in the middle of a turn is waited for, never interrupted. Only when no live session can be reached does Relic fall back to a one-off CLI router, which needs `claude` signed in.
+  - The session's seats in other organizations need no configuration of their own: they reach the same session.
   - Such a session takes one request at a time. The next is delivered after the previous one's receipt, or after 6 hours; an expired request is never sent again.
 - **Existing session**: a session already on this computer takes a seat: a Claude Code session, a Codex chat or a ChatGPT chat. It joins with its own context and keeps any seats it holds in other organizations. File → Add an existing session… opens this directly.
 

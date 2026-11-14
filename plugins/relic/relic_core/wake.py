@@ -53,7 +53,8 @@ def no_turn(error):
     """Whether a failed wake-up never reached the member's model: its chat was held, or busy in the desktop app
     (a Claude Desktop session that still owes an earlier request its Stop counts as busy)."""
     text = str(error or "")
-    return bool(text) and (IN_USE in text or desktop.BUSY in text or gui_receipt.WAITING in text)
+    return bool(text) and (IN_USE in text or desktop.BUSY in text or gui_receipt.WAITING in text or
+                           gui_receipt.DESKTOP_BUSY in text)
 
 
 def desktop_hold(store, seat, config):

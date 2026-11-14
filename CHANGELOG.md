@@ -2,6 +2,16 @@
 
 ## Unreleased / 未发布
 
+- A Claude Desktop seat is woken through its live session's own inbox (the person, 2026-11-14: a member that cannot
+  be woken means the design is wrong; software work is not the person's to do). Relic finds the session in Claude
+  Code's session registry, by the seat's session id and else by its title, and writes the wake-up there with the key
+  the session publishes for it, the way Claude Code's own sessions message each other: no `claude auth login`, no
+  extra model call, delivered within a second. A session in the middle of a turn is waited for, never interrupted.
+  The CLI router runs only when no live session can be reached. Tests never reach the person's real sessions.
+  - 桌面席位改为直接写进它在线会话自己的收件箱叫醒（人 2026-11-14：叫不醒说明设计有问题，软件层面的事不交给人）。
+    Relic 在 Claude Code 的会话登记里按席位的会话号（找不到再按标题）找到会话，用该会话公布的密钥写入，与 Claude
+    Code 会话之间互发消息的方式相同：不需要 `claude auth login`，不多花一次模型调用，约 1 秒送到。会话正在回合中就
+    等它结束，不插话；只有找不到在线会话时才退回原来的命令行路由。测试碰不到人的真实会话。
 - Pauses end and questions to the person run out (the person, 2026-11-12/14: stops must come with the condition that
   ends them; "I am not at the computer all the time, I don't look and nothing moves"; a Falcon run waited 23 hours on a
   confirmation inside the scope the person had already approved).

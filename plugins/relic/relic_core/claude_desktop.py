@@ -1,9 +1,12 @@
 """Native Claude Desktop delivery and opt-in public Stop receipts.
 
-Only a fresh message router uses the CLI. It never resumes the member's carrier.
+A wake-up goes into the seat's live session through that session's own inbox (inbox_route: no CLI login, no model
+call). Only when the inbox cannot be reached does a fresh message router use the CLI. It never resumes the member's
+carrier.
 The router's local hooks gate the exact target/payload and reserve one send before
 it can happen; stream-json tool records, never helper prose, establish delivery.
 """
+import hashlib
 import json
 import os
 import re
@@ -380,6 +383,168 @@ def route(request, config, folder, execute=None):
     return outcome
 
 
+# ---------------- the session's own inbox: no CLI login, no model call ----------------
+# Every Claude Code session (Desktop or CLI) listens on an inbox of its own, a named pipe on Windows or a Unix socket,
+# and publishes it with a peer key in Claude Code's session registry (<config>/sessions/<pid>.json and
+# <pid>.<sha256 of the socket path>.key, readable only by the same user). That is how Claude Code's own sessions
+# message each other; Relic writes its wake-up there the same way: one auth line with the peer key, one user message.
+# The person, 2026-11-14: a seat that cannot be woken means the design is wrong, not that the person must log in; the
+# router route needed a separate CLI login.
+
+PIPE = re.compile(r"^[\\/]{2}[.?][\\/]pipe[\\/](?:(LOCAL)[\\/])?([^\\/]+)$", re.I)
+
+
+def sessions_dir():
+    """Claude Code's session registry, or None in a test run that did not point CLAUDE_CONFIG_DIR at a folder of its
+    own: a test never writes into the person's live sessions."""
+    real = Path.home() / ".claude"
+    configured = os.getenv("CLAUDE_CONFIG_DIR")
+    root = Path(configured) if configured else real
+    if (runner.test_run() or os.getenv("RELIC_TEST")) and (
+            not configured or os.path.normcase(os.path.realpath(root)) == os.path.normcase(os.path.realpath(real))):
+        return None
+    return root / "sessions"
+
+
+def key_name(pid, socket_path):
+    """The peer key's file name for a session's inbox: <pid>.<sha256 of the canonical socket path>.key (a named pipe
+    canonically \\\\.\\pipe\\<name> in lower case, with its LOCAL\\ segment; a Unix socket its real path)."""
+    found = PIPE.match(socket_path)
+    if found:
+        name = ("LOCAL\\" + found.group(2)) if found.group(1) else found.group(2)
+        canonical = "\\\\.\\pipe\\" + re.sub(r"[A-Z]", lambda m: m.group(0).lower(), name)
+    else:
+        canonical = os.path.realpath(socket_path)
+    return "%d.%s.key" % (int(pid), hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+
+
+def live_session(carrier, expected):
+    """The registry record of the live Claude Code process that carries a seat's session: by its session id (the
+    seat's carrier), else the one live session titled with the seat's address. None when there is none."""
+    folder = sessions_dir()
+    if folder is None:
+        raise TransportError("unavailable", "a test run never reaches the person's live Claude sessions")
+    records = []
+    for path in folder.glob("*.json"):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (isinstance(record, dict) and isinstance(record.get("pid"), int) and record.get("messagingSocketPath")
+                and runner.pid_alive(record["pid"])):
+            records.append(record)
+    for key, value in (("sessionId", carrier), ("name", expected)):
+        found = [record for record in records if value and record.get(key) == value]
+        if len(found) == 1:
+            return found[0]
+        if len(found) > 1:
+            raise TransportError("unavailable", "%d live sessions answer to %s %s; nothing was sent" % (
+                len(found), key, value))
+    return None
+
+
+def peer_token(record):
+    """The session's inbox key (32 hex characters), or None when it published none."""
+    folder = sessions_dir()
+    path = folder / key_name(record["pid"], record["messagingSocketPath"])
+    if not path.exists():
+        keys = list(folder.glob("%d.*.key" % record["pid"]))  # one inbox per process
+        path = keys[0] if len(keys) == 1 else None
+    if path is None:
+        return None
+    try:
+        token = json.loads(path.read_text(encoding="utf-8")).get("peerToken")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return token if isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token) else None
+
+
+def _open_inbox(socket_path):
+    """An open stream to the session's inbox (a named pipe on Windows, a Unix socket elsewhere), or OSError."""
+    if PIPE.match(socket_path):
+        return open(socket_path, "wb", buffering=0)
+    import socket
+    if not hasattr(socket, "AF_UNIX"):
+        raise OSError("no Unix sockets here for %s" % socket_path)
+    stream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        stream.settimeout(5)
+        stream.connect(socket_path)
+    except OSError:
+        stream.close()
+        raise
+    return stream
+
+
+def _busy(error):
+    """Every instance of the pipe is taken this instant (Windows ERROR_PIPE_BUSY), or the socket asks to try again:
+    worth another try. Anything else (the session is gone) is not."""
+    return getattr(error, "winerror", None) == 231 or isinstance(error, BlockingIOError)
+
+
+def write_inbox(socket_path, data, attempts=20, sleep=time.sleep):
+    """Write the frames into the inbox, without reading anything back (the inbox answers nothing; a read would block).
+    Nothing is written when it cannot be opened (TransportError unavailable); a failure while writing may have
+    delivered part of it (unknown, possible)."""
+    for attempt in range(attempts):
+        try:
+            stream = _open_inbox(socket_path)
+            break
+        except OSError as error:
+            if not _busy(error) or attempt == attempts - 1:
+                raise TransportError("unavailable", "the session's inbox could not be opened: %s" % error) from None
+            sleep(0.1)
+    try:
+        if hasattr(stream, "sendall"):
+            stream.sendall(data)
+        else:
+            stream.write(data)
+    except OSError as error:
+        raise TransportError("unknown", "writing to the session's inbox failed: %s" % error, True) from None
+    finally:
+        stream.close()
+
+
+def inbox_route(request, config, folder, writer=None):
+    """Deliver the request into the seat's live session through its own inbox. Returns "sent"; the session's Stop
+    receipt (gui_receipt) still proves the turn happened."""
+    record = live_session(request.get("carrier"), request.get("expected"))
+    if record is None:
+        raise TransportError("unavailable", "no live Claude Code session carries %s" % request.get("expected"))
+    if record.get("status") == "busy":
+        busy = TransportError("unavailable", "%s %s (a turn is running); nothing was sent" % (
+            request.get("expected"), gui_receipt.DESKTOP_BUSY))
+        busy.busy = True  # wait for the session, never the CLI router
+        raise busy
+    token = peer_token(record)
+    if token is None:
+        raise TransportError("unavailable", "the live session of %s published no inbox key" % request.get("expected"))
+    frames = (json.dumps({"type": "auth", "token": token}) + "\n" +
+              json.dumps({"type": "user", "message": {"role": "user", "content": payload(request)}},
+                         ensure_ascii=False) + "\n").encode("utf-8")
+    (writer or write_inbox)(record["messagingSocketPath"], frames)
+    _write(folder / "delivery.json", {"outcome": "sent", "via": "inbox", "pid": record["pid"],
+                                      "session": record.get("sessionId")})
+    return "sent"
+
+
+def deliver(request, config, folder):
+    """The session's own inbox first; the CLI router only when the inbox cannot be reached (the router needs a
+    separate claude.ai CLI login)."""
+    try:
+        return inbox_route(request, config, folder)
+    except TransportError as error:
+        if error.outcome != "unavailable" or getattr(error, "busy", False):
+            raise
+        first = str(error)
+    try:
+        return route(request, config, folder)
+    except TransportError as error:
+        if error.outcome == "unavailable":
+            raise TransportError("unavailable", "%s; the CLI route: %s" % (first, error)) from None
+        raise
+
+
 def _ended(folder):
     """gui_receipt.ended, read here: a long-running process that loaded an older gui_receipt before an upgrade can
     still load this module later."""
@@ -455,7 +620,7 @@ def run_turn(store, org, member, config, prompt, new, cwd, route_message=None, t
     _write(folder / "request.json", request)
     _write(path, request)
     try:
-        outcome = (route_message or route)(request, config, folder)
+        outcome = (route_message or deliver)(request, config, folder)
     except TransportError as error:
         if not error.possible:
             _write(folder / "delivery.json", {"outcome": error.outcome, "records": []})
