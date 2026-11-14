@@ -321,7 +321,7 @@
  "pause.review": "[Relic] You paused {what} at {at} without saying until when (reason: {reason}). Is the reason still there? If not, switch it back on. If it is, switch it off again with until (a time, 6h, quota:codex or idle) so that it ends by itself. Relic asks again in 2 hours.",
  "pause.ended": "[Relic] The pause of {what} you set at {at} has ended as you said (reason: {reason}); it is back on. If the reason is still there, pause it again with a new until.",
  "ask.note": "Recommended: {recommend}\nIf there is no answer by {due}, {executor} goes ahead with the recommendation.",
- "ask.ran_out": "[Relic] An hour passed and the person has not answered your question (message #{id}). Go ahead with your recommendation now: {recommend}\nFirst look at what the person said since (work op=said), at the quota and at the hard protections; if none of them stands in the way, {executor} does it without asking again.",
+ "ask.ran_out": "[Relic] Your question to the person (message #{id}) reached its deadline with no answer. Go ahead with your recommendation now: {recommend}\nFirst look at what the person said since (work op=said), at the quota and at the hard protections; if none of them stands in the way, {executor} does it without asking again.",
  "review.asked": "[Relic] {member}'s call waits for your review ({id}, rules {protocols}): {tool} {summary}\nReason the rule gives: {why}\nIf it is right, run review op=approve request_id={id} with a note of what you checked; if not, tell {member} what to do instead.",
  "review.approved": "[Relic] {reviewer} approved {id} ({summary}). Make the same call again now.",
  "purpose.changed_by": "{member} brought the purpose of {org} up to date. Reason: {reason}\n\nNow:\n{new}\n\nBefore:\n{old}",

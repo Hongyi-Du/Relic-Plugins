@@ -303,7 +303,7 @@
  "pause.review": "[Relic] 你在 {at} 暂停了「{what}」，没写到什么时候恢复（原因：{reason}）。原因还在吗？不在就打开；还在就重新关一次并写上 until（时间、6h、quota:codex 或 idle），让它到点自己恢复。2 小时后 Relic 再问一次。",
  "pause.ended": "[Relic] 你在 {at} 暂停的「{what}」已按你写的条件恢复（原因：{reason}）。如果原因还在，就重新暂停并写新的 until。",
  "ask.note": "推荐：{recommend}\n{due} 前没有回复，{executor} 就按推荐执行。",
- "ask.ran_out": "[Relic] 你问人的事（消息 #{id}）一小时没有回复。现在按你的推荐执行：{recommend}\n执行前先看人在那之后说过的话（work op=said）、额度和硬保护；都不挡，就由 {executor} 直接做，不再问。",
+ "ask.ran_out": "[Relic] 你问人的事（消息 #{id}）到截止时间没有回复。现在按你的推荐执行：{recommend}\n执行前先看人在那之后说过的话（work op=said）、额度和硬保护；都不挡，就由 {executor} 直接做，不再问。",
  "review.asked": "[Relic] {member} 的一个操作等你审（{id}，规则 {protocols}）：{tool} {summary}\n规则给的理由：{why}\n没问题就运行 review op=approve request_id={id}，note 写你查了什么；有问题就直接告诉 {member} 怎么改。",
  "review.approved": "[Relic] {reviewer} 批准了 {id}（{summary}）。现在重新做同一个操作。",
  "purpose.changed_by": "{member} 更新了「{org}」的组织宗旨。原因：{reason}\n\n现在是：\n{new}\n\n原来是：\n{old}",
