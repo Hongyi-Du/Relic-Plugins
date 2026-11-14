@@ -655,6 +655,8 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
 
 def schedule_drive(delay):
     """The delayed keep-going check (scripts/relic_dispatch.py --drive), in the background like schedule_retry."""
+    if not runner.detach_allowed():
+        return
     python = Path(sys.executable)
     if runner.WINDOWS and python.with_name("pythonw.exe").exists():
         python = python.with_name("pythonw.exe")
@@ -662,7 +664,8 @@ def schedule_drive(delay):
     flags = (runner.NO_WINDOW | 0x00000200) if runner.WINDOWS else 0
     subprocess.Popen([str(python), "-X", "utf8", str(script), "--drive", "--after", "%.0f" % delay],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True)
+                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True,
+                     env=runner.detached_env())
 
 
 def dispatch_for_actor(store, actor):
@@ -678,6 +681,8 @@ def dispatch_for_actor(store, actor):
 
 def schedule_retry(org_id, delay):
     """One background retry per organization, at the earliest time a waiting seat can be woken."""
+    if not runner.detach_allowed():
+        return
     marker = runner.runs_dir() / ("%s.retry" % org_id)
     due = time.time() + delay
     try:
@@ -694,4 +699,5 @@ def schedule_retry(org_id, delay):
     flags = (runner.NO_WINDOW | 0x00000200) if runner.WINDOWS else 0
     subprocess.Popen([str(python), "-X", "utf8", str(script), "--org", org_id, "--after", "%.0f" % delay],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True)
+                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True,
+                     env=runner.detached_env())

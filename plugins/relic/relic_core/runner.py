@@ -99,6 +99,32 @@ def find_codex():
     return platform_support.find_executable("codex")
 
 
+def test_run():
+    """Whether this process is a test run (a test framework is loaded: no Relic process imports one)."""
+    return "unittest" in sys.modules or "pytest" in sys.modules
+
+
+def detach_allowed():
+    """Whether this process may start a detached Relic process: a member's turn, a delayed wake-up retry or keep-going
+    check. A test run may not (2026-11-14: a test file run directly left hundreds of background checks behind, some of
+    them on the real store), unless it replaced Popen (nothing really starts) or says so (RELIC_TEST_DETACH=1) and works
+    on a data root of its own, never the real one."""
+    if not test_run() or not isinstance(subprocess.Popen, type):
+        return True
+    home = os.environ.get("RELIC_HOME")
+    return (os.environ.get("RELIC_TEST_DETACH") == "1" and bool(home) and
+            Path(home).resolve() != (Path.home() / ".relic").resolve())
+
+
+def detached_env():
+    """The environment of a detached Relic process: a test run's children say so (RELIC_TEST), and the background
+    entry then refuses the real store (scripts/relic_dispatch.py)."""
+    env = dict(os.environ)
+    if test_run():
+        env["RELIC_TEST"] = "1"
+    return env
+
+
 def runs_dir():
     d = data_home() / "runs"
     d.mkdir(parents=True, exist_ok=True)
@@ -262,9 +288,11 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
         args += ["--wake-from", ",".join(wake_from)]
     flags = (NO_WINDOW | 0x00000200) if WINDOWS else 0  # no console, own process group
     try:
+        if not detach_allowed():
+            raise RuntimeError("a test run does not start member turns (runner.detach_allowed)")
         with open(runs_dir() / ("%s-%s.log" % (org_id, member)), "a", encoding="utf-8") as log:
             proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log, creationflags=flags,
-                                    start_new_session=not WINDOWS)
+                                    start_new_session=not WINDOWS, env=detached_env())
     except Exception as error:
         # nothing started: replace the "running" state written above (no other turn was running, checked first)
         write_state(org_id, member, {"status": "failed", "started": started, "prompt": prompt[:300],
