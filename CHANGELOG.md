@@ -2,6 +2,25 @@
 
 ## Unreleased / 未发布
 
+- Reports go one level up, and the secretariat can have two heads of the same rank (2026-11-15, the person:
+  「不要让所有的下面干活的全都直接给秘书长汇报啊……你该汇报的你就跟他的科研领导汇报，然后我去问秘书长的时候，秘书长再去找
+  这个科研的负责人去要啊」 and 「相当于 Claude 和 Codex 那边各有一个秘书处的负责人」).
+  - A message reaches the organization right above yours or one right below it; further up or down is refused with
+    the organization in between to write to. In an older thread, participants further away get no copy, and a reply
+    with no one else left is refused the same way. Reading (`status`, `doc_read`), tasks, protocols and keep-going
+    reach every level as before.
+  - Only the leaders of the formal organizations right below the cabinet, and of formal organizations under no other
+    one, sit in the cabinet ex officio. The leaders further down keep their seat in the organization above theirs.
+  - `Store.set_co_leaders`: co-leaders lead a leader-led organization with the leader's say: they approve requests in
+    the cabinet, change the purpose and keep-going, assign roles, close episodes, count as the leader in votes and
+    review calls. A co-leader's seat is no longer an ex officio one. The context names both heads.
+  - 汇报只往上一级，秘书处可以有两位同级负责人（2026-11-15，人的原话见上）。
+  - 消息只能发给直属上级组织或直属下级组织；再往上或往下会被拒，并告诉你该经哪个中间组织转。旧话题里隔了层级的人
+    不再收到抄送；只剩这样的人时，回复照样被拒。读（`status`、`doc_read`）、派任务、协议和持续推进照旧能到各级。
+  - 秘书处里的因职务席位只给直属秘书处的正式组织负责人，以及上面没有正式组织的负责人；更下层的负责人只在直属上级
+    组织里有席位。
+  - `Store.set_co_leaders`：共同负责人和负责人说话一样算数：在秘书处批请求，改宗旨、开关持续推进，给别人定角色，
+    关 episode，表决和审查时算负责人。共同负责人的席位不再是因职务席位。组织上下文里写明两位负责人。
 - Members run on their own while the person is away from the computer (2026-11-15: the person, 「我如果不在的话…他们就
   应该是一个自主运行的模式」「别他妈啥时候都问我了，我不在我怎么审批啊」「看鼠标啊前台啊」, and 「我跟 Claude 说的话，他转述
   给 Codex，结果 Codex 那边说这不是我人说的，然后又不干」).

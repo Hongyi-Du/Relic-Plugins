@@ -202,10 +202,13 @@ other seats.
   every member of the formal organization at or above `parent`; each gets a seat in it with the same session and name,
   and `leader` (one of them) leads it. Any member of `parent` can make one, without approval. Work there with
   `org: "<its id>"`; its leader closes it with `group {op: "close", org}` when the work is done (the record stays).
-- **The cabinet** (secretariat) is the formal organization the person marks in the Relic App; its leader is the
-  secretary-general. The leader of every formal organization holds a seat ex officio in the formal organization right
-  above it and in the cabinet, with the role "Head of <department>" in the person's language; the seat follows
-  whoever leads.
+- **The cabinet** (secretariat) is the formal organization the person marks in the Relic App; its leader (with any
+  co-leaders the person sets, of the same rank) is the secretary-general. The leader of a formal organization holds a
+  seat ex officio in the formal organization right above it (with none above it, in the cabinet), with the role
+  "Head of <department>" in the person's language; the seat follows whoever leads.
+- **Reports go one level up.** A message reaches the organization right above yours or one right below it; further up
+  or down goes through the organizations in between, whose members pass on what matters. Reading (`status`,
+  `doc_read`) still reaches every organization above and below.
 - **Approvals**: creating a formal organization (`create`), placing one under another (`group {op: "reparent", parent,
   org?, reason}`), changing its leader (`group {op: "leader", member, org?, reason}`) and dissolving it (`group {op:
   "dissolve", org?, reason}`) become a request for the secretary-general (without a cabinet: for the person; `create`

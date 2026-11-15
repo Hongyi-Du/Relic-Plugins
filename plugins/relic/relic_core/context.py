@@ -2,7 +2,7 @@
 import json
 import time
 
-from .store import REPLY, WAY_PAST, away_note, has_check, language_name
+from .store import REPLY, WAY_PAST, away_note, has_check, language_name, leaders, leads
 
 RECENT_TROUBLE = 24 * 3600  # a check program's failures are mentioned for a day after the latest one
 DOCUMENTS_ABOVE = 15  # document names of each organization above in a member's context, the most recently written first
@@ -87,13 +87,21 @@ def _drive_line(org, member, above):
     return None
 
 
+def _governance(org):
+    if org["governance"] != "leader":
+        return "peer (majority)"
+    heads = leaders(org) or [org.get("leader")]
+    return ("leader-led (leaders of the same rank: %s)" % ", ".join(heads) if len(heads) > 1
+            else "leader-led (leader: %s)" % heads[0])
+
+
 def render(store, org, member, unread_count=None, full=True):
     seat = org["members"][member]
     lines = ["Relic organization '%s' (%s). You are member '%s'%s." % (
         org["name"], org["id"], member, (" with role '%s'" % seat["role"]) if seat.get("role") else "")]
     if org.get("purpose"):
         lines.append("Purpose: " + org["purpose"])
-    gov = ("leader-led (leader: %s)" % org["leader"]) if org["governance"] == "leader" else "peer (majority)"
+    gov = _governance(org)
     roster = ", ".join("%s%s(%s)" % (m, ("[%s]" % s["role"]) if s.get("role") else "", s.get("harness", "claude-code"))
                        for m, s in org["members"].items())
     lines.append("Governance: %s. Members (harness in parentheses): %s." % (gov, roster))
@@ -125,10 +133,13 @@ def render(store, org, member, unread_count=None, full=True):
                      "protocols. Its leader closes it with group op=close when the work is done."
                      % _org_name(store, org.get("parent")))
     if org.get("cabinet"):
-        lines.append("This organization is the cabinet (secretariat); its leader is the secretary-general, who "
-                     "approves changes to the formal organizations (group op=approve | deny). The leader of every "
-                     "formal organization holds a seat here.")
-        if org.get("leader") == member:
+        lines.append("This organization is the cabinet (secretariat); its %s the secretary-general, who "
+                     "approves changes to the formal organizations (group op=approve | deny). The leaders of the "
+                     "formal organizations right below it hold a seat here; organizations further down report to "
+                     "them, not here."
+                     % ("leaders (%s, of the same rank) are" % ", ".join(leaders(org)) if len(leaders(org)) > 1
+                        else "leader is"))
+        if leads(org, member):
             for r in [r for r in (org.get("requests") or {}).values() if r["status"] == "pending"][:8]:
                 lines.append("Approval request %s from %s: %s.%s Your call: group op=approve or op=deny, request_id=%s."
                              % (r["id"], _requester(r), store.request_text(r),
@@ -137,15 +148,19 @@ def render(store, org, member, unread_count=None, full=True):
     if seat_office:
         lines.append("You hold this seat ex officio, as the leader of %s." % _org_name(store, seat_office.get("org")))
     if above:
-        lines.append("Above this organization: %s. Their members can see it, write to its members, assign its tasks "
-                     "and issue protocols that take effect here directly. You report to them with message (org=<id>, "
-                     "to=[member]) and can read them: status (org=<id>) shows one read-only and work op=doc_read "
-                     "(org=<id>, key=...) reads its documents; the rest of their work belongs to them."
-                     % ", ".join("%s (%s)" % (a["name"], a["id"]) for a in above))
+        lines.append("Above this organization: %s. Their members can see it, assign its tasks and issue protocols "
+                     "that take effect here directly. You report to the organization right above yours, %s, with "
+                     "message (org=%s, to=[member]): its members carry what matters further up, and the ones above "
+                     "them ask it when they need something, so do not write past it (2026-11-15, the person: 你该汇报"
+                     "的你就跟他的科研领导汇报). You can read every organization above: status (org=<id>) shows one "
+                     "read-only and work op=doc_read (org=<id>, key=...) reads its documents; the rest of their work "
+                     "belongs to them." % (", ".join("%s (%s)" % (a["name"], a["id"]) for a in above), above[0]["name"],
+                                           above[0]["id"]))
     below = store.descendants(org["id"])
     if below:
         lines.append("Below this organization: %s. As a member you can act there with the org argument: status (see "
-                     "it), message (write to its members), work op=task (assign or update its tasks; doc_read reads its "
+                     "it), message (to the members of the organizations right below yours; further down, through "
+                     "them), work op=task (assign or update its tasks; doc_read reads its "
                      "documents) and protocol op=propose (a protocol that takes effect there directly). protocol "
                      "inherit=true makes a protocol bind every organization below the one it belongs to. Their members "
                      "read this organization's documents and status too (read-only), so what they should keep knowing "
@@ -302,7 +317,7 @@ def _outline(store, org):
     lines = []
     if org.get("purpose"):
         lines.append("Purpose: " + org["purpose"])
-    gov = ("leader-led (leader: %s)" % org["leader"]) if org["governance"] == "leader" else "peer (majority)"
+    gov = _governance(org)
     roster = ", ".join("%s%s(%s)" % (m, ("[%s]" % s["role"]) if s.get("role") else "", s.get("harness", "claude-code"))
                        for m, s in org["members"].items())
     lines.append("Governance: %s. Members (harness in parentheses): %s." % (gov, roster or "none yet"))

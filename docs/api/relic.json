@@ -120,7 +120,7 @@
         },
         "org": {
           "type": "string",
-          "description": "An organization you hold a seat in always selects that seat, even above your main organization. Otherwise write to one below yours, or one above it to report. A sender named <org id>/<member> is answered with to=['<org id>/<member>'] or with org=<org id>, to=[member]."
+          "description": "An organization you hold a seat in always selects that seat, even above your main organization. Otherwise write to one right below yours, or to the one right above it to report; further up or down goes through the organizations in between. A sender named <org id>/<member> is answered with to=['<org id>/<member>'] or with org=<org id>, to=[member]."
         },
         "actor": {
           "type": "string",
@@ -468,7 +468,7 @@
   },
   {
     "name": "group",
-    "description": "Subgroups and changes to formal (standing) organizations. op=create {name, purpose, leader, parent?, members?} makes a subgroup for one piece of work under parent (default: the organization you act in), which it inherits protocols from; its members (default: every member of the formal organization at or above parent) each get a seat in it with their own session and name, and leader (one of them) leads it. No approval needed. op=close {org} closes a subgroup (its leader). op=reparent {parent, org?, reason} | leader {member, org?, reason} | dissolve {org?, reason} change a formal organization (yours, or one below it): the secretary-general (the cabinet's leader) or, without a cabinet, the person approves; you get a message when it is decided. op=approve | deny {request_id, note}: the secretary-general decides a request. op=list: requests waiting on you, your own requests and the subgroups of your organization.",
+    "description": "Subgroups and changes to formal (standing) organizations. op=create {name, purpose, leader, parent?, members?} makes a subgroup for one piece of work under parent (default: the organization you act in), which it inherits protocols from; its members (default: every member of the formal organization at or above parent) each get a seat in it with their own session and name, and leader (one of them) leads it. No approval needed. op=close {org} closes a subgroup (its leader). op=reparent {parent, org?, reason} | leader {member, org?, reason} | dissolve {org?, reason} change a formal organization (yours, or one below it): the secretary-general (the cabinet's leader, or co-leader) or, without a cabinet, the person approves; you get a message when it is decided. op=approve | deny {request_id, note}: the secretary-general decides a request. op=list: requests waiting on you, your own requests and the subgroups of your organization.",
     "inputSchema": {
       "type": "object",
       "properties": {
