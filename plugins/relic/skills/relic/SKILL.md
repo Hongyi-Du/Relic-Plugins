@@ -146,7 +146,11 @@ The person places an organization under another one in the Relic App; a member c
 - **Above yours** (yours is below it): its members can see your organization, write to you, assign your tasks and issue
   protocols that take effect here directly; only an organization above can revise or retire such a protocol. You report
   upward with `message {org: "<its id>", to: [member]}`. A message from above names its sender `<org id>/<member>`:
-  answer it with `to: ["<org id>/<member>"]`. You do not act in an organization above.
+  answer it with `to: ["<org id>/<member>"]`. You can read an organization above, at any depth: `status {org}` shows
+  it read-only (purpose, members and roles, the titles of its protocols, open tasks, its documents) and
+  `work {org, op: "doc_read", key?}` reads one of its documents, or lists them without `key`; your context names them.
+  Run settings and working practices an organization above keeps for the ones below are such documents: read them
+  before you ask. Otherwise you do not act in an organization above.
 - **Below yours** (at any depth): as a member you act there with the `org` argument (its id or exact name):
   - `status {org}`: the organization as seen from above (members, protocols, tasks, documents, recent messages).
   - `message {org, to, body}`: write to its members; they are woken as usual and can answer you.
@@ -157,6 +161,8 @@ The person places an organization under another one in the Relic App; a member c
     why: the person is told, with the text it replaces. A leader does the same in its own organization without `org`.
   - `protocol {org, op: "propose", ...}` issues a protocol there: it takes effect directly, without a vote. Revise or
     retire it the same way (`supersedes`, `retire_target`).
+  - Its members can read your organization in turn (its documents and a read-only `status`), so what they should keep
+    knowing (run settings, working practices) can be a document of yours instead of a protocol.
 - **inherit** (older name: `downward`): a protocol binds its own organization only. `protocol op=propose` with
   `inherit: true` makes the organizations below inherit it, at any depth; strong rules are enforced on their members'
   tool calls too. A member below records its use with `protocol op=use org=<the organization above>`.

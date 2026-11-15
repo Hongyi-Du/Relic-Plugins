@@ -5,6 +5,7 @@ import time
 from .store import REPLY, WAY_PAST, has_check, language_name
 
 RECENT_TROUBLE = 24 * 3600  # a check program's failures are mentioned for a day after the latest one
+DOCUMENTS_ABOVE = 15  # document names of each organization above in a member's context, the most recently written first
 
 
 def _pause_text(what, pause):
@@ -99,6 +100,7 @@ def render(store, org, member, unread_count=None, full=True):
     lines.append("The person reads %s; write task titles, task reports and anything addressed to the person in that "
                  "language." % language_name())
     above = store.ancestors(org)
+    documents_above = _documents_above(above) if full else ""
     if org.get("auto_wake", True):
         lines.append("Auto-wake is on: a member you message gets a turn in its own session automatically when that seat "
                      "has a configured session and is idle; others read it at their next tool call.")
@@ -131,13 +133,17 @@ def render(store, org, member, unread_count=None, full=True):
     if above:
         lines.append("Above this organization: %s. Their members can see it, write to its members, assign its tasks "
                      "and issue protocols that take effect here directly. You report to them with message (org=<id>, "
-                     "to=[member]); their work belongs to them." % ", ".join("%s (%s)" % (a["name"], a["id"]) for a in above))
+                     "to=[member]) and can read them: status (org=<id>) shows one read-only and work op=doc_read "
+                     "(org=<id>, key=...) reads its documents; the rest of their work belongs to them."
+                     % ", ".join("%s (%s)" % (a["name"], a["id"]) for a in above))
     below = store.descendants(org["id"])
     if below:
         lines.append("Below this organization: %s. As a member you can act there with the org argument: status (see "
                      "it), message (write to its members), work op=task (assign or update its tasks; doc_read reads its "
                      "documents) and protocol op=propose (a protocol that takes effect there directly). protocol "
-                     "inherit=true makes a protocol bind every organization below the one it belongs to."
+                     "inherit=true makes a protocol bind every organization below the one it belongs to. Their members "
+                     "read this organization's documents and status too (read-only), so what they should keep knowing "
+                     "(run settings, working practices) can be a document instead of a protocol."
                      % ", ".join("%s (%s)" % (b["name"], b["id"]) for b in below))
     chats = [m for m, s in org["members"].items() if s.get("harness") in ("chatgpt", "claude-chat")]
     if chats:
@@ -212,6 +218,8 @@ def render(store, org, member, unread_count=None, full=True):
         lines.append("Others' open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], t["status"]) for t in others[:10]))
     if org["documents"] and full:
         lines.append("Shared documents: " + ", ".join("%s(r%d)" % (k, v["revision"]) for k, v in org["documents"].items()))
+    if documents_above:
+        lines.append(documents_above)
     opened = [e for e in org["episodes"].values() if e["status"] == "open" and member in e["participants"]]
     if opened:
         lines.append("Open episodes you take part in: " + "; ".join("%s %s (owner %s)" % (e["id"], e["title"], e["owner"]) for e in opened[:5]))
@@ -282,12 +290,10 @@ def _slack_note(store, org):
         return ""
 
 
-def render_below(store, org, viewer_org, viewer):
-    """An organization below the viewer's, as a member of the organization above sees it."""
-    lines = ["Organization '%s' (%s), below your organization '%s'. You see it from above: write to its members "
-             "(message org=%s), assign or update its tasks (work op=task org=%s) and issue protocols that take effect "
-             "here directly (protocol op=propose org=%s)." % (org["name"], org["id"], viewer_org["name"], org["id"],
-                                                                 org["id"], org["id"])]
+def _outline(store, org):
+    """What both views of an organization from outside show (render_below, render_above): its purpose, governance and
+    members, the titles of the protocols in effect there and its open tasks."""
+    lines = []
     if org.get("purpose"):
         lines.append("Purpose: " + org["purpose"])
     gov = ("leader-led (leader: %s)" % org["leader"]) if org["governance"] == "leader" else "peer (majority)"
@@ -310,12 +316,57 @@ def render_below(store, org, viewer_org, viewer):
     if tasks:
         lines.append("Open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], t["status"])
                                                for t in tasks[:15]))
+    return lines
+
+
+def _documents_index(org):
+    """The index of an organization's documents, as both views from outside show it."""
+    if not org["documents"]:
+        return []
+    return ["Shared documents (work op=doc_read org=%s key=...): %s" % (
+        org["id"], ", ".join("%s(r%d)" % (k, v["revision"]) for k, v in org["documents"].items()))]
+
+
+def _documents_above(above):
+    """One line naming the documents of each organization above (nearest first), for a member's context: members below
+    read them (work op=doc_read org=<id>), so an organization above can keep what they should know in a document
+    instead of a protocol. At most DOCUMENTS_ABOVE names an organization, the most recently written first."""
+    parts = []
+    for place in above:
+        names = [k for k, _ in sorted((place.get("documents") or {}).items(), key=lambda kv: kv[1].get("at") or "",
+                                      reverse=True)]
+        if names:
+            more = len(names) - DOCUMENTS_ABOVE
+            parts.append("%s (%s): %s%s" % (place["name"], place["id"], ", ".join(names[:DOCUMENTS_ABOVE]),
+                                            (", +%d more" % more) if more > 0 else ""))
+    if not parts:
+        return ""
+    return "Documents of the organizations above (work op=doc_read org=<id> key=...): " + "; ".join(parts)
+
+
+def render_above(store, org, viewer_org, viewer):
+    """An organization above the viewer's, as a member of the organization below sees it (status org=<it>): read-only,
+    and what render_below shows of an organization except its messages, episodes, finished tasks and the
+    organizations below it. Nothing that belongs to its members alone: no reviews, proposals or votes, trajectory
+    requests, unread messages or notes (render_below leaves those out too)."""
+    lines = ["Organization '%s' (%s), above your organization '%s'. You see it from below, read-only: read its "
+             "documents (work op=doc_read org=%s key=...) and report to its members (message org=%s, to=[member]); "
+             "the rest of its work belongs to them." % (org["name"], org["id"], viewer_org["name"], org["id"],
+                                                         org["id"])]
+    return "\n".join(lines + _outline(store, org) + _documents_index(org))
+
+
+def render_below(store, org, viewer_org, viewer):
+    """An organization below the viewer's, as a member of the organization above sees it."""
+    lines = ["Organization '%s' (%s), below your organization '%s'. You see it from above: write to its members "
+             "(message org=%s), assign or update its tasks (work op=task org=%s) and issue protocols that take effect "
+             "here directly (protocol op=propose org=%s)." % (org["name"], org["id"], viewer_org["name"], org["id"],
+                                                                 org["id"], org["id"])]
+    lines += _outline(store, org)
     done = sorted((t for t in org["tasks"].values() if t["status"] == "done"), key=lambda t: t.get("done_at") or "")
     if done:
         lines.append("Recently done: " + "; ".join("%s %s (%s)" % (t["id"], t["title"], t["owner"]) for t in done[-5:]))
-    if org["documents"]:
-        lines.append("Shared documents (work op=doc_read org=%s key=...): %s" % (
-            org["id"], ", ".join("%s(r%d)" % (k, v["revision"]) for k, v in org["documents"].items())))
+    lines += _documents_index(org)
     opened = [e for e in org["episodes"].values() if e["status"] == "open" and e.get("kind") != "turn"]
     if opened:
         lines.append("Open episodes: " + "; ".join("%s %s (owner %s)" % (e["id"], e["title"], e["owner"]) for e in opened[:5]))

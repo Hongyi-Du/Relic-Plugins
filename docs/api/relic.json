@@ -63,13 +63,13 @@
   },
   {
     "name": "status",
-    "description": "Your view of the organization: members and roles, active protocols, proposals to vote on, review requests, tasks, documents, reflection due, unread messages. With org (an organization below yours): that organization as seen from above.",
+    "description": "Your view of the organization: members and roles, active protocols, proposals to vote on, review requests, tasks, documents, reflection due, unread messages. With org: an organization below yours as seen from above, or one above yours, read-only.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "org": {
           "type": "string",
-          "description": "Another organization, by id or exact name: one you hold a seat in (you act there as its member and follow its protocols), one below yours, where you can act, or one above it, which you report to."
+          "description": "Another organization, by id or exact name: one you hold a seat in (your view there as its member), one below yours (that organization as seen from above) or one above yours, at any depth (read-only: its purpose, members and roles, the titles of its protocols, its open tasks and its documents' index)."
         },
         "actor": {
           "type": "string",
@@ -159,7 +159,7 @@
   },
   {
     "name": "work",
-    "description": "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} | task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | role {member?, role} | note {body} (private to you; not inherited by a replacement) | said {query?, limit?, hours?}: what the person typed lately into the sessions of seats in your organization and the ones below it, with where and when: read it yourself instead of asking members for the person's exact words | drive {on, goal?, driver?, reason?, until?}: keep-going, switched by the leader or from an organization above, on the person's word: while on, when this organization and the ones below it have had nobody working for 10 minutes and work is unfinished, the driver (default: the leader) gets a notice with the goal to decide the next step. goal: the person's standing instruction, in their words; switching it off needs a reason, which the person is told. purpose {purpose, reason}: bring the organization's purpose up to date (the whole new text), e.g. after the person changed a rule it states; the leader, or from an organization above. The person is told, with the text it replaces. The person reads the tasks: write task titles in the person's language, and mark a task done with evidence and a short report (at most 1000 characters, Markdown) of what it achieved and how it turned out, in the person's language too.",
+    "description": "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} (with org: also of an organization above or below yours) | task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | role {member?, role} | note {body} (private to you; not inherited by a replacement) | said {query?, limit?, hours?}: what the person typed lately into the sessions of seats in your organization and the ones below it, with where and when: read it yourself instead of asking members for the person's exact words | drive {on, goal?, driver?, reason?, until?}: keep-going, switched by the leader or from an organization above, on the person's word: while on, when this organization and the ones below it have had nobody working for 10 minutes and work is unfinished, the driver (default: the leader) gets a notice with the goal to decide the next step. goal: the person's standing instruction, in their words; switching it off needs a reason, which the person is told. purpose {purpose, reason}: bring the organization's purpose up to date (the whole new text), e.g. after the person changed a rule it states; the leader, or from an organization above. The person is told, with the text it replaces. The person reads the tasks: write task titles in the person's language, and mark a task done with evidence and a short report (at most 1000 characters, Markdown) of what it achieved and how it turned out, in the person's language too.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -245,7 +245,7 @@
         },
         "org": {
           "type": "string",
-          "description": "An organization below yours: read its documents (doc_read), assign or update its tasks (task; a new task needs an owner, one of its members), switch its keep-going (drive) and bring its purpose up to date (purpose)."
+          "description": "An organization below yours: read its documents (doc_read), assign or update its tasks (task; a new task needs an owner, one of its members), switch its keep-going (drive) and bring its purpose up to date (purpose). An organization above yours, at any depth: read its documents (doc_read; with key one document, without key their index); the rest of its work belongs to its members."
         },
         "actor": {
           "type": "string",
