@@ -512,11 +512,16 @@ def snapshot(store, now=None, orgs=None):
     if held and held.get("woken") and not any(a["status"] == "PAUSED" and a["id"] in (held.get("paused") or {})
                                               for a in automations):
         held = None  # the person's message ended the stop, and every automation it paused is running again
+    try:  # whether the person is at the computer: while away, members run on their own (Store.person_away)
+        away = store.person_away(now)
+    except Exception:  # not knowing it never breaks the monitor
+        away = None
     return {"at": now, "agents": agents, "others": others, "totals": totals, "scanning": ledger.scanning,
             "plans": {"codex": dict(limits, observed_at=ledger.limits.get("at")) if limits else None},
             "automations": [{k: v for k, v in a.items() if k != "path"} for a in automations],
             "claude_tasks": claude_tasks(),
             "orgs": [{"id": o["id"], "name": o["name"], "auto_wake": bool(o.get("auto_wake", True))} for o in orgs],
+            "person": {"away": bool(away), "minutes": (away or {}).get("minutes"), "locked": bool((away or {}).get("locked"))},
             "stopped_all": held}  # what Resume all still turns back on ("woken": the person's message lifted the stop)
 
 

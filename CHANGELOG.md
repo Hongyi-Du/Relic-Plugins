@@ -2,6 +2,35 @@
 
 ## Unreleased / 未发布
 
+- Members run on their own while the person is away from the computer (2026-11-15: the person, 「我如果不在的话…他们就
+  应该是一个自主运行的模式」「别他妈啥时候都问我了，我不在我怎么审批啊」「看鼠标啊前台啊」, and 「我跟 Claude 说的话，他转述
+  给 Codex，结果 Codex 那边说这不是我人说的，然后又不干」).
+  - Presence comes from the keyboard and mouse and the window in front: no input for 10 minutes, or a locked screen at
+    once, is away; a game or a full-screen window in front counts as at the computer. The running-process list is no
+    longer read. Typing to a member's session or writing in the Relic App within those 10 minutes counts as around (a
+    phone too). `RELIC_PRESENCE=here|away` sets it; the test suite runs with `here`.
+  - While the person is away nobody waits for them: a question with `recommend` goes ahead at once (the asker reads it
+    in the result, another executor gets the notice, the person reads what was done when back), an open question goes
+    ahead once the person leaves (looked at every 5 minutes), a message to `human` says in its result that nobody reads
+    it now, the harness's question tools (`AskUserQuestion`) are refused with the reason, and a turn that would end on a
+    question goes on once. Woken turns, keep-going notices and the organization context say the person is away.
+  - The person's words a member relays count: a message that quotes them verbatim gets `[Relic check W<n>]` under it,
+    with when and in which seat's session the person typed them (a stretch of a prompt counts; a word in common or a
+    paraphrase does not). The wake-up text no longer limits members to what the person authorized in their own
+    session, and says that a failed step (a tool, service, sandbox or network error, a bug) is not a refusal.
+  - 人不在电脑前时成员自主运行（2026-11-15，人的原话：「我如果不在的话…他们就应该是一个自主运行的模式」「别他妈啥时候都
+    问我了，我不在我怎么审批啊」「看鼠标啊前台啊」，还有「我跟 Claude 说的话，他转述给 Codex，结果 Codex 那边说这不是我人
+    说的，然后又不干」）。
+  - 在不在电脑前看键盘鼠标和前台窗口：10 分钟没有输入，或屏幕一锁，就算离开；前台是游戏或全屏窗口算在。不再读进程
+    列表。这 10 分钟里在成员会话或 Relic App 里打过字也算在（手机上也算）。`RELIC_PRESENCE=here|away` 可以指定；测试
+    固定用 `here`。
+  - 人不在时谁都不等人：带 `recommend` 的提问立即按推荐执行（提问人在结果里看到，执行人是别人就收到通知，人回来看到
+    做了什么）；已经在等的提问在人离开后照推荐执行（每 5 分钟看一次）；发给 `human` 的消息在结果里说明人现在看不到；
+    harness 自带的提问工具（`AskUserQuestion`）被拒并说明原因；要用提问结束的一轮会再接着做一次。被唤醒的回合、
+    持续推进的提醒和组织上下文都会写明人不在。
+  - 成员转述的人的原话算数：消息里原样引用的人的原话，下面附 `[Relic 核对 W<n>]`，写明人什么时候、在哪个席位的会话里
+    打的（引用一段也算；只是有个词一样或意思相近的不算）。唤醒提示不再说只认人在本会话里的授权，并写明一步失败
+    （工具、服务、沙箱、网络出错或 bug）不等于被拒。
 - Members read the organizations above theirs (2026-11-14: the person had most rules turned into documents, run
   settings into 科研部's 「研究线运行配置」 and working practices into 秘书处's 「工作手册」, and the organizations below
   could not read either: a member of OrgBench 搭建组 was refused six times when it looked at 科研部 and 秘书处).

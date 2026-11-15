@@ -28,7 +28,7 @@ for name, folder in roots.items():
         env.update(RELIC_HOME=str(Path(temp)/'relic'), RELIC_ORG_HOME=str(Path(temp)/'organization'),
                    CODEX_HOME=str(Path(temp)/'codex'), CLAUDE_CONFIG_DIR=str(Path(temp)/'claude'),
                    HOME=str(Path(temp)/'home'), USERPROFILE=str(Path(temp)/'home'), PYTHONDONTWRITEBYTECODE='1',
-                   TEMP=temp, TMP=temp, TMPDIR=temp)
+                   TEMP=temp, TMP=temp, TMPDIR=temp, RELIC_PRESENCE='here')  # tests that need the person away set it
         Path(env['HOME']).mkdir()
         start = time.monotonic()
         log_path = args.output/f'{name}.log'
