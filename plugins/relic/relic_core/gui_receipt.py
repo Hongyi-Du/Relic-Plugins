@@ -126,6 +126,8 @@ KEEP = 7 * 24 * 3600  # how long an unanswered request can still be answered by 
 # The text of a refused start while a Desktop session still owes an earlier request its Stop: wake.py waits quietly,
 # as for a busy chat (no failure, no receipt).
 WAITING = "has an unanswered Relic request in the Claude desktop app"
+# A turn is running in the session (Claude Code's session registry says busy): the wake-up waits, never interjects.
+DESKTOP_BUSY = "is busy in the Claude desktop app"
 
 
 def unresolved(store, carrier, now=None):

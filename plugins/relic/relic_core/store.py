@@ -9,8 +9,10 @@ A *member* is an organizational seat (name + role). A *carrier* is the agent
 instance currently occupying the seat (a Claude Code session or subagent).
 Replacing a carrier resets member-local state and keeps everything else.
 """
+import calendar
 import contextlib
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -66,6 +68,169 @@ def inherits(protocol):
 
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def iso(ts):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+def central(ts):
+    """A time as the person reads it: Chicago, US Central (the person's clock), with the UTC time beside it."""
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+        local = datetime.fromtimestamp(ts, ZoneInfo("America/Chicago")).strftime("%m-%d %H:%M")
+    except Exception:  # no tz database: UTC-6
+        local = time.strftime("%m-%d %H:%M", time.gmtime(ts - 6 * 3600))
+    return "%s（芝加哥时间，%s UTC）" % (local, time.strftime("%H:%MZ", time.gmtime(ts)))
+
+
+def epoch(text):
+    try:
+        return float(calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")))
+    except (TypeError, ValueError):
+        return None
+
+
+# A pause has a reason and an end (the person, 2026-11-12, made it the organizations' rule: no stop without the
+# condition that ends it). A member who turns an organization's or a seat's auto-wake or keep-going off without saying
+# until when gets this; the person's own switches (the Relic App, Stop, Stop all) end with the person's next message.
+PAUSE_DEFAULT = 2 * 3600
+PAUSE_MAX = 7 * 24 * 3600
+# A question to the person waits this long at most; then the asker goes ahead with its recommendation (the person,
+# 2026-11-12: "如果我一个小时没反应你的继续，你就直接开干").
+ASK_DEFAULT = 3600
+# The person's own switches and brakes (monitor.py, the Relic App) give these reasons or none.
+PERSON_REASONS = ("stopped", "resumed")
+_SECRET = re.compile(r"(sk-[A-Za-z0-9_\-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abpr]-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|"
+                     r"[A-Za-z0-9_\-]{32,}|(?i:(?:password|passwd|pwd|token|api[_ -]?key|secret|密码)\s*[:=：]\s*\S+))")
+
+
+def mask_secrets(text):
+    """Keys, tokens and passwords out of text a member will read (the person's typed words)."""
+    return _SECRET.sub("[已隐藏]", str(text or ""))
+
+
+def _rollout_limits():
+    """The Codex plan's weekly limit from the newest Codex session files' own token_count events:
+    {used_percent, resets_at, window_minutes, at}, or {}. Fresher than the Relic App's usage reader whenever the App is
+    not reading (on 2026-11-14 its copy was five days old)."""
+    root = Path(os.getenv("CODEX_HOME") or Path.home() / ".codex") / "sessions"
+    try:
+        days = []
+        for year in sorted(p for p in root.iterdir() if p.is_dir())[-2:]:
+            for month in sorted(p for p in year.iterdir() if p.is_dir())[-2:]:
+                days += sorted(p for p in month.iterdir() if p.is_dir())
+        files = sorted((f for d in days[-3:] for f in d.glob("rollout-*.jsonl")), key=lambda f: f.stat().st_mtime,
+                       reverse=True)[:6]
+    except OSError:
+        return {}
+    best = {}
+    for path in files:
+        try:
+            with open(path, "rb") as handle:
+                handle.seek(max(0, path.stat().st_size - 512 * 1024))
+                lines = handle.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if '"rate_limits"' not in line:
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            primary = ((record.get("payload") or {}).get("rate_limits") or {}).get("primary") or {}
+            at = epoch(str(record.get("timestamp") or "")[:19] + "Z")
+            if primary and at and at > best.get("at", 0):
+                best = dict(primary, at=at)
+            break
+    return best
+
+
+def codex_limits():
+    """The Codex plan's weekly limit, the fresher of the Relic App's usage reader and the newest Codex session files:
+    {used_percent, resets_at, at}, or {}."""
+    found = []
+    try:
+        with contextlib.closing(sqlite3.connect(data_home() / "usage.sqlite3", timeout=2)) as db:
+            row = db.execute("SELECT value FROM meta WHERE key='codex_limits'").fetchone()
+        kept = json.loads(row[0]) if row else {}
+        primary = (kept.get("value") or {}).get("primary") or {}
+        if primary:
+            found.append(dict(primary, at=float(kept.get("at") or 0)))
+    except (sqlite3.Error, ValueError, TypeError, AttributeError):
+        pass
+    found.append(_rollout_limits())
+    found = [limits for limits in found if limits]
+    return max(found, key=lambda limits: limits.get("at") or 0) if found else {}
+
+
+def codex_reset():
+    """When the Codex plan's weekly limit resets next (epoch seconds); None when unknown or already past."""
+    try:
+        resets = float(codex_limits().get("resets_at") or 0)
+    except (TypeError, ValueError):
+        return None
+    return resets if resets > time.time() else None
+
+
+IDLE_AFTER = 600  # seconds without keyboard or mouse input: the person has left the computer
+GAMES = ("PBZ", "Seer", "VALORANT", "VALORANT-Win64-Shipping", "Hearthstone", "javaw", "RDR2", "GTA5", "cs2",
+         "Overwatch", "League of Legends", "Diablo IV", "Wow", "StarRail", "GenshinImpact", "Cyberpunk2077")
+
+
+def presence():
+    """Whether the person is at this computer: {idle_seconds, game, at_computer}. Windows only; elsewhere unknown
+    (at_computer None). A game running counts as at the computer whatever the input."""
+    if sys.platform != "win32":
+        return {"idle_seconds": None, "game": None, "at_computer": None}
+    import ctypes
+    import subprocess
+
+    class LASTINPUTINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+    info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
+    idle = None
+    if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+        idle = max(0, (ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+    game = None
+    try:
+        out = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True, timeout=10,
+                             creationflags=0x08000000, encoding="utf-8", errors="replace").stdout
+        names = {line.split('","')[0].strip('"').rsplit(".", 1)[0] for line in out.splitlines() if line}
+        game = next((g for g in GAMES if g in names), None)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    away = idle is not None and idle >= IDLE_AFTER and not game
+    return {"idle_seconds": idle, "game": game, "at_computer": None if idle is None else not away}
+
+
+def pause_end(until, now_ts):
+    """When a pause ends: until is an ISO time (2026-11-16T15:13:00Z), epoch seconds, a number of minutes ("90m"),
+    hours ("6h"), "quota:codex" (once the Codex weekly limit has really reset: checked from then on) or "idle" (once
+    the person has left the computer and no game runs: checked every 5 minutes); None gives PAUSE_DEFAULT, a review,
+    not an end. Never more than a week away."""
+    end = None
+    if isinstance(until, (int, float)):
+        end = float(until)
+    elif isinstance(until, str) and until.strip():
+        text = until.strip()
+        if text == "quota:codex":
+            end = codex_reset() or now_ts + 6 * 3600
+        elif text == "idle":
+            end = now_ts + 300
+        elif re.fullmatch(r"\d+(\.\d+)?[mh]", text):
+            end = now_ts + float(text[:-1]) * (60 if text.endswith("m") else 3600)
+        else:
+            end = epoch(text)
+            if end is None:
+                raise OrgError("until: an ISO time like 2026-11-16T15:13:00Z, minutes like 90m, hours like 6h, "
+                               "quota:codex or idle.")
+    if end is None:
+        end = now_ts + PAUSE_DEFAULT
+    return max(now_ts + 60, min(end, now_ts + PAUSE_MAX))
 
 
 def short_id(prefix):
@@ -276,6 +441,24 @@ EFFECTS = ("deny", "require_review", "require_before", "check")
 # hook runs it (Store.check_reply) with the call {"tool": "Reply", "input": {"text": <the reply>}}. It is check or deny.
 REPLY = "Reply"
 SUMMARY_MAX = 2000  # characters of a protocol's note for the person
+# A strong rule stops one call, never the work (the person, 2026-11-12: many times the work must not be blocked dead by
+# a rule; they are not at the computer all the time). What a blocked member reads after the rules' reasons, and in its
+# context wherever strong rules on tool calls are in effect.
+WAY_PAST = ("A strong rule stops one call, never the work. A call a rule sends to review: Relic has asked the members "
+            "who can approve it (their auto-wake brings them), and you make the same call again once it is approved; "
+            "meanwhile go on with the rest of the work. A call a rule denies: do it another way, or go on with the "
+            "rest. Do not stop and wait for the person because a rule blocked you.")
+# A rule that denies a call (deny, require_before, a check program's deny) is a hard protection: nobody lets that call
+# through, its own member included; a call sent to review needs a member with the right to approve it, never the
+# blocked member itself (chief, 2026-11-14: no self-approval past a real protection).
+DENIED = ("A rule that denies a call stops that one call, never the work: do it another way, or go on with the rest. Do "
+          "not stop and wait for the person because a rule blocked you.")
+
+
+def way_past(rid, reviewers):
+    return ("Review request %s is open; Relic asked %s to review it. Make the same call again once it is approved; "
+            "go on with the rest of the work meanwhile. Do not stop and wait for the person because a rule blocked "
+            "you." % (rid, ", ".join(reviewers) if reviewers else "the members who can approve it"))
 # Chinese characters: CJK Unified Ideographs, Extension A and the Compatibility Ideographs
 CHINESE = re.compile("[%s-%s%s-%s%s-%s]" % tuple(map(chr, (0x3400, 0x4DBF, 0x4E00, 0x9FFF, 0xF900, 0xFAFF))))
 _ANY_TOOL = ("a", "Zq", "mcp__x__y", "relic_probe_tool")  # names no tool has: a pattern matching them all matches any tool
@@ -472,7 +655,14 @@ class Store:
                     body TEXT, at TEXT, read_at TEXT);
                 CREATE TABLE IF NOT EXISTS drive(org_id TEXT PRIMARY KEY, next_check REAL);
                 CREATE TABLE IF NOT EXISTS drive_wake(id INTEGER PRIMARY KEY, due REAL);
+                CREATE TABLE IF NOT EXISTS timers(kind TEXT, key TEXT, due REAL, ref TEXT, PRIMARY KEY(kind, key));
+                CREATE TABLE IF NOT EXISTS person_words(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, harness TEXT,
+                    session TEXT, place TEXT, text TEXT);
             """)
+            # timers: when a pause a member set ends (wake: an organization's auto-wake, seat: one seat's, drive:
+            # keep-going) and when a question to the person runs out (ask): fire_timers acts on the due ones.
+            # person_words: what the person typed into a session (the UserPromptSubmit hook), secrets masked, so that
+            # members read it themselves instead of asking each other for the person's exact words.
             # drive: the organizations with keep-going on and when wake.drive_check looks at each next (epoch seconds);
             # the setting itself (goal, driver, notices sent) is the organization's "drive". A row is all that every
             # dispatch has to read to know whether any check is due. drive_wake: when the one delayed background check
@@ -485,6 +675,10 @@ class Store:
             # its Relic calls use when they name no organization. Bindings written before seats existed, or by an older
             # plugin that knows only actors, are seats too.
             db.execute("INSERT OR IGNORE INTO seats SELECT actor, org_id, member, bound_at FROM actors")
+            # A timers table written before timers named their record gets the column; its rows name none, so the
+            # pause or question they belong to is handled again by the scan (old pauses) or not at all (questions).
+            if "ref" not in {r[1] for r in db.execute("PRAGMA table_info(timers)")}:
+                db.execute("ALTER TABLE timers ADD COLUMN ref TEXT")
             # hop: how many automatic wake-ups led to this message (0 = sent outside an automatically started turn)
             if "hop" not in {r[1] for r in db.execute("PRAGMA table_info(messages)")}:
                 try:
@@ -1381,6 +1575,7 @@ class Store:
             self._event(db, org_id, "human", "message.sent", dict({"id": cur.lastrowid, "to": recipients},
                                                                   **({"channel": channel} if channel else {}),
                                                                   **({"reply_to": root} if root else {})))
+        self._answer_asks(org_id, root or cur.lastrowid, body, cur.lastrowid)
         return cur.lastrowid
 
     def pending_count(self, org_id, member):
@@ -1572,11 +1767,20 @@ class Store:
                 m["thread"] = heads[m["reply_to"]]
         return messages
 
-    def send(self, actor, to, body, episode_id=None, reply_to=None, org=None):
+    def send(self, actor, to, body, episode_id=None, reply_to=None, org=None, recommend=None, within=None,
+             executor=None, ask_key=None):
         """reply_to: answer inside the thread of that message; without `to`, everyone in the thread gets it.
         org: the organization to write in when it is not your own (one below yours, or one above it to report).
         Recipients named "<org id>/<member>", the way a message from another organization names its sender, say
-        it too."""
+        it too. recommend (a message to human): a question to the person with the recommended answer; the message
+        says until when (within minutes, at most an hour), and if the person has not answered it by then, the
+        executor (default: the asker) gets one notice to go ahead with the recommendation (fire_timers). The same
+        question (ask_key, by default its text and recommendation) is asked once while it is open."""
+        recommend = " ".join(str(recommend or "").split())
+        due = None
+        if recommend:
+            minutes = ASK_DEFAULT / 60 if within in (None, "") else float(within)
+            due = time.time() + max(1.0, min(minutes, ASK_DEFAULT / 60)) * 60
         seated = self.scoped(actor, org) if org else None
         if seated:  # explicit held seat wins before interpreting qualified recipients
             self.set_focus(actor, self.split_actor(seated)[1])
@@ -1602,6 +1806,8 @@ class Store:
         org, member = self.require(actor)
         if not body or not body.strip():
             raise OrgError("Empty message.")
+        if recommend:
+            return self._ask_send(org, member, to, body, recommend, due, executor, ask_key, episode_id)
         # A seat's reply may also name members of another organization this seat can write to (above or below it),
         # not only those already in the thread: they get a copy, as thread participants from elsewhere do.
         reachable, refused = {}, {}
@@ -1670,7 +1876,7 @@ class Store:
                 reached.append(place)
             if reached:
                 result["delivered_orgs"] = list(dict.fromkeys(reached))
-            return result
+        return result
 
     def _send_across(self, own, member, target, way, to, body, episode_id, reply_to):
         """A message from a member of `own` to members of `target`, an organization below it (way "down") or above it
@@ -2106,32 +2312,77 @@ class Store:
                 seat[self.WAITING] = (seat.get(self.WAITING) or [])[1:]
         return mid
 
-    def set_auto_wake(self, org_id, on, reason=""):
+    @staticmethod
+    def _member_pause(on, until, by, reason):
+        """Whether switching off is a member's pause, which ends by itself: a member said who (by) or until when, or
+        gave a reason of its own (an older plugin's way). The person's switches (the Relic App gives no reason; Stop,
+        Stop all and their resumes give PERSON_REASONS) end with the person's next message instead."""
+        return not on and (until is not None or by != HUMAN or
+                           bool(reason and not str(reason).startswith(PERSON_REASONS)))
+
+    def _pause(self, db, kind, key, until, by, reason):
+        """A member's pause: it ends at the time until names, once the Codex limit has really reset (quota:codex), or
+        once the person has left the computer (idle). Without until it does not end by itself: its pauser is asked
+        every PAUSE_DEFAULT whether the reason is still there (chief, 2026-11-14: a soft stop gets a review, never a
+        blind restart)."""
+        end = pause_end(until, time.time())
+        pause = {"id": short_id("p_"), "at": now(), "until": iso(end), "by": by,
+                 "reason": str(reason or "").strip()[:500]}
+        db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES(?, ?, ?, ?)",
+                   (kind, key, end, pause["id"]))
+        if until is None:
+            pause["review"] = True
+        elif until in ("quota:codex", "idle"):
+            pause["wait_for"] = until
+        return pause
+
+    def set_auto_wake(self, org_id, on, reason="", until=None, by=HUMAN):
         """Organization-wide switch for automatic wake-ups (on unless the person turns it off in the Relic App, or
-        Stop all does; the person's next message after a Stop turns it back on: monitor.back_to_work)."""
+        Stop all does; the person's next message after a Stop turns it back on: monitor.back_to_work). A member who
+        turns it off pauses it: until when (until, see pause_end; by default PAUSE_DEFAULT), then fire_timers turns it
+        back on and tells the member."""
         with self.change(org_id) as (org, db):
             org["auto_wake"] = bool(on)
-            self._event(db, org_id, "human", "organization.auto_wake", dict({"on": bool(on)},
-                                                                            **({"reason": reason} if reason else {})))
+            body = dict({"on": bool(on)}, **({"reason": reason} if reason else {}))
+            org.pop("pause", None)
+            db.execute("DELETE FROM timers WHERE kind='wake' AND key=?", (org_id,))
+            if self._member_pause(on, until, by, reason):
+                org["pause"] = self._pause(db, "wake", org_id, until, by, reason)
+                body.update(until=org["pause"]["until"], by=by)
+            self._event(db, org_id, "human" if by == HUMAN else by, "organization.auto_wake", body)
 
-    def set_seat_auto_wake(self, org_id, member, on, reason=""):
+    def set_seat_auto_wake(self, org_id, member, on, reason="", until=None, by=HUMAN):
         """One seat's switch for automatic wake-ups (wake.wakeable reads it); the person's Stop in the Relic window
         turns it off for every seat of the stopped session, and the person's next message (monitor.back_to_work) or
-        Resume turns back on what Stop turned off."""
+        Resume turns back on what Stop turned off. A member who turns it off pauses it (see set_auto_wake)."""
         with self.change(org_id) as (org, db):
             seat = org["members"].get(member)
             if seat is None:
                 raise OrgError("No member %s in %s" % (member, org["name"]))
             seat["auto_wake"] = bool(on)
-            self._event(db, org_id, member, "member.auto_wake", {"on": bool(on), "reason": reason})
+            body = {"on": bool(on), "reason": reason}
+            seat.pop("pause", None)
+            key = "%s/%s" % (org_id, member)
+            db.execute("DELETE FROM timers WHERE kind='seat' AND key=?", (key,))
+            if self._member_pause(on, until, by, reason):
+                seat["pause"] = self._pause(db, "seat", key, until, by, reason)
+                body.update(until=seat["pause"]["until"], by=by)
+            self._event(db, org_id, member, "member.auto_wake", body)
 
     # ---------------- keep-going (持续推进) ----------------
     # Hongyi, 2026-11-07: members finish a step and stop; "I want them to go on by themselves: when a step is done they
     # tell the head, and the head goes on with the next step." Keep-going names a driver (default: the leader) and the
     # person's standing instruction; wake.drive_check sends the driver a notice when the organization and the ones below
     # it have gone quiet with work unfinished.
-    def _apply_drive(self, db, org, on, goal=None, driver=None, by=HUMAN, reason=""):
+    def _apply_drive(self, db, org, on, goal=None, driver=None, by=HUMAN, reason="", until=None):
         drive = dict(org.get("drive") or {})
+        drive.pop("resume_at", None)
+        drive.pop("pause", None)
+        db.execute("DELETE FROM timers WHERE kind='drive' AND key=?", (org["id"],))
+        if self._member_pause(on, until, by, reason):  # a member's pause of keep-going, like auto-wake's
+            drive["pause"] = self._pause(db, "drive", org["id"], until, by, reason)
+            if not drive["pause"].get("review"):
+                drive["resume_at"] = drive["pause"]["until"]
         if on:
             driver = driver or drive.get("driver") or org.get("leader") or next(iter(org["members"]), None)
             if driver not in org["members"]:
@@ -2152,16 +2403,348 @@ class Store:
         org["drive"] = drive
         self._event(db, org["id"], by, "organization.drive", dict(
             {"on": bool(on), "driver": drive.get("driver")}, **({"reason": drive["off_reason"]}
-                                                                 if not on and drive.get("off_reason") else {})))
+                                                                 if not on and drive.get("off_reason") else {}),
+            **({"until": drive["resume_at"]} if drive.get("resume_at") else {})))
         return drive
 
-    def set_drive(self, org_id, on, goal=None, driver=None, by=HUMAN, reason=""):
+    def set_drive(self, org_id, on, goal=None, driver=None, by=HUMAN, reason="", until=None):
         """Switch keep-going on (goal: what the organization keeps working toward; driver: who gets the notices) or
-        off: the person in the Relic App, or a member acting on the person's word (work op=drive)."""
+        off: the person in the Relic App, or a member acting on the person's word (work op=drive), whose pause ends
+        by itself (until, see pause_end)."""
         with self.change(org_id) as (org, db):
             if org.get("status") != "active":
                 raise OrgError("%s is not active." % org["name"])
-            return self._apply_drive(db, org, on, goal, driver, by, reason)
+            return self._apply_drive(db, org, on, goal, driver, by, reason, until)
+
+    # ---------------- pauses that end, questions that run out (the person, 2026-11-12/14) ----------------
+    # 「你得先知道我为什么停然后再根据我的痛点做处理」「我不是所有时间全都在电脑前面的，我不看就不动」: a member's pause
+    # ends at the time it names (PAUSE_DEFAULT when it names none), and a question to the person runs out after an
+    # hour, when the asker goes ahead with its recommendation. wake.drive_due runs fire_timers on every dispatch and
+    # arms the delayed background check for next_timer, so it happens with nobody at work too.
+    SCAN_EVERY = 600
+    LEASE = 60  # a claimed timer comes again after this if its process died before finishing it
+
+    def next_timer(self):
+        """When the next pause or question is due: what the delayed background check is armed for. The scan of old
+        switch-offs is not one: it runs when members' hooks do, and never keeps a background check coming by itself."""
+        with self.db() as db:
+            row = db.execute("SELECT MIN(due) FROM timers WHERE kind<>'scan'").fetchone()
+        return row[0] if row and row[0] is not None else None
+
+    def fire_timers(self, now_ts=None):
+        """End the pauses and questions whose time has come. Each due timer is claimed for LEASE seconds (two processes
+        never take the same one), then acted on in one transaction with the record it belongs to, the notice it sends
+        and its own removal or re-arming: a failure leaves everything as it was and the timer comes again when the
+        lease runs out; a timer whose record changed meanwhile (switched back on, paused anew, answered) does nothing.
+        Every SCAN_EVERY seconds it also gives an end to switches an older plugin turned off without one."""
+        now_ts = time.time() if now_ts is None else now_ts
+        with self.db() as db:  # every hook asks: nothing due costs one read, no write lock
+            nothing_due = db.execute("SELECT 1 FROM timers WHERE due<=? LIMIT 1", (now_ts,)).fetchone() is None
+            scanned = db.execute("SELECT 1 FROM timers WHERE kind='scan'").fetchone() is not None
+        if nothing_due:
+            return [] if scanned else self._scan_pauses(now_ts)
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            due = db.execute("SELECT kind, key, ref FROM timers WHERE due<=? ORDER BY due", (now_ts,)).fetchall()
+            db.execute("UPDATE timers SET due=? WHERE due<=?", (now_ts + self.LEASE, now_ts))
+        done = []
+        for kind, key, ref in due:
+            try:
+                result = self._fire(kind, key, ref, now_ts)
+            except Exception as error:  # nothing was half done: the lease runs out and it comes again
+                result = {"kind": kind, "key": key, "error": str(error)[:200]}
+            if result:
+                done.append(result)
+        if not any(kind == "scan" for kind, _, _ in due) and self._never_scanned():
+            done += self._scan_pauses(now_ts)
+        return done
+
+    def _never_scanned(self):
+        with self.db() as db:
+            return db.execute("SELECT 1 FROM timers WHERE kind='scan'").fetchone() is None
+
+    @staticmethod
+    def _still(db, kind, key, ref):
+        """Whether the claimed timer is still the one in the store (not replaced by a new pause or question, not
+        cancelled)."""
+        row = db.execute("SELECT ref FROM timers WHERE kind=? AND key=?", (kind, key)).fetchone()
+        return bool(row) and row[0] == ref
+
+    @staticmethod
+    def _rearm_in(db, kind, key, ref, due):
+        db.execute("UPDATE timers SET due=? WHERE kind=? AND key=? AND ref=?", (due, kind, key, ref))
+
+    @staticmethod
+    def _holder(org, kind, member):
+        """(the record a pause sits on, whether its switch is still off, its name for notices)."""
+        if kind == "wake":
+            return org, not org.get("auto_wake", True), org["name"]
+        if kind == "seat":
+            seat = org["members"].get(member) or {}
+            return seat, not seat.get("auto_wake", True), "%s / %s" % (org["name"], member)
+        drive = org.get("drive") or {}
+        return drive, not drive.get("on") and bool((drive.get("goal") or "").strip()), org["name"]
+
+    def _fire(self, kind, key, ref, now_ts):
+        if kind == "scan":
+            return {"kind": "scan", "found": self._scan_pauses(now_ts)}
+        if kind == "ask":
+            return self._ask_ran_out(key, ref)
+        if kind not in ("wake", "seat", "drive"):
+            return None
+        from . import i18n, monitor
+        org_id, _, member = key.partition("/")
+        # What the pause waits for is looked at before the write (usage data, the person at the computer).
+        peek = (self._holder(self.get(org_id), kind, member)[0] or {}).get("pause") or {}
+        wait_for = peek.get("wait_for") if peek.get("id") == ref else None
+        limits = codex_limits() if wait_for == "quota:codex" else {}
+        away = presence().get("at_computer") is False if wait_for == "idle" else None
+        stopped = monitor.stopped()
+        with self.change(org_id) as (org, db):
+            if not self._still(db, kind, key, ref):
+                return None
+            holder, still_off, name = self._holder(org, kind, member)
+            pause = holder.get("pause") or {}
+            if org.get("status") != "active" or not still_off or pause.get("id") != ref:
+                db.execute("DELETE FROM timers WHERE kind=? AND key=? AND ref=?", (kind, key, ref))
+                return None
+            if stopped:  # the person's Stop or Stop all is in force: it goes first
+                self._rearm_in(db, kind, key, ref, now_ts + 600)
+                return {"kind": kind, "key": key, "outcome": "held by the person's stop"}
+            if pause.get("review"):  # no end was named: ask the pauser again, never restart blindly
+                self._rearm_in(db, kind, key, ref, now_ts + PAUSE_DEFAULT)
+                self._tell_pauser(db, pause, i18n.t("pause.review", what=name, reason=pause.get("reason") or "-",
+                                                    at=pause.get("at")))
+                return {"kind": kind, "key": key, "outcome": "review"}
+            if wait_for == "quota:codex":
+                later_reset = (limits.get("resets_at") or 0) > (epoch(pause.get("until")) or 0) + 60
+                low_use = limits.get("used_percent") is not None and float(limits["used_percent"]) < 50
+                if not (later_reset or low_use):
+                    self._rearm_in(db, kind, key, ref, now_ts + 1800)
+                    return {"kind": kind, "key": key, "outcome": "quota not reset yet"}
+            if wait_for == "idle" and not away:
+                self._rearm_in(db, kind, key, ref, now_ts + 300)
+                return {"kind": kind, "key": key, "outcome": "person at the computer"}
+            why = self._ended(pause)
+            if kind == "drive":
+                self._apply_drive(db, org, True, by=SYSTEM)
+            else:
+                holder["auto_wake"] = True
+                holder.pop("pause", None)
+                db.execute("DELETE FROM timers WHERE kind=? AND key=? AND ref=?", (kind, key, ref))
+                if kind == "wake":
+                    self._event(db, org_id, "human", "organization.auto_wake", {"on": True, "reason": why})
+                else:
+                    self._event(db, org_id, member, "member.auto_wake", {"on": True, "reason": why})
+            self._tell_pauser(db, pause, i18n.t("pause.ended", what=name, reason=pause.get("reason") or "-",
+                                                at=pause.get("at")))
+            return {"kind": kind, "key": key, "outcome": "ended"}
+
+    @staticmethod
+    def _ended(pause):
+        return "pause ended at %s (set by %s at %s: %s)" % (pause.get("until"), pause.get("by"), pause.get("at"),
+                                                            (pause.get("reason") or "no reason given")[:200])
+
+    def _tell_pauser(self, db, pause, text):
+        """The member who paused hears of it in its own organization, in the same transaction as the change."""
+        place, _, name = str(pause.get("by") or "").rpartition("/")
+        if not place:
+            return
+        try:
+            home = self._load(db, place)
+        except OrgError:
+            return
+        if name in home["members"]:
+            self._post(db, home["id"], SYSTEM, [name], text)
+            self.__dict__.setdefault("posted", []).append(home["id"])
+
+    def _scan_pauses(self, now_ts):
+        """Switches an older plugin (or a script) turned off with a member's reason and no end become reviewed pauses:
+        their pauser is asked every PAUSE_DEFAULT whether the reason is still there. Runs every SCAN_EVERY seconds."""
+        found = []
+        with self.db() as db:
+            db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES('scan', 'all', ?, 'scan')",
+                       (now_ts + self.SCAN_EVERY,))
+        for org in self.list_orgs():
+            if org.get("status") != "active":
+                continue
+            switches = []
+            if not org.get("auto_wake", True) and not org.get("pause"):
+                switches.append(("wake", None, "organization.auto_wake"))
+            for member, seat in org["members"].items():
+                if not seat.get("auto_wake", True) and not seat.get("pause"):
+                    switches.append(("seat", member, "member.auto_wake"))
+            for kind, member, event in switches:
+                with self.db() as db:
+                    sql = "SELECT at, body FROM events WHERE org_id=? AND kind=?" + (" AND member=?" if member else "")
+                    row = db.execute(sql + " ORDER BY seq DESC LIMIT 1",
+                                     (org["id"], event) + ((member,) if member else ())).fetchone()
+                if not row:
+                    continue
+                body = json.loads(row[1] or "{}")
+                reason = body.get("reason") or ""
+                if body.get("on") is not False or not self._member_pause(False, None, HUMAN, reason):
+                    continue
+                due = max((epoch(row[0]) or now_ts) + PAUSE_DEFAULT, now_ts)
+                key = org["id"] if kind == "wake" else "%s/%s" % (org["id"], member)
+                with self.change(org["id"]) as (o, db):
+                    holder = o if kind == "wake" else o["members"][member]
+                    if holder.get("auto_wake", True) or holder.get("pause"):
+                        continue
+                    pause = {"id": short_id("p_"), "at": row[0], "until": iso(due), "by": body.get("by") or "",
+                             "reason": reason[:500], "review": True}
+                    holder["pause"] = pause
+                    db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES(?, ?, ?, ?)",
+                               (kind, key, due, pause["id"]))
+                found.append({"kind": kind, "key": key, "review_at": iso(due)})
+            drive = org.get("drive") or {}
+            if (drive and not drive.get("on") and not drive.get("pause") and drive.get("set_by") not in
+                    (None, HUMAN, SYSTEM) and (drive.get("goal") or "").strip()):
+                due = max((epoch(drive.get("set_at")) or now_ts) + PAUSE_DEFAULT, now_ts)
+                with self.change(org["id"]) as (o, db):
+                    current = o.get("drive") or {}
+                    if current.get("on") or current.get("pause"):
+                        continue
+                    pause = {"id": short_id("p_"), "at": current.get("set_at"), "until": iso(due),
+                             "by": current.get("set_by"), "reason": (current.get("off_reason") or "")[:500],
+                             "review": True}
+                    o["drive"] = dict(current, pause=pause)
+                    db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES('drive', ?, ?, ?)",
+                               (org["id"], due, pause["id"]))
+                found.append({"kind": "drive", "key": org["id"], "review_at": iso(due)})
+        return found
+
+    # questions to the person: message to=[human] with recommend (P8, P9: once, with a recommendation, an hour)
+    def _ask_send(self, org, member, to, body, recommend, due, executor, key, episode_id):
+        """A question to the person, asked once: the message, its record and its timer are written in one transaction,
+        and a question with the same key that is still open is not asked again (its first deadline stands). key: the
+        decision's own name, the same for whoever asks it (a seat that takes over asks under the same key); by default
+        the question and the recommendation themselves."""
+        names = [str(n) for n in (to if isinstance(to, list) else ([to] if to else []))]
+        if HUMAN not in names:
+            raise OrgError("recommend goes with a question to the person: to=['human'].")
+        others = [n for n in dict.fromkeys(names) if n != HUMAN]
+        unknown = set(others) - set(org["members"])
+        if unknown:
+            raise OrgError("Unknown members: " + ", ".join(sorted(unknown)))
+        if executor and executor not in org["members"]:
+            raise OrgError("executor: a member of %s, who goes ahead when the hour is over." % org["name"])
+        key = str(key).strip()[:200] if key else "auto:" + hashlib.sha1(
+            ("%s\n%s" % (" ".join(body.split())[:1000], recommend)).encode("utf-8")).hexdigest()[:16]
+        hop = self._sender_hop(org["id"], member)
+        from . import i18n
+        with self.change(org["id"]) as (o, db):
+            for ask in (o.get("asks") or {}).values():
+                if ask.get("status") == "open" and ask.get("key") == key:
+                    return {"message_id": ask["message_id"], "to": [HUMAN] + others, "ask": dict(ask),
+                            "already_asked": True}
+            text = body.rstrip() + "\n\n" + i18n.t("ask.note", recommend=recommend, due=central(due),
+                                                   executor=executor or member)
+            recipients = [HUMAN] + others
+            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                             "VALUES(?,?,?,?,?,?,?,?)", (o["id"], member, json.dumps(recipients), text, episode_id,
+                                                         now(), hop, None))
+            mid = cur.lastrowid
+            self._event(db, o["id"], member, "message.sent", {"id": mid, "to": recipients})
+            asks = o.setdefault("asks", {})
+            o["counters"]["ask"] = o["counters"].get("ask", 0) + 1
+            aid = "A%d" % o["counters"]["ask"]
+            asks[aid] = {"id": aid, "key": key, "asker": member, "executor": executor or member, "message_id": mid,
+                         "recommend": recommend[:1000], "due": iso(due), "status": "open", "at": now()}
+            db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES('ask', ?, ?, ?)",
+                       ("%s/%s" % (o["id"], aid), due, aid))
+            self._event(db, o["id"], member, "ask.opened", {"id": aid, "message_id": mid, "due": iso(due)})
+            settled = [k for k, v in asks.items() if v.get("status") != "open"]
+            for old in settled[:-50]:
+                asks.pop(old, None)  # keep the open ones and the last 50 settled
+            return {"message_id": mid, "to": recipients, "ask": dict(asks[aid])}
+
+    ASK_ID = re.compile(r"(?<![A-Za-z0-9])A(\d+)(?![0-9])")
+    MESSAGE_ID = re.compile(r"#(\d+)")
+
+    def _answer_asks(self, org_id, root, body, message_id):
+        """The person answered a question: by replying in its thread (root: the question's message), or by naming it
+        anywhere in the organization (A3, or #<its message id>). Only those are settled: a message that names none
+        settles none."""
+        named = {"A" + n for n in self.ASK_ID.findall(body or "")}
+        messages = {int(n) for n in self.MESSAGE_ID.findall(body or "")}
+
+        def hit(ask):
+            return ask.get("status") == "open" and (ask.get("message_id") == root or ask.get("id") in named or
+                                                    ask.get("message_id") in messages)
+        if not any(hit(a) for a in (self.get(org_id).get("asks") or {}).values()):
+            return []
+        settled = []
+        with self.change(org_id) as (org, db):
+            for ask in (org.get("asks") or {}).values():
+                if hit(ask):
+                    ask.update(status="answered", answer_id=message_id, settled_at=now())
+                    db.execute("DELETE FROM timers WHERE kind='ask' AND key=?", ("%s/%s" % (org_id, ask["id"]),))
+                    self._event(db, org_id, HUMAN, "ask.answered", {"id": ask["id"], "message_id": message_id})
+                    settled.append(ask["id"])
+        return settled
+
+    def _ask_ran_out(self, key, ref):
+        """An hour passed with no answer: one notice to the executor (and the asker) to go ahead with the
+        recommendation, written in the same transaction as the question's new state and the timer's removal. When the
+        person has stopped the work meanwhile (Stop, Stop all, or this organization's auto-wake switched off by the
+        person) the question is held and nobody is told."""
+        org_id, _, aid = key.partition("/")
+        from . import i18n, monitor
+        stopped = monitor.stopped()
+        with self.change(org_id) as (org, db):
+            if not self._still(db, "ask", key, ref):
+                return None
+            db.execute("DELETE FROM timers WHERE kind='ask' AND key=? AND ref=?", (key, ref))
+            ask = (org.get("asks") or {}).get(aid)
+            if not ask or ask.get("status") != "open":
+                return None
+            held = stopped or (not org.get("auto_wake", True) and not org.get("pause"))
+            ask.update(status="held" if held else "ran_out", settled_at=now())
+            self._event(db, org_id, ask["asker"], "ask.held" if held else "ask.ran_out",
+                        {"id": aid, "message_id": ask["message_id"]})
+            if held:
+                return {"kind": "ask", "key": key, "outcome": "held by a stop"}
+            to = [m for m in dict.fromkeys([ask.get("executor") or ask["asker"], ask["asker"]]) if m in org["members"]]
+            if to:
+                self._post(db, org_id, SYSTEM, to, i18n.t("ask.ran_out", id=ask["message_id"],
+                                                         recommend=ask["recommend"], executor=to[0]))
+                self.__dict__.setdefault("posted", []).append(org_id)
+            return {"kind": "ask", "key": key, "outcome": "ran out"}
+
+    def open_asks(self, org_id, member=None):
+        return [dict(a) for a in (self.get(org_id).get("asks") or {}).values()
+                if a.get("status") == "open" and (member is None or member in (a.get("asker"), a.get("executor")))]
+
+    # the person's own words, typed into a member's session (relic_hook: UserPromptSubmit). Only sessions that hold a
+    # seat: the person's other chats stay theirs. Members read the words typed into seats of their organization and the
+    # organizations below it (said), with where and when, instead of asking each other for the exact words.
+    WORDS_KEPT = 1000
+
+    def person_said(self, harness, session, place, text):
+        text = mask_secrets(text).strip()
+        if not text or not place:
+            return None
+        with self.db() as db:
+            cur = db.execute("INSERT INTO person_words(at, harness, session, place, text) VALUES(?,?,?,?,?)",
+                             (now(), harness, str(session or "")[:80], str(place)[:200], text[:4000]))
+            db.execute("DELETE FROM person_words WHERE id <= ?", (cur.lastrowid - self.WORDS_KEPT,))
+            return cur.lastrowid
+
+    def said(self, org_id, limit=10, query=None, hours=72):
+        """What the person typed lately into the sessions of seats in org_id and the organizations below it, newest
+        first: [{at, harness, place, text}]. query: only what contains it."""
+        orgs = [org_id] + [o["id"] for o in self.descendants(org_id)]
+        since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - float(hours or 72) * 3600))
+        sql = "SELECT at, harness, place, text FROM person_words WHERE at>=? AND (%s)" % " OR ".join(
+            ["place LIKE ?"] * len(orgs))
+        args = [since] + ["%s/%%" % o for o in orgs]
+        if query:
+            sql += " AND text LIKE ?"
+            args.append("%" + str(query) + "%")
+        with self.db() as db:
+            rows = db.execute(sql + " ORDER BY id DESC LIMIT ?", args + [max(1, min(int(limit or 10), 50))]).fetchall()
+        return [{"at": at, "harness": h, "place": p, "text": t} for at, h, p, t in rows]
 
     def drive_due(self, now_ts):
         """The organizations with keep-going on whose next check is due, each claimed for a minute so that two
@@ -2199,9 +2782,13 @@ class Store:
             return True
 
     def send_system(self, org_id, to, body):
-        """A message from the plugin itself (SYSTEM): a keep-going notice. hop 0: it starts a new exchange."""
+        """A message from the plugin itself (SYSTEM): a keep-going notice, a pause that ended or is to be reviewed, a
+        question to the person that ran out, a review to do. hop 0: it starts a new exchange. posted: the organizations
+        written in, for the caller to wake the recipients (wake.drive_due)."""
         with self.db() as db:
-            return self._post(db, org_id, SYSTEM, list(to), body)
+            mid = self._post(db, org_id, SYSTEM, list(to), body)
+        self.__dict__.setdefault("posted", []).append(org_id)
+        return mid
 
     # ---------------- shared work ----------------
     def work(self, actor, op, a):
@@ -2212,6 +2799,8 @@ class Store:
             if way:
                 return self._work_below(own, me, target, op, a)
         org, member = self.require(actor)
+        if op == "said":  # read-only, outside the organization's change
+            return {"said": self.said(org["id"], a.get("limit") or 10, a.get("query"), a.get("hours") or 72)}
         return self._work(org, member, op, a)
 
     def _work(self, org, member, op, a):
@@ -2340,12 +2929,13 @@ class Store:
         reason = (a.get("reason") or "").strip()
         if not on and not reason:
             raise OrgError("Say why keep-going goes off (reason): the person is told.")
-        drive = self._apply_drive(db, org, on, a.get("goal"), a.get("driver"), member, reason)
+        drive = self._apply_drive(db, org, on, a.get("goal"), a.get("driver"), member, reason, a.get("until"))
         if not on:
             from . import i18n
             self._post(db, org["id"], member, [HUMAN],
                        i18n.t("drive.off_by", member=member, org=org["name"], reason=reason))
-        return {k: drive[k] for k in ("on", "goal", "driver", "set_by", "set_at", "off_reason") if k in drive}
+        return {k: drive[k] for k in ("on", "goal", "driver", "set_by", "set_at", "off_reason", "resume_at")
+                if k in drive}
 
     # ---------------- episodes and reflection ----------------
     def episode(self, actor, op, a):
@@ -2543,8 +3133,12 @@ class Store:
         return path_rules.absolute(override, base) if override else path_rules.absolute(base)
 
     def gate(self, actor, tool, tool_input, cwd=None):
-        """Return (allowed, reasons). Records review requests for require_review rules; runs the programs of the check
-        rules that cover the call (side by side, each in a process of its own) and does what they answer."""
+        """Return (allowed, reasons). A strong rule stops one call, never the work: every call the rules block gets a
+        request (one per exact call, however many rules block it), and one approval of it lets that exact call through
+        once. Another member approves it (review op=approve: what require_review and a check program's review ask
+        for), or the blocked member lets it through itself with a reason (review op=proceed), which the organizations
+        whose rules it passes read. Runs the programs of the check rules that cover the call (side by side, each in a
+        process of its own)."""
         tool, tool_input = normalize(tool, tool_input)
         actor = self.focused(actor)  # the organization the session works for now: its protocols bind this call
         org, member = self.whoami(actor)
@@ -2552,7 +3146,9 @@ class Store:
             return True, []
         cwd = self._tool_cwd(org, member, tool_input, cwd)
         role = org["members"][member].get("role", "")
-        reasons, consumed, checks = [], [], []
+        # blocks: (whether it asks another member to approve, protocol as named here, what the member reads, the rule's
+        # own reason for the request)
+        blocks, checks = [], []
         last_edit = None
         review_input = dict(tool_input)
         if cwd:
@@ -2570,47 +3166,48 @@ class Store:
                     continue  # a rule on Reply judges the reply that ends the turn (check_reply), not tool calls
                 label = "%s %s" % (pid, p["title"])
                 if rule["effect"] == "deny":
-                    reasons.append("%s: %s" % (label, rule.get("reason", "blocked by an adopted protocol.")))
+                    why = rule.get("reason", "blocked by an adopted protocol.")
+                    blocks.append((False, pid, "%s: %s" % (label, why), why))
                 elif rule["effect"] == "check":
                     checks.append((owner, p, pid, label, rule))
                 elif rule["effect"] == "require_before":
                     if last_edit is None:
                         last_edit = self._last_activity(org["id"], member, kind="edit") or 0.0
                     if not self._has_activity_since(org["id"], member, rule["before"], last_edit):
-                        reasons.append("%s: %s" % (label, rule.get("reason") or
-                                       "first run %s after your latest edit." % rule["before"]["tools"]))
+                        why = rule.get("reason") or "first run %s after your latest edit." % rule["before"]["tools"]
+                        blocks.append((False, pid, "%s: %s" % (label, why), why))
                 else:
-                    approved = self._approved_review(org, member, tool, review_input)
-                    if approved:
-                        consumed.append(approved)
-                    else:
-                        rid = self._request_review(org["id"], member, pid, tool, review_input)
-                        reasons.append("%s: another member must approve this exact action. Review request %s is open; "
-                                       "ask a member to run review approve %s, then retry the same call." % (label, rid, rid))
+                    blocks.append((True, pid, "%s: another member must approve this exact action." % label, None))
         outcomes = self._run_checks(org, member, role, checks, tool, tool_input)
         for (owner, p, pid, label, rule), outcome in zip(checks, outcomes):
             if outcome["decision"] == "deny":
-                reasons.append("%s: %s" % (label, outcome["reason"]))
+                blocks.append((False, pid, "%s: %s" % (label, outcome["reason"]), outcome["reason"]))
             elif outcome["decision"] == "review":
-                approved = self._approved_review(org, member, tool, review_input)
-                if approved:
-                    consumed.append(approved)
-                else:
-                    rid = self._request_review(org["id"], member, pid, tool, review_input, why=outcome["reason"])
-                    reasons.append("%s: %s. Another member must approve this exact action. Review request %s is open; "
-                                   "ask a member to run review approve %s, then retry the same call."
-                                   % (label, outcome["reason"].rstrip(". "), rid, rid))
-        if not reasons and consumed:
-            with self.change(org["id"]) as (o, db):
-                for rid in consumed:
-                    o["reviews"][rid]["status"] = "used"
+                blocks.append((True, pid, "%s: %s. Another member must approve this exact action."
+                               % (label, outcome["reason"].rstrip(". ")), outcome["reason"]))
+        reasons, passed = [], None
+        if blocks and not all(asks for asks, _, _, _ in blocks):
+            # a rule denies the call: a hard protection, no request, nobody lets it through
+            reasons = [text for _, _, text, _ in blocks] + [DENIED]
+        elif blocks:
+            passed = self._approved_review(org, member, tool, review_input)
+            if passed:  # one approval, one use
+                with self.change(org["id"]) as (o, db):
+                    o["reviews"][passed]["status"] = "used"
+            else:
+                rid, asked = self._request_review(org["id"], member, [pid for _, pid, _, _ in blocks], tool,
+                                                  review_input, why=next((why for _, _, _, why in blocks if why), None))
+                asked = asked or (org["reviews"].get(rid) or {}).get("asked") or self.reviewers(org, member)
+                reasons = [text + " Review request %s is open." % rid for _, _, text, _ in blocks] + [
+                    way_past(rid, asked)]
         if reasons:
             self.turn_note(actor, friction="blocked by protocol: " + reasons[0][:120])
         with self.db() as db:
             if reasons:
                 self._event(db, org["id"], member, "protocol.blocked", {"tool": tool, "reasons": reasons})
-            elif consumed:
-                self._event(db, org["id"], member, "protocol.review_used", {"tool": tool, "reviews": consumed})
+            elif passed:
+                self._event(db, org["id"], member, "protocol.review_used",
+                            {"tool": tool, "reviews": [passed], "protocols": [pid for _, pid, _, _ in blocks]})
             if checks:
                 self._record_checks(db, org, member, tool, tool_input, checks, outcomes)
         return not reasons, reasons
@@ -2902,27 +3499,51 @@ class Store:
                 return rid
         return None
 
-    def _request_review(self, org_id, member, pid, tool, tool_input, why=None):
-        """A review request for this exact action (why: the reason a check program gave for sending it to review)."""
+    def _request_review(self, org_id, member, pids, tool, tool_input, why=None):
+        """The request for this exact call that rules send to review, one per call however many rules do (pids: the
+        protocols, as named in this organization; why: the first rule's own reason). A new one is sent at once to the
+        members who can approve it (reviewers), and their auto-wake brings them to it: nobody waits for someone who
+        does not know. Returns (request id, the reviewers asked now: [] when the request was already open)."""
+        pids = list(dict.fromkeys(pids))
         key = canonical([tool, tool_input])
         with self.change(org_id) as (org, db):
             for rid, r in org["reviews"].items():
                 if r["subject"] == member and r["status"] == "pending" and r["action"] == key:
-                    return rid
+                    r["protocols"] = list(dict.fromkeys((r.get("protocols") or [r["protocol_id"]]) + pids))
+                    return rid, []
             org["counters"]["review"] += 1
             rid = "R%d" % org["counters"]["review"]
             summary = tool_input.get("command") or tool_input.get("file_path") or canonical(tool_input)[:200]
-            org["reviews"][rid] = {"id": rid, "protocol_id": pid, "subject": member, "tool": tool, "summary": str(summary)[:300],
-                                   "action": key, "status": "pending", "at": now()}
+            org["reviews"][rid] = {"id": rid, "protocol_id": pids[0], "protocols": pids, "kind": "review",
+                                   "subject": member, "tool": tool, "summary": str(summary)[:300], "action": key,
+                                   "status": "pending", "at": now()}
             if why:
                 org["reviews"][rid]["why"] = str(why)[:checker.REASON_MAX]
-            self._event(db, org_id, member, "review.requested", {"id": rid, "protocol_id": pid})
-            return rid
+            reviewers = self.reviewers(org, member)
+            org["reviews"][rid]["asked"] = reviewers
+            self._event(db, org_id, member, "review.requested", {"id": rid, "protocol_id": pids[0],
+                                                                  "asked": reviewers})
+            r = dict(org["reviews"][rid])
+        if reviewers:
+            from . import i18n
+            self.send_system(org_id, reviewers, i18n.t("review.asked", id=rid, member=member, tool=tool,
+                                                       summary=r["summary"][:200], why=r.get("why") or "-",
+                                                       protocols=", ".join(pids)))
+        return rid, reviewers
+
+    @staticmethod
+    def reviewers(org, subject):
+        """Who is asked to review a member's call: the leader (when it is someone else), otherwise the other members;
+        three at most."""
+        if org.get("governance") == "leader" and org.get("leader") in org["members"] and org["leader"] != subject:
+            return [org["leader"]]
+        return [m for m in org["members"] if m != subject][:3]
 
     def review(self, actor, op, a):
         org, member = self.require(actor)
         if op == "list":
             return [dict({k: r[k] for k in ("id", "protocol_id", "subject", "tool", "summary", "status")},
+                         protocols=r.get("protocols") or [r["protocol_id"]],
                          **({"why": r["why"]} if r.get("why") else {}))
                     for r in org["reviews"].values() if r["status"] == "pending"]
         if op != "approve":
@@ -2937,7 +3558,10 @@ class Store:
                 raise OrgError("Say what you checked.")
             r.update(status="approved", reviewer=member, note=a["note"][:500], approved_at=now())
             self._event(db, org["id"], member, "review.approved", {"id": r["id"], "subject": r["subject"]})
-            return r
+        from . import i18n
+        self.send_system(org["id"], [r["subject"]], i18n.t("review.approved", id=r["id"], reviewer=member,
+                                                           summary=r["summary"][:200]))
+        return r
 
     # ---------------- activity (called from PostToolUse) ----------------
     def record_activity(self, actor, tool, tool_input, failed=False, output="", cwd=None):

@@ -6,6 +6,7 @@ is due, so a message is not stranded when every member happens to be idle. The k
 organizations with keep-going on once their next check is due, and arms the next one.
 """
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -23,6 +24,10 @@ def main():
     a = parser.parse_args()
     if not a.org and not a.drive:
         parser.error("--org or --drive")
+    if os.environ.get("RELIC_TEST"):  # started by a test run: only ever on a data root of its own
+        home = os.environ.get("RELIC_HOME")
+        if not home or Path(home).resolve() == (Path.home() / ".relic").resolve():
+            return 2
     time.sleep(max(0.0, a.after))
     if a.drive:
         wake.drive_due(Store())
@@ -36,4 +41,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

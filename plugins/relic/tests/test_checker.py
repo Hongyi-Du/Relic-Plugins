@@ -26,7 +26,7 @@ import relic_hook  # noqa: E402
 from app import views, web  # noqa: E402
 from relic_core import checker  # noqa: E402
 from relic_core.context import render  # noqa: E402
-from relic_core.store import HUMAN, OrgError, Store  # noqa: E402
+from relic_core.store import DENIED, HUMAN, OrgError, Store  # noqa: E402
 
 LEAD, ANA, BOB, SAM = "lead-s", "ana-s", "bob-s", "sam-s"
 PUSH = {"command": "git push origin main"}
@@ -239,7 +239,8 @@ class Running(Base):
         self.edit()
         allowed, reasons = s.gate(ANA, "Bash", PUSH)
         self.assertFalse(allowed)
-        self.assertEqual(reasons, ["%s Test before pushing: run pytest after your latest edit before pushing" % p["id"]])
+        self.assertEqual(reasons, ["%s Test before pushing: run pytest after your latest edit before pushing" % p["id"],
+                                   DENIED])  # a rule stops one call, never the work
         s.record_activity(ANA, "Bash", {"command": "pytest -q"})
         self.assertEqual(s.gate(ANA, "Bash", PUSH), (True, []))
         force = {"command": "git push --force origin main"}
@@ -350,7 +351,8 @@ class Running(Base):
                                  "tool_input": PUSH}, self.store)
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"],
-                         "Relic protocol: %s Test before pushing: run pytest after your latest edit before pushing" % p["id"])
+                         "Relic protocol: %s Test before pushing: run pytest after your latest edit before pushing | %s"
+                         % (p["id"], DENIED))
         # Codex shell calls are Bash too
         out = relic_hook.handle({"hook_event_name": "PreToolUse", "session_id": ANA, "tool_name": "exec_command",
                                  "tool_input": {"cmd": ["git", "push", "origin", "main"]}}, self.store)

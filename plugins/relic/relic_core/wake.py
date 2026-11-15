@@ -53,7 +53,8 @@ def no_turn(error):
     """Whether a failed wake-up never reached the member's model: its chat was held, or busy in the desktop app
     (a Claude Desktop session that still owes an earlier request its Stop counts as busy)."""
     text = str(error or "")
-    return bool(text) and (IN_USE in text or desktop.BUSY in text or gui_receipt.WAITING in text)
+    return bool(text) and (IN_USE in text or desktop.BUSY in text or gui_receipt.WAITING in text or
+                           gui_receipt.DESKTOP_BUSY in text)
 
 
 def desktop_hold(store, seat, config):
@@ -630,15 +631,24 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
     now = time.time() if now is None else now
     arm = arm or schedule_drive
     results = []
+    try:  # pauses that end and questions to the person that run out (Store.fire_timers), then wake who heard of it
+        store.fire_timers(now)
+        for org_id in dict.fromkeys(store.__dict__.pop("posted", [])):
+            _dispatch(store, org_id, now, start or runner.start_turn, age or transcript_age, retry or schedule_retry)
+    except Exception:  # timers must never stand in the way of keep-going or a wake-up
+        pass
     for org_id in store.drive_due(now):
         try:
             results.append((org_id, drive_check(store, org_id, now, age, start, retry)))
         except Exception as error:  # a check that breaks is not retried on every call
             store.set_drive_check(org_id, now + DRIVE_QUIET)
             results.append((org_id, {"state": "error", "error": str(error)[-300:]}))
-    checks = store.drive_checks()
-    if checks:
-        at = max(min(checks.values()), now) + 1
+    due = list(store.drive_checks().values())
+    next_timer = store.next_timer()
+    if next_timer is not None:
+        due.append(next_timer)
+    if due:
+        at = max(min(due), now) + 1
         if store.arm_drive(at, now):
             arm(at - now)
     return results
@@ -646,6 +656,8 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
 
 def schedule_drive(delay):
     """The delayed keep-going check (scripts/relic_dispatch.py --drive), in the background like schedule_retry."""
+    if not runner.detach_allowed():
+        return
     python = Path(sys.executable)
     if runner.WINDOWS and python.with_name("pythonw.exe").exists():
         python = python.with_name("pythonw.exe")
@@ -653,7 +665,8 @@ def schedule_drive(delay):
     flags = (runner.NO_WINDOW | 0x00000200) if runner.WINDOWS else 0
     subprocess.Popen([str(python), "-X", "utf8", str(script), "--drive", "--after", "%.0f" % delay],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True)
+                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True,
+                     env=runner.detached_env())
 
 
 def dispatch_for_actor(store, actor):
@@ -669,6 +682,8 @@ def dispatch_for_actor(store, actor):
 
 def schedule_retry(org_id, delay):
     """One background retry per organization, at the earliest time a waiting seat can be woken."""
+    if not runner.detach_allowed():
+        return
     marker = runner.runs_dir() / ("%s.retry" % org_id)
     due = time.time() + delay
     try:
@@ -685,4 +700,5 @@ def schedule_retry(org_id, delay):
     flags = (runner.NO_WINDOW | 0x00000200) if runner.WINDOWS else 0
     subprocess.Popen([str(python), "-X", "utf8", str(script), "--org", org_id, "--after", "%.0f" % delay],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True)
+                     creationflags=flags, start_new_session=not runner.WINDOWS, close_fds=True,
+                     env=runner.detached_env())

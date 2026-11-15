@@ -189,12 +189,29 @@ STOPPED = ("人在 Relic 窗口停止了这个会话。Stopped by the person in 
            "Relic App, or typed to a member's session) or Resume in the Relic window lets you work again.")
 
 
+# Prompts that reach a session without the person typing them: harness and app notices, other sessions' messages,
+# timers, continuations. What starts with one of these is not kept as the person's words.
+NOT_TYPED = ("<task-notification", "<cross-session-message", "<session-context", "<relay", "<agent-message", "[Relic",
+             "<heartbeat>", "<side-sessions-event", "<ci-monitor-event", "<event source=", "<turn_aborted>",
+             "This session is being continued", "<command-message>", "<local-command", "Caveat:")
+
+
 def person_typed(event, name, actor, store):
-    """The person typed to this session (a prompt neither Relic nor a timer started). In a member's own session that
-    ends a Stop or Stop all in force: every organization goes back to work (monitor.back_to_work), before this
-    prompt's own wake-ups are dispatched. Costs one file check while nothing is stopped."""
+    """The person typed to this session (a prompt neither Relic nor a timer started). In a member's own session it is
+    kept as the person's words (Store.person_said: members read them with work op=said instead of asking each other
+    for the exact words), and it ends a Stop or Stop all in force: every organization goes back to work
+    (monitor.back_to_work), before this prompt's own wake-ups are dispatched. Costs one file check while nothing is
+    stopped."""
     if name != "UserPromptSubmit" or monitor.automatic(event.get("prompt")):
         return
+    prompt = str(event.get("prompt") or "")
+    if prompt.strip() and not prompt.lstrip().startswith(NOT_TYPED):
+        try:
+            org, member = store.whoami(store.focused(actor))
+            if org:
+                store.person_said(harness(), event.get("session_id"), "%s/%s" % (org["id"], member), prompt)
+        except Exception:  # keeping the words must never break a session's hooks
+            pass
     try:
         if not monitor.stopped():
             return

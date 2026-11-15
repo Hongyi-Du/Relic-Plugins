@@ -77,6 +77,17 @@ TOOLS = [
           "episode_id": S,
           "reply_to": {"type": "integer", "description": "Reply inside the thread of message #id, like a Slack thread; "
                                                          "without `to`, the thread's participants receive it."},
+          "recommend": dict(S, description="With to=['human']: a question to the person, once, with the answer you "
+                                           "recommend. The message says until when (an hour, or within); if the person "
+                                           "has not written to you by then, the executor gets one notice to go ahead "
+                                           "with it. Keep working on the rest meanwhile."),
+          "within": {"type": "integer", "description": "With recommend: minutes until the recommendation goes ahead "
+                                                       "(at most 60, the default)."},
+          "executor": dict(S, description="With recommend: the member who goes ahead when the time is up (default: "
+                                          "you)."),
+          "ask_key": dict(S, description="With recommend: the decision's own name, the same for whoever asks it; a "
+                                         "question with the same key that is still open is not asked again and keeps "
+                                         "its first deadline (default: the question and the recommendation)."),
           "org": dict(ORG, description="An organization you hold a seat in always selects that seat, even above "
                                        "your main organization. Otherwise write to one below yours, or one above "
                                        "it to report. A sender named <org id>/<member> is answered with "
@@ -95,7 +106,10 @@ TOOLS = [
     tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} | "
          "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | "
          "role {member?, role} | note {body} (private to you; not inherited by a replacement) | "
-         "drive {on, goal?, driver?, reason?}: keep-going, switched by the leader or from an organization "
+         "said {query?, limit?, hours?}: what the person typed lately into the sessions of seats in your "
+         "organization and the ones below it, with where and when: read it yourself instead of asking members for "
+         "the person's exact words | "
+         "drive {on, goal?, driver?, reason?, until?}: keep-going, switched by the leader or from an organization "
          "above, on the person's word: while on, when this organization and the ones below it have had nobody working "
          "for 10 minutes and work is unfinished, the driver (default: the leader) gets a notice with the goal to "
          "decide the next step. goal: the person's standing instruction, in their words; switching it off needs a "
@@ -106,8 +120,15 @@ TOOLS = [
          "The person reads the tasks: write task titles in the person's language, and mark a task done with evidence "
          "and a short report (at most 1000 characters, Markdown) of what it achieved and how it turned out, in the "
          "person's language too.",
-         {"op": {"enum": ["doc_write", "doc_read", "task", "role", "note", "drive", "purpose"]}, "key": S, "body": S,
-          "on": {"type": "boolean"}, "goal": S, "driver": S, "reason": S, "purpose": S,
+         {"op": {"enum": ["doc_write", "doc_read", "task", "role", "note", "drive", "purpose", "said"]}, "key": S,
+          "body": S, "on": {"type": "boolean"}, "goal": S, "driver": S, "reason": S, "purpose": S,
+          "until": dict(S, description="drive off: when the pause ends by itself: a time (2026-11-16T15:13:00Z), 6h, "
+                                       "90m, quota:codex (once the Codex limit has really reset) or idle (once the "
+                                       "person has left the computer). Without it, Relic asks you every 2 hours "
+                                       "whether the reason is still there."),
+          "query": dict(S, description="said: only what contains this text."),
+          "limit": {"type": "integer", "description": "said: how many (default 10, at most 50)."},
+          "hours": {"type": "integer", "description": "said: how far back (default 72)."},
           "expected_revision": {"type": "integer"}, "task_id": S, "title": S, "owner": S, "status": S,
           "evidence": SL,
           "report": dict(S, description="Required when a task becomes done; a done task's report can also be added "
@@ -186,9 +207,13 @@ TOOLS = [
          "or worktree, permission and environment variables), seat existing sessions and chats, start or replace "
          "members' sessions, answer decisions and trajectory requests and message members. Call it when the person "
          "asks for the Relic App, window, panel or UI.", {}),
-    tool("review", "Peer review required by strong protocols. op=list shows pending requests; op=approve "
-         "{request_id, note} approves another member's exact action after you checked it.",
-         {"op": {"enum": ["list", "approve"]}, "request_id": S, "note": S, "org": SEAT}, ["op"]),
+    tool("review", "Calls strong protocols send to review: a rule stops one call, never the work. Relic asks the "
+         "members who can approve a new request at once (the leader, otherwise the others), and the blocked member "
+         "goes on with the rest meanwhile. op=list shows pending requests; op=approve {request_id, note} lets another "
+         "member's exact call through once after you checked it (note: what you checked). Nobody approves their own "
+         "call, and a call a rule denies has no request: it is done another way.",
+         {"op": {"enum": ["list", "approve"]}, "request_id": S, "note": S, "org": SEAT},
+         ["op"]),
     tool("slack", "Read the person's Slack, read-only, once the person has connected it in the Relic App (Settings, "
          "Slack): the background the person would otherwise have to explain. op=search {query, limit?, cursor?} finds "
          "messages (a question in plain words, or key words; at most 20 a call, cursor pages on); op=history {channel, "
@@ -326,7 +351,8 @@ def handle_call(store, name, args, actor):
         return group(store, actor, args.pop("op", None), args)
     if name == "message":
         return store.send(actor, args.get("to"), args.get("body", ""), args.get("episode_id"),
-                          reply_to=args.get("reply_to"), org=args.get("org"))
+                          reply_to=args.get("reply_to"), org=args.get("org"), recommend=args.get("recommend"),
+                          within=args.get("within"), executor=args.get("executor"), ask_key=args.get("ask_key"))
     if name == "inbox":
         return inbox(store, actor, args.get("wait") or 0, message_id=args.get("message_id"))
     if name == "work":
