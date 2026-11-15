@@ -2,6 +2,28 @@
 
 ## Unreleased / 未发布
 
+- Members read the organizations above theirs (2026-11-14: the person had most rules turned into documents, run
+  settings into 科研部's 「研究线运行配置」 and working practices into 秘书处's 「工作手册」, and the organizations below
+  could not read either: a member of OrgBench 搭建组 was refused six times when it looked at 科研部 and 秘书处).
+  - `work op=doc_read org=<an organization above, at any depth>` reads one of its documents (`key`), or without `key`
+    their index. Writing documents, tasks, keep-going, the purpose and `said` there stay refused: report to its
+    members with `message`. Organizations that are neither above nor below stay out of reach.
+  - `status org=<an organization above>` shows it read-only: purpose, leader, members and roles, the titles of the
+    protocols in effect, open tasks and the documents' index. Its messages, episodes, reviews, proposals and votes,
+    trajectory requests and members' notes stay out; the parts it shares with the view from above read the same.
+  - A member's context names the documents of each organization above (at most 15 an organization, the most recently
+    written first), and its hints say what can be read above; members of an organization above read that the ones
+    below see its documents, so what they should keep knowing can be a document instead of a protocol.
+  - A session reads up through whichever of its seats is below the organization, as it reports up.
+  - 成员可以读上级组织了（2026-11-14：人把大部分规矩改成了文档，运行参数放进科研部的「研究线运行配置」，工作做法放进
+    秘书处的「工作手册」，下级组织却两份都读不到：OrgBench 搭建组的一个成员想看科研部和秘书处，连续 6 次被拒）。
+  - `work op=doc_read org=<上级组织，隔几层也算>` 读它的一份文档（`key`），不写 `key` 列出文档目录。在上级写文档、
+    派任务、开关持续推进、改宗旨和 `said` 照旧被拒：向它的成员汇报用 `message`。既不在上面也不在下面的组织照旧够不着。
+  - `status org=<上级组织>` 只读地显示它：宗旨、负责人、成员和角色、生效协议的标题、未完成的任务和文档目录；它的
+    消息、episode、审批、提案和投票、轨迹申请和成员的私人笔记都不显示；和从上往下看的视图共有的部分写法一致。
+  - 成员的上下文列出每个上级组织的文档名（每个组织最多 15 个，最近写的在前），提示里写明能读上级的什么；上级组织的
+    成员也会看到下级能读它的文档，下级需要长期知道的事可以写成文档，不必写成协议。
+  - 会话像向上汇报一样，通过它在该组织下面的任一席位读上级。
 - Wake-ups no longer depend on which copy of Relic starts them (2026-11-14: after the inbox route was installed for
   Claude Code, wake-ups started by the Codex plugin and by sessions' already-loaded MCP servers still took the old
   CLI route and failed on the missing login).

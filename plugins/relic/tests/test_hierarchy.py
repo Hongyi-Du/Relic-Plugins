@@ -1,6 +1,7 @@
 """Organizations above and below: the person places an organization under another in the Relic App; members of an
 organization above see one below, write to its members, assign its tasks and issue protocols that take effect there
-directly; a protocol marked downward binds every organization below its own; members below only report upward."""
+directly; a protocol marked downward binds every organization below its own; members below report upward and read
+the organizations above (test_read_up)."""
 import json
 import os
 import sys
@@ -192,8 +193,10 @@ class Hierarchy(unittest.TestCase):
         self.assertEqual(out["org_id"], self.team)
         self.assertIn("below your organization '秘书处'", out["context"])
         self.assertIn("start with the header", out["context"])
+        above = api.handle_call(s, "status", {"org": self.sec}, DEV)["context"]  # above: read-only (test_read_up)
+        self.assertIn("above your organization 'Team'", above)
         with self.assertRaises(OrgError):
-            api.handle_call(s, "status", {"org": self.sec}, DEV)
+            api.handle_call(s, "status", {"org": self.other}, DEV)  # unrelated
         self.assertIn("Below this organization: Team", render(s, s.get(self.sec), "chief"))
         self.assertIn("Above this organization: 秘书处", render(s, s.get(self.team), "dev"))
 

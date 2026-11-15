@@ -15,10 +15,10 @@ Claude Code 中工具显示为 `mcp__plugin_relic_org__*`；Codex 中显示为 `
 | --- | --- |
 | `create` | `name`、`purpose`、`member`，可选 `role`、`governance: leader|peer`；标了秘书处以后，成员的 `create` 变成交给秘书长的申请 |
 | `join` | `org_id`、`member`、可选 `role`；重新加入同名席位表示替换载体；加入另一个组织是多坐一个席位，会话原来的席位都留着；加入已经坐着的组织，就把它设为主席位 |
-| `status` | 当前成员的组织、共同工作、协议与待办；`org` 写下级组织时，从上级的角度看那个组织 |
+| `status` | 当前成员的组织、共同工作、协议与待办；`org` 写下级组织时，从上级的角度看那个组织；写上级组织时，只读地看它（宗旨、成员和角色、协议标题、未完成的任务、文档） |
 | `inbox` | 读取所有席位的未读消息；`wait` 最长 600 秒（可用 `RELIC_MAX_WAIT` 调低）；`message_id` 完整读取或重读发给自己席位的单条消息，忽略 `wait`。无未读消息时列出分配给自己的未完成任务。 |
 | `message` | `to: [成员名]`、`["all"]` 或 `["human"]`（发给人，人在 Relic App 里读）、`body`、可选 `episode_id`；`reply_to` 在某条消息的话题里回复（不写 `to` 时发给话题里的人）；`org`：下级组织，或要向它汇报的上级组织（发件人写作 `<组织 id>/<成员名>` 时，把它原样写进 `to` 回复）；发给 `["human"]` 时加 `recommend`（可加 `within` 分钟，最多 60，以及执行人 `executor`）就是一个会到点的提问：到点人没给你发话，执行人收到一条通知，按推荐执行 |
-| `work` | `doc_read`、`doc_write`、`task`、`role`、`note`、`drive`（关的时候用 `until` 写结束条件：时间、`6h`、`quota:codex` 或 `idle`；不写的话 Relic 每 2 小时问一次原因还在不在）、`said`（`query`、`limit`、`hours`：人在本组织及下属组织席位的会话里亲手打的字）；`task` 标记 `done` 时要带 `evidence` 和 `report`（Markdown，最多 1000 字）；`org` 写下级组织时，可以 `task`（新任务要指定那里的成员为负责人）和 `doc_read` |
+| `work` | `doc_read`、`doc_write`、`task`、`role`、`note`、`drive`（关的时候用 `until` 写结束条件：时间、`6h`、`quota:codex` 或 `idle`；不写的话 Relic 每 2 小时问一次原因还在不在）、`said`（`query`、`limit`、`hours`：人在本组织及下属组织席位的会话里亲手打的字）；`task` 标记 `done` 时要带 `evidence` 和 `report`（Markdown，最多 1000 字）；`org` 写下级组织时，可以 `task`（新任务要指定那里的成员为负责人）和 `doc_read`；写上级组织（隔几层也算）时，只能 `doc_read` |
 | `episode` | `open`、`close`、`reflect` |
 | `protocol` | `propose`、`vote`、`use`、`list`；用 `supersedes` / `retire_target` 修订/废止（从上级继承来的协议写成 `<组织 id>/<P#>`）；`inherit: true`（或 `downward: true`）让下面的组织继承它；`org`：下级组织（`propose` 在那里直接生效，`list`），或上级组织（`use`） |
 | `review` | `list`、`approve`；`approve` 针对一个具体待处理的 `request_id`，在你核对后让另一位成员的调用放行一次（`note` 写你查了什么）。新请求一出现 Relic 就通知能批的人；谁也不能批自己的调用 |

@@ -8,14 +8,14 @@ import os
 import time
 
 from . import slack, wake
-from .context import render, render_below, render_messages, render_seats
+from .context import render, render_above, render_below, render_messages, render_seats
 from .store import OrgError
 
 S = {"type": "string"}
 SL = {"type": "array", "items": {"type": "string"}}
 ORG = {"type": "string", "description": "Another organization, by id or exact name: one you hold a seat in (you act "
                                         "there as its member and follow its protocols), one below yours, where you "
-                                        "can act, or one above it, which you report to."}
+                                        "can act, or one above it, which you report to and can read."}
 SEAT = {"type": "string", "description": "An organization you hold a seat in, by id or exact name: act there as its "
                                          "member (default: your main seat)."}
 ACTOR = {"type": "string", "description": "Filled in automatically by the Relic hook. Leave it out."}
@@ -63,8 +63,13 @@ TOOLS = [
          "inherit its role, tasks and the organization's protocols, but not the previous carrier's private notes.",
          {"org_id": S, "member": S, "role": S}, ["org_id", "member"]),
     tool("status", "Your view of the organization: members and roles, active protocols, proposals to vote on, review "
-         "requests, tasks, documents, reflection due, unread messages. With org (an organization below yours): "
-         "that organization as seen from above.", {"org": ORG}),
+         "requests, tasks, documents, reflection due, unread messages. With org: an organization below yours as seen "
+         "from above, or one above yours, read-only.",
+         {"org": dict(ORG, description="Another organization, by id or exact name: one you hold a seat in (your view "
+                                       "there as its member), one below yours (that organization as seen from "
+                                       "above) or one above yours, at any depth (read-only: its purpose, members and "
+                                       "roles, the titles of its protocols, its open tasks and its documents' "
+                                       "index).")}),
     tool("message", "Send a message to members (list of names, or ['all']); write to ['human'] to reach the person, who "
          "reads and answers it in the Relic App. Messages persist and are delivered to "
          "recipients at their next tool call. With auto-wake on (the default), a recipient whose seat has a configured "
@@ -103,7 +108,8 @@ TOOLS = [
          {"wait": {"type": "integer"}, "org": SEAT,
           "message_id": {"type": "integer", "description": "Read or reread this message id, addressed to one of "
                          "your seats (or only the seat selected by org). Returns its full text and marks it read."}}),
-    tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} | "
+    tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} (with org: also of an "
+         "organization above or below yours) | "
          "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | "
          "role {member?, role} | note {body} (private to you; not inherited by a replacement) | "
          "said {query?, limit?, hours?}: what the person typed lately into the sessions of seats in your "
@@ -137,7 +143,10 @@ TOOLS = [
           "member": S, "role": S,
           "org": dict(ORG, description="An organization below yours: read its documents (doc_read), assign or "
                                        "update its tasks (task; a new task needs an owner, one of its members), "
-                                       "switch its keep-going (drive) and bring its purpose up to date (purpose).")},
+                                       "switch its keep-going (drive) and bring its purpose up to date (purpose). "
+                                       "An organization above yours, at any depth: read its documents (doc_read; "
+                                       "with key one document, without key their index); the rest of its work "
+                                       "belongs to its members.")},
          ["op"]),
     tool("episode", "Episodes bound a piece of work so the organization can learn from it. op=open {title, participants?} | "
          "close {episode_id, outcome: success|failure|partial|cancelled, summary, evidence?} | reflect {episode_id, body}. "
@@ -339,7 +348,9 @@ def handle_call(store, name, args, actor):
         return dict(info, context=render(store, org, args["member"]))
     if name == "status":
         if args.get("org"):
-            own, member, target, way = store.reach(actor, args["org"])
+            own, member, target, way = store.reach_to_read(actor, args["org"])
+            if way == "up":
+                return {"org_id": target["id"], "context": render_above(store, target, own, member)}
             if way:
                 return {"org_id": target["id"], "context": render_below(store, target, own, member)}
         org, member = store.require(actor)

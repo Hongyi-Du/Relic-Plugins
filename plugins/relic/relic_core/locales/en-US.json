@@ -613,7 +613,7 @@
  "org.no_tasks": "No tasks yet.",
  "org.nothing_open": "Nothing in progress; {n} done.",
  "org.parent_failed": "Couldn't set the parent organization: {error}",
- "org.parent_hint": "Members of the parent organization can see this organization, write to its members, assign tasks and issue protocols that take effect here directly; members here only report upward.",
+ "org.parent_hint": "Members of the parent organization can see this organization, write to its members, assign tasks and issue protocols that take effect here directly; members here report upward and can read the organizations above, documents included.",
  "org.parent_label": "Parent organization",
  "org.parent_none": "None",
  "org.protocol_check": "Check program",

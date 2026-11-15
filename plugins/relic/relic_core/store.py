@@ -902,8 +902,9 @@ class Store:
     # The person places an organization under another in the Relic App (set_parent). Members of an organization
     # above (at any depth) see one below, write to its members, assign and update its tasks and issue protocols that
     # take effect there directly; a protocol marked downward also binds every organization below its own. Members
-    # of an organization below only report upward: they write to members of the organizations above, and record
-    # their use of a protocol that binds them from above.
+    # of an organization below report upward: they write to members of the organizations above, and record their use
+    # of a protocol that binds them from above. And they read them (reach_to_read): their documents and a read-only
+    # view of each, so what an organization above keeps for the ones below can be a document instead of a protocol.
     @staticmethod
     def _ids_below(orgs, org_id):
         below, todo = [], [org_id]
@@ -1016,6 +1017,17 @@ class Store:
                            "belongs to them." % (target["name"], target["id"]))
         raise OrgError("%s is neither above nor below your organization (the person sets that in the Relic App), so "
                        "you cannot act in it." % target["name"])
+
+    def reach_to_read(self, actor, ref):
+        """reach for reading (status, work op=doc_read): an organization the session can act in comes as reach gives
+        it ("down", through any of its seats); else an organization above one of its seats comes as reach gives it
+        with up ("up"), and reading it is all the caller does there: its documents and a read-only view (2026-11-14:
+        run settings and working practices moved from protocols into documents of the organizations above, which the
+        members below could not read). Anything else stays as reach answers it: work above belongs to its members."""
+        try:
+            return self.reach(actor, ref)
+        except OrgError:
+            return self.reach(actor, ref, up=True)
 
     # Protocols are inherited like methods of a class. An organization's protocols bind it alone unless marked
     # inherit (older data: downward). Going down from the topmost organization above, each level takes what the level
@@ -2817,15 +2829,28 @@ class Store:
     # ---------------- shared work ----------------
     def work(self, actor, op, a):
         """Shared work in your organization; with org=<an organization below yours>, read its documents and
-        assign or update its tasks."""
+        assign or update its tasks; with org=<one above yours, at any depth>, read its documents and nothing else."""
         if a.get("org"):
-            own, me, target, way = self.reach(actor, a.pop("org"))
+            ref = a.pop("org")
+            own, me, target, way = self.reach_to_read(actor, ref) if op == "doc_read" else self.reach(actor, ref)
+            if way == "up":  # read-only: nothing is written in the organization above
+                return self._doc_read(target, a.get("key"))
             if way:
                 return self._work_below(own, me, target, op, a)
         org, member = self.require(actor)
         if op == "said":  # read-only, outside the organization's change
             return {"said": self.said(org["id"], a.get("limit") or 10, a.get("query"), a.get("hours") or 72)}
         return self._work(org, member, op, a)
+
+    @staticmethod
+    def _doc_read(org, key=None):
+        """work op=doc_read: one of the organization's documents (key), or their index without the bodies."""
+        if key:
+            if key not in org["documents"]:
+                raise OrgError("No document " + key)
+            return {"key": key, **org["documents"][key]}
+        return {"documents": {k: {"revision": v["revision"], "author": v["author"], "at": v["at"]}
+                              for k, v in org["documents"].items()}}
 
     def _work(self, org, member, op, a):
         with self.change(org["id"]) as (org, db):
@@ -2841,13 +2866,7 @@ class Store:
                 self._event(db, org["id"], member, "document.written", {"key": key, "revision": revision + 1})
                 return {"key": key, "revision": revision + 1}
             if op == "doc_read":
-                key = a.get("key")
-                if key:
-                    if key not in org["documents"]:
-                        raise OrgError("No document " + key)
-                    return {"key": key, **org["documents"][key]}
-                return {"documents": {k: {"revision": v["revision"], "author": v["author"], "at": v["at"]}
-                                      for k, v in org["documents"].items()}}
+                return self._doc_read(org, a.get("key"))
             if op == "task":
                 tid = a.get("task_id")
                 if tid and tid not in org["tasks"]:

@@ -577,7 +577,7 @@
  "org.no_tasks": "还没有任务。",
  "org.nothing_open": "没有进行中的任务，已完成 {n} 个。",
  "org.parent_failed": "没能设置上级组织：{error}",
- "org.parent_hint": "上级组织的成员能查看本组织、给成员发消息、派任务、下发直接生效的协议；本组织的成员只能向上汇报。",
+ "org.parent_hint": "上级组织的成员能查看本组织、给成员发消息、派任务、下发直接生效的协议；本组织的成员向上汇报，也能查看上级组织、读它的文档。",
  "org.parent_label": "上级组织",
  "org.parent_none": "无",
  "org.protocol_check": "自定义判断",
