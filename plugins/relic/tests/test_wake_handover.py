@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +84,11 @@ class InstalledRelicStartsTheWork(Fixture):
 class DesktopHandOver(Fixture):
     def setUp(self):
         super().setUp()
+        # Claude Desktop seats are woken on Windows; on macOS only once the transport is enabled and observed
+        # (wake.wakeable), which these fixtures do not set up.
+        platform = mock.patch.object(wake, "sys", SimpleNamespace(platform="win32", executable=sys.executable))
+        platform.start()
+        self.addCleanup(platform.stop)
         self.oid = self.store.create(LEAD, "OrgBench", "build the bench", "lead")["id"]
         self.store.add_seat(self.oid, "bench", "builder",
                             dict(runner.default_config("claude-code"), surface="gui", model="sonnet"))
