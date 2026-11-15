@@ -116,6 +116,33 @@ def detach_allowed():
             Path(home).resolve() != (Path.home() / ".relic").resolve())
 
 
+CURRENT = "current.json"  # in the data root: the plugin folder of the Relic installed last (scripts/install.py)
+
+
+def installed_plugin():
+    """The plugin folder of the Relic installed last, as scripts/install.py records it in the data root, or None. A
+    test run reads only a data root of its own."""
+    if test_run() and not os.environ.get("RELIC_HOME"):
+        return None
+    try:
+        plugin = Path(json.loads((data_home() / CURRENT).read_text(encoding="utf-8"))["plugin"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return plugin if (plugin / "relic_core" / "runner.py").is_file() else None
+
+
+def entry(name):
+    """scripts/<name> to start a member's turn or a background check with: the Relic installed last. Whatever copy
+    of Relic dispatches, an MCP server a long-running session loaded before the last upgrade or a Codex plugin that
+    waits for the person's hook trust, the work runs the newest code (2026-11-14: wake-ups started by older copies
+    kept the delivery route the new version had replaced). This copy's own when nothing is recorded or the installed
+    folder lacks the script."""
+    own = Path(__file__).resolve().parents[1] / "scripts" / name
+    plugin = installed_plugin()
+    script = plugin / "scripts" / name if plugin else None
+    return script if script is not None and script.is_file() else own
+
+
 def detached_env():
     """The environment of a detached Relic process: a test run's children say so (RELIC_TEST), and the background
     entry then refuses the real store (scripts/relic_dispatch.py)."""
@@ -278,7 +305,7 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
     python = Path(sys.executable)
     if WINDOWS and python.with_name("pythonw.exe").exists():
         python = python.with_name("pythonw.exe")
-    script = Path(__file__).resolve().parents[1] / "scripts" / "relic_run.py"
+    script = entry("relic_run.py")
     args = [str(python), "-X", "utf8", str(script), "--org", org_id, "--member", member, "--prompt-file", prompt_file]
     if new_session:
         args.append("--new")

@@ -623,6 +623,80 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
     return {"state": "nudged", "next": now + DRIVE_QUIET, "driver": driver, "message_id": mid}
 
 
+# ---------------- Desktop wake-ups an older Relic could not deliver ----------------
+# Until 2026-11-14 the only route into a Claude Desktop session was a CLI message router, which needs a separate
+# claude.ai CLI login; Relic now writes into the session's own inbox (claude_desktop.deliver). An older copy of Relic
+# that a long-running process still has loaded (a session's MCP server, the Codex plugin until the person trusts the
+# new hooks) starts those wake-ups with its old route, and they fail on the missing login. The next newer Relic that
+# runs hands them over: it clears the failure and starts them again its own way. While such failures were seen in the
+# last HANDOVER_WATCH, the delayed background check keeps looking every HANDOVER_HEARTBEAT, so they are picked up when
+# no newer process happens to run.
+OLD_DESKTOP_ROUTE = "Claude Desktop unavailable: an existing official claude.ai CLI login is required"
+HANDOVER_EVERY = 60  # at most one look a minute, machine-wide: dispatch runs on every member's tool call
+HANDOVER_HEARTBEAT = 120
+HANDOVER_WATCH = 24 * 3600
+
+
+def _handover_path():
+    return runner.runs_dir() / "desktop-handover.json"
+
+
+def _hand_over(store, now):
+    """Clear the failures an older Relic's CLI route left on Claude Desktop seats; returns [(org_id, member)]."""
+    found = []
+    for org in store.list_orgs():
+        if org.get("status") != "active":
+            continue
+        for member, mine in ((org.get("wake") or {}).get("members") or {}).items():
+            seat = (org.get("members") or {}).get(member)
+            if (not str(mine.get("error") or "").startswith(OLD_DESKTOP_ROUTE) or "claim" in mine or not seat or
+                    seat.get("harness") != "claude-code" or runner.is_running(org["id"], member, now)):
+                continue
+            if (store.seat_config(org["id"], member, org) or {}).get("surface") == "gui":
+                found.append((org["id"], member))
+    handed = []
+    for org_id, member in found:
+        unread = [m["id"] for m in store.unread_by_member(org_id, skip_prefix=RECEIPT_MARK).get(member, [])]
+        with store.change(org_id) as (org, db):
+            mine = ((org.get("wake") or {}).get("members") or {}).get(member)
+            if not mine or "claim" in mine or not str(mine.get("error") or "").startswith(OLD_DESKTOP_ROUTE):
+                continue  # another process handed it over, or a wake-up is under way
+            error = mine["error"]
+            if mine.get("gave_up_at") and unread:  # the messages the old route gave up on are due again
+                mine["last_id"] = min(mine.get("last_id", 0), min(unread) - 1)
+            for key in ("failures", "error", "retry_at", "gave_up_at", "told", "last_at"):
+                mine.pop(key, None)
+            store._event(db, org_id, member, "member.wake_handed_over", {"error": error[-300:], "unread": len(unread)})
+        handed.append((org_id, member))
+    return handed
+
+
+def hand_over_desktop(store, now, start, age, retry):
+    """Start again, with this Relic's own route, the Desktop wake-ups an older Relic failed to deliver; at most once a
+    minute. Returns when the background check is to look again (while such failures were seen lately), else None."""
+    path = _handover_path()
+    try:
+        seen = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        seen = {}
+    if now - seen.get("looked", 0) >= HANDOVER_EVERY:
+        seen["looked"] = now
+        handed = _hand_over(store, now)
+        if handed:
+            seen["failure"] = now
+        try:
+            temp = path.with_name(path.name + ".%d" % os.getpid())
+            temp.write_text(json.dumps(seen), encoding="utf-8")
+            os.replace(temp, path)
+        except OSError:
+            pass
+        for org_id in dict.fromkeys(o for o, _ in handed):
+            _dispatch(store, org_id, now, start, age, retry)
+    if now - seen.get("failure", 0) < HANDOVER_WATCH:
+        return seen["looked"] + HANDOVER_HEARTBEAT
+    return None
+
+
 def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
     """Run the keep-going checks that are due (Store.drive_due claims them); returns [(org_id, outcome)]. Then make
     sure one delayed check comes for the earliest next one (arm, default schedule_drive; Store.arm_drive makes it one,
@@ -647,6 +721,13 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
     next_timer = store.next_timer()
     if next_timer is not None:
         due.append(next_timer)
+    try:
+        look = hand_over_desktop(store, now, start or runner.start_turn, age or transcript_age,
+                                 retry or schedule_retry)
+    except Exception:  # a hand-over that breaks must never stand in the way of keep-going or a wake-up
+        look = None
+    if look is not None:
+        due.append(look)
     if due:
         at = max(min(due), now) + 1
         if store.arm_drive(at, now):
@@ -661,7 +742,7 @@ def schedule_drive(delay):
     python = Path(sys.executable)
     if runner.WINDOWS and python.with_name("pythonw.exe").exists():
         python = python.with_name("pythonw.exe")
-    script = Path(__file__).resolve().parents[1] / "scripts" / "relic_dispatch.py"
+    script = runner.entry("relic_dispatch.py")
     flags = (runner.NO_WINDOW | 0x00000200) if runner.WINDOWS else 0
     subprocess.Popen([str(python), "-X", "utf8", str(script), "--drive", "--after", "%.0f" % delay],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -696,7 +777,7 @@ def schedule_retry(org_id, delay):
     python = Path(sys.executable)
     if runner.WINDOWS and python.with_name("pythonw.exe").exists():
         python = python.with_name("pythonw.exe")
-    script = Path(__file__).resolve().parents[1] / "scripts" / "relic_dispatch.py"
+    script = runner.entry("relic_dispatch.py")
     flags = (runner.NO_WINDOW | 0x00000200) if runner.WINDOWS else 0
     subprocess.Popen([str(python), "-X", "utf8", str(script), "--org", org_id, "--after", "%.0f" % delay],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

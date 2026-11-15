@@ -2,6 +2,26 @@
 
 ## Unreleased / 未发布
 
+- Wake-ups no longer depend on which copy of Relic starts them (2026-11-14: after the inbox route was installed for
+  Claude Code, wake-ups started by the Codex plugin and by sessions' already-loaded MCP servers still took the old
+  CLI route and failed on the missing login).
+  - `scripts/install.py` records the installed plugin folder in the data root (`current.json`), and every Relic
+    process starts member turns and delayed checks from there (`runner.entry`): the newest code runs the work.
+  - A Claude Desktop wake-up that an older Relic failed on its CLI route is handed over: the next newer Relic that
+    runs clears the failure and starts it again through the session's inbox (`wake.hand_over_desktop`, at most one
+    look a minute). For a day after such a failure the delayed background check keeps looking every two minutes, so
+    nothing waits for a member's tool call.
+  - A session reaches an organization through whichever of its seats is above it: a department head who also sits
+    in the cabinet can see, write to and assign work in the organizations under the cabinet without naming the seat.
+  - 叫醒不再取决于由哪一份 Relic 发起（2026-11-14：Claude 侧装上收件箱投递后，Codex 插件和各会话早已加载的工具
+    进程发起的叫醒仍走旧的命令行路由，因缺登录而失败）。
+  - `scripts/install.py` 在数据目录记下安装的插件目录（`current.json`），所有 Relic 进程都从那里启动成员回合和延时
+    检查（`runner.entry`），干活的总是最新代码。
+  - 旧版因命令行路由失败的 Claude 桌面叫醒会被接手：下一个运行的新版 Relic 清掉失败记录，改走会话收件箱重新叫醒
+    （`wake.hand_over_desktop`，每分钟最多查一次）；出现这类失败后的一天里，后台检查每两分钟查一次，不必等哪个成员
+    调用工具。
+  - 会话可以通过它在上级组织的任一席位够到下级组织：兼任秘书处席位的部门负责人，不用点名席位，就能查看、写信、
+    派活给秘书处下面的组织。
 - A Claude Desktop seat is woken through its live session's own inbox (the person, 2026-11-14: a member that cannot
   be woken means the design is wrong; software work is not the person's to do). Relic finds the session in Claude
   Code's session registry, by the seat's session id and else by its title, and writes the wake-up there with the key
