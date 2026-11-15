@@ -98,9 +98,9 @@ TOOLS = [
                                          "question with the same key that is still open is not asked again and keeps "
                                          "its first deadline (default: the question and the recommendation)."),
           "org": dict(ORG, description="An organization you hold a seat in always selects that seat, even above "
-                                       "your main organization. Otherwise write to one right below yours, or to the "
-                                       "one right above it to report; further up or down goes through the "
-                                       "organizations in between. A sender named <org id>/<member> is answered with "
+                                       "your main organization. Otherwise write to one below yours, or one above it "
+                                       "to report: the one right above yours first; past it only when it cannot wait "
+                                       "(the result says so). A sender named <org id>/<member> is answered with "
                                        "to=['<org id>/<member>'] or with org=<org id>, to=[member].")},
          ["body"]),
     tool("inbox", "Read your unread messages (marks them read), in every organization you hold a seat in; one that "

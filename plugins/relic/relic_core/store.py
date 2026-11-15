@@ -1160,23 +1160,19 @@ class Store:
         """Whether other is right above org or right below it: the organizations a member writes to."""
         return other["id"] == org.get("parent") or other.get("parent") == org["id"]
 
-    def reach_to_write(self, actor, ref):
-        """reach for a message: the organization right above yours (a report) or one right below it; the rest of the
-        chain is reached through the organizations in between (2026-11-15, the person: 你该汇报的你就跟他的科研领导
-        汇报，然后我去问秘书长的时候，然后秘书长再去找这个科研的负责人去要啊). Reading reaches further: reach_to_read."""
-        own, member, target, way = self.reach(actor, ref, up=True)
+    def passed_over(self, own, target, way):
+        """The organization a message from own to target goes past: the one right above own (way "up") or the one
+        right below own on the way down to target; None when target is right above or below own. Such a message goes
+        through, and its result names the first choice (2026-11-15, the person: 你该汇报的你就跟他的科研领导汇报 ……
+        越级可以发，但是它的第一选择应该是只发给直属上级)."""
         if not way or self.adjacent(own, target):
-            return own, member, target, way
+            return None
         if way == "up":
-            parent = self.get(own["parent"])
-            raise OrgError("%s is further up than the organization right above yours: report to %s (message org=%s), "
-                           "whose members carry what matters up; %s reads your documents and status when it needs "
-                           "them." % (target["name"], parent["name"], parent["id"], target["name"]))
-        between = next((a for a in self.ancestors(target) if a.get("parent") == own["id"]), None)
-        name = between["name"] if between else "the organization in between"
-        raise OrgError("%s is further down than the organizations right below yours: write to %s (message org=%s), "
-                       "whose members pass it on; status and doc_read still show %s."
-                       % (target["name"], name, between["id"] if between else "<its id>", target["name"]))
+            try:
+                return self.get(own["parent"]) if own.get("parent") else None
+            except OrgError:
+                return None
+        return next((a for a in self.ancestors(target) if a.get("parent") == own["id"]), None)
 
     def reach_to_read(self, actor, ref):
         """reach for reading (status, work op=doc_read): an organization the session can act in comes as reach gives
@@ -1243,9 +1239,9 @@ class Store:
     # one formal organization as the cabinet (the secretariat); its leader (and co-leaders) is the secretary-general.
     # The leader of a formal organization holds a seat ex officio in the formal organization right above it, or, with
     # none above it, in the cabinet, carried by the session of its leader seat (seat["ex_officio"] = {"org":
-    # department, "member": leader}). Reports go one level up (2026-11-15, the person: 不要让所有的下面干活的全都直接
-    # 给秘书长汇报……那我要中间的那一级科研部的负责人干什么): the leaders of organizations further down no longer sit in
-    # the cabinet.
+    # department, "member": leader}). Reports go first to the organization right above (2026-11-15, the person: 不要让所有
+    # 的下面干活的全都直接给秘书长汇报……那我要中间的那一级科研部的负责人干什么): the leaders of organizations further
+    # down no longer sit in the cabinet.
     def cabinet(self):
         """The active organization marked as the cabinet, or None."""
         found = [o for o in self.list_orgs() if o.get("cabinet") and o.get("status") == "active"]
@@ -2030,9 +2026,17 @@ class Store:
             self.set_focus(actor, self.split_actor(seated)[1])
             actor, org = seated, None
         if org:
-            own, member, target, way = self.reach_to_write(actor, org)
+            own, member, target, way = self.reach(actor, org, up=True)
             if way:
-                return self._send_across(own, member, target, way, to, body, episode_id, reply_to)
+                result = self._send_across(own, member, target, way, to, body, episode_id, reply_to)
+                first = self.passed_over(own, target, way)
+                if first:  # it goes through: the result says which organization is the first choice
+                    from . import i18n
+                    if way == "up":
+                        result["note"] = i18n.t("send.past_up", org=first["name"], id=first["id"])
+                    else:
+                        result["note"] = i18n.t("send.past_down", org=first["name"], id=first["id"])
+                return result
         org, member = self.require(actor)
         if not body or not body.strip():
             raise OrgError("Empty message.")
@@ -2047,7 +2051,7 @@ class Store:
             if not other or place == org["id"]:
                 continue
             try:
-                _, _, there, way = self.reach_to_write(actor, place)
+                _, _, there, way = self.reach(actor, place, up=True)
             except OrgError as error:
                 refused[name] = str(error)
                 continue
@@ -2058,7 +2062,7 @@ class Store:
         with self.db() as db:
             root = self._thread_root(db, org["id"], reply_to)
             people = self._thread_people(db, org["id"], root) if root else []
-            external, far = {}, {}
+            external = {}
             for name in people:
                 place, _, other = name.partition("/")
                 if other and place != org["id"]:
@@ -2067,18 +2071,11 @@ class Store:
                     except OrgError:
                         continue
                     if there.get("status") == "active" and other in there["members"]:
-                        if self.adjacent(org, there):
-                            external[name] = (place, other)
-                        else:  # an older thread with someone further away: the reply goes one level at a time
-                            far[name] = there["name"]
+                        external[name] = (place, other)
             for name, value in reachable.items():
                 external.setdefault(name, value)
             if root and not to:
                 recipients = [m for m in people if m != member and (m in org["members"] or m == HUMAN or m in external)]
-                if not recipients and far:
-                    raise OrgError("Thread #%d is with %s, further away than the organizations right above and below "
-                                   "yours: write to the organization in between instead (message org=<its id>)."
-                                   % (root, ", ".join(sorted(set(far.values())))))
                 if not recipients:
                     raise OrgError("Nobody else is in thread #%d; name the recipients with to." % root)
             elif not to or to == ["all"] or to == "all":
@@ -2114,10 +2111,6 @@ class Store:
                 reached.append(place)
             if reached:
                 result["delivered_orgs"] = list(dict.fromkeys(reached))
-            skipped = sorted(n for n in far if root and not to)
-            if skipped:
-                result["not_delivered"] = {n: "further away than one level: write to the organization in between"
-                                           for n in skipped}
         away = self.person_away() if HUMAN in recipients else None
         if away:  # nobody reads it now: the sender does not stop to wait for an answer
             from . import i18n

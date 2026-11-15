@@ -136,7 +136,7 @@ def render(store, org, member, unread_count=None, full=True):
         lines.append("This organization is the cabinet (secretariat); its %s the secretary-general, who "
                      "approves changes to the formal organizations (group op=approve | deny). The leaders of the "
                      "formal organizations right below it hold a seat here; organizations further down report to "
-                     "them, not here."
+                     "them first."
                      % ("leaders (%s, of the same rank) are" % ", ".join(leaders(org)) if len(leaders(org)) > 1
                         else "leader is"))
         if leads(org, member):
@@ -151,16 +151,17 @@ def render(store, org, member, unread_count=None, full=True):
         lines.append("Above this organization: %s. Their members can see it, assign its tasks and issue protocols "
                      "that take effect here directly. You report to the organization right above yours, %s, with "
                      "message (org=%s, to=[member]): its members carry what matters further up, and the ones above "
-                     "them ask it when they need something, so do not write past it (2026-11-15, the person: 你该汇报"
-                     "的你就跟他的科研领导汇报). You can read every organization above: status (org=<id>) shows one "
+                     "them ask it when they need something. Write past it only when it cannot wait or the person "
+                     "asked for it (2026-11-15, the person: 越级可以发，但是它的第一选择应该是只发给直属上级). You can "
+                     "read every organization above: status (org=<id>) shows one "
                      "read-only and work op=doc_read (org=<id>, key=...) reads its documents; the rest of their work "
                      "belongs to them." % (", ".join("%s (%s)" % (a["name"], a["id"]) for a in above), above[0]["name"],
                                            above[0]["id"]))
     below = store.descendants(org["id"])
     if below:
         lines.append("Below this organization: %s. As a member you can act there with the org argument: status (see "
-                     "it), message (to the members of the organizations right below yours; further down, through "
-                     "them), work op=task (assign or update its tasks; doc_read reads its "
+                     "it), message (first to the organizations right below yours, whose members pass it on; further "
+                     "down only when it cannot wait), work op=task (assign or update its tasks; doc_read reads its "
                      "documents) and protocol op=propose (a protocol that takes effect there directly). protocol "
                      "inherit=true makes a protocol bind every organization below the one it belongs to. Their members "
                      "read this organization's documents and status too (read-only), so what they should keep knowing "

@@ -206,9 +206,9 @@ other seats.
   co-leaders the person sets, of the same rank) is the secretary-general. The leader of a formal organization holds a
   seat ex officio in the formal organization right above it (with none above it, in the cabinet), with the role
   "Head of <department>" in the person's language; the seat follows whoever leads.
-- **Reports go one level up.** A message reaches the organization right above yours or one right below it; further up
-  or down goes through the organizations in between, whose members pass on what matters. Reading (`status`,
-  `doc_read`) still reaches every organization above and below.
+- **Reports go first to the organization right above yours.** Its members pass on what matters, and the ones above
+  ask them when they need something. A message further up or down still goes through when it cannot wait or the
+  person asked for it; its result names the first choice. Reading (`status`, `doc_read`) reaches every level.
 - **Approvals**: creating a formal organization (`create`), placing one under another (`group {op: "reparent", parent,
   org?, reason}`), changing its leader (`group {op: "leader", member, org?, reason}`) and dissolving it (`group {op:
   "dissolve", org?, reason}`) become a request for the secretary-general (without a cabinet: for the person; `create`

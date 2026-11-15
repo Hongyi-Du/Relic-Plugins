@@ -3,8 +3,8 @@
 汇报，然后我去问秘书长的时候，秘书长再去找这个科研的负责人去要啊……那我要中间的那一级科研部的负责人干什么？」 and
 「相当于 Claude 和 Codex 那边各有一个秘书处的负责人」).
 
-A message reaches the organization right above yours or one right below it; further up or down goes through the
-organizations in between. Reading still reaches every level. Only the leaders of the organizations right below the
+A report goes first to the organization right above yours; past it, a message still goes through (「越级可以发，
+但是它的第一选择应该是只发给直属上级」) and its result names the first choice. Reading reaches every level. Only the leaders of the organizations right below the
 cabinet (and of formal organizations under no other) sit in the cabinet. Co-leaders lead with the leader's say."""
 import os
 import sys
@@ -49,22 +49,23 @@ class Fixture(unittest.TestCase):
         return api.handle_call(self.store, name, args, actor)
 
 
-class OneLevelUp(Fixture):
-    def test_a_worker_reports_to_its_department_not_to_the_secretariat(self):
+class FirstChoice(Fixture):
+    def test_a_worker_reports_first_to_its_department(self):
         sent = self.store.send(WORKER, ["head"], "镜像拉好了", org=self.research)
         self.assertEqual(sent["org_id"], self.research)
-        with self.assertRaisesRegex(OrgError, "report to 科研部 \\(message org=%s\\)" % self.research):
-            self.store.send(WORKER, ["chief"], "镜像拉好了", org=self.sec)
-        with self.assertRaisesRegex(OrgError, "report to 科研部"):
-            self.store.send(WORKER, ["%s/chief" % self.sec], "镜像拉好了")
-        self.assertEqual([m["from"] for m in self.store.unread(CHIEF, limit=None)
-                          if "镜像" in m["body"]], [], "nothing reached the secretary-general")
+        self.assertNotIn("note", sent, "right above: nothing to say")
+        past = self.store.send(WORKER, ["chief"], "急事：S 盘只剩 5%", org=self.sec)
+        self.assertIn("科研部", past["note"])
+        self.assertIn("org=%s" % self.research, past["note"])
+        self.assertTrue(any("S 盘" in m["body"] for m in self.store.unread(CHIEF, limit=None)),
+                        "past a level it still goes through (the person: 越级可以发)")
 
-    def test_the_secretariat_asks_the_department_not_its_workers(self):
-        self.store.send(CHIEF, ["head"], "OrgBench 进展怎么样？", org=self.research)
-        self.assertIn("OrgBench 进展", self.store.unread(HEAD, limit=None)[-1]["body"])
-        with self.assertRaisesRegex(OrgError, "write to 科研部 \\(message org=%s\\)" % self.research):
-            self.store.send(CHIEF, ["worker"], "OrgBench 进展怎么样？", org=self.bench)
+    def test_the_secretariat_writes_first_to_the_department(self):
+        sent = self.store.send(CHIEF, ["head"], "OrgBench 进展怎么样？", org=self.research)
+        self.assertNotIn("note", sent)
+        past = self.store.send(CHIEF, ["worker"], "现在先停一下 Docker", org=self.bench)
+        self.assertIn("科研部", past["note"])
+        self.assertTrue(any("Docker" in m["body"] for m in self.store.unread(WORKER, limit=None)))
 
     def test_reading_still_reaches_every_level(self):
         status = self.call("status", WORKER, org=self.sec)
@@ -73,20 +74,15 @@ class OneLevelUp(Fixture):
         self.assertIn("OrgBench", down["context"])
         self.store.work(CHIEF, "task", {"org": self.bench, "title": "整树比较", "owner": "worker"})
 
-    def test_an_older_thread_with_someone_further_away_goes_one_level_at_a_time(self):
-        with self.store.db() as db:  # written before this rule: the secretary-general straight to a worker
-            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,at,hop) VALUES(?,?,?,?,?,0)",
-                             (self.bench, "%s/chief" % self.sec, '["worker"]', "交一下整树比较", "2026-11-15T07:00:00Z"))
-            root = cur.lastrowid
-        with self.assertRaisesRegex(OrgError, "further away than the organizations right above and below yours"):
-            self.store.send(WORKER, None, "做完了", reply_to=root)
-        result = self.store.send(WORKER, ["builder"], "做完了", reply_to=root)
-        self.assertEqual(result["to"], ["builder"])
+    def test_a_reply_in_a_thread_reaches_everyone_in_it(self):
+        sent = self.store.send(CHIEF, ["worker"], "交一下整树比较", org=self.bench)
+        result = self.store.send(WORKER, None, "做完了", reply_to=sent["message_id"])
+        self.assertEqual(result.get("delivered_orgs"), [self.sec])
 
-    def test_the_context_says_whom_to_report_to(self):
+    def test_the_context_says_whom_to_report_to_first(self):
         text = render(self.store, self.store.get(self.bench), "worker")
         self.assertIn("You report to the organization right above yours, 科研部", text)
-        self.assertNotIn("You report to them with message", text)
+        self.assertIn("Write past it only when it cannot wait or the person asked for it", text)
 
 
 class Offices(Fixture):

@@ -120,7 +120,7 @@
         },
         "org": {
           "type": "string",
-          "description": "An organization you hold a seat in always selects that seat, even above your main organization. Otherwise write to one right below yours, or to the one right above it to report; further up or down goes through the organizations in between. A sender named <org id>/<member> is answered with to=['<org id>/<member>'] or with org=<org id>, to=[member]."
+          "description": "An organization you hold a seat in always selects that seat, even above your main organization. Otherwise write to one below yours, or one above it to report: the one right above yours first; past it only when it cannot wait (the result says so). A sender named <org id>/<member> is answered with to=['<org id>/<member>'] or with org=<org id>, to=[member]."
         },
         "actor": {
           "type": "string",
