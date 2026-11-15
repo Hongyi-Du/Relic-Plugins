@@ -77,7 +77,9 @@ TOOLS = [
          "A ChatGPT chat member gets your message's full text in its chat; the ChatGPT app keeps the reply's text "
          "from plugins, so the person forwards it in the Relic App and it comes back to you as its message. "
          "When you need the answer in this turn, call inbox with wait afterwards. A message that reached one of your "
-         "other seats is answered with org=<that organization>.",
+         "other seats is answered with org=<that organization>. The person's words you relay get Relic's check under "
+         "them when Relic finds them in the person's own typing. While the person is away from the computer, a "
+         "message to human says so in its result: do not wait for an answer.",
          {"to": dict(SL, description="Member names, ['all'] or ['human']. Leave it out only with reply_to."), "body": S,
           "episode_id": S,
           "reply_to": {"type": "integer", "description": "Reply inside the thread of message #id, like a Slack thread; "
@@ -85,7 +87,9 @@ TOOLS = [
           "recommend": dict(S, description="With to=['human']: a question to the person, once, with the answer you "
                                            "recommend. The message says until when (an hour, or within); if the person "
                                            "has not written to you by then, the executor gets one notice to go ahead "
-                                           "with it. Keep working on the rest meanwhile."),
+                                           "with it. While the person is away from the computer it does not wait: "
+                                           "the result tells you to go ahead now. Keep working on the rest "
+                                           "meanwhile."),
           "within": {"type": "integer", "description": "With recommend: minutes until the recommendation goes ahead "
                                                        "(at most 60, the default)."},
           "executor": dict(S, description="With recommend: the member who goes ahead when the time is up (default: "

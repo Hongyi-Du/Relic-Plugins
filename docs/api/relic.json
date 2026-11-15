@@ -81,7 +81,7 @@
   },
   {
     "name": "message",
-    "description": "Send a message to members (list of names, or ['all']); write to ['human'] to reach the person, who reads and answers it in the Relic App. Messages persist and are delivered to recipients at their next tool call. With auto-wake on (the default), a recipient whose seat has a configured session gets a turn automatically to handle it (a Codex chat open in the Codex desktop app gets it there). A ChatGPT chat member gets your message's full text in its chat; the ChatGPT app keeps the reply's text from plugins, so the person forwards it in the Relic App and it comes back to you as its message. When you need the answer in this turn, call inbox with wait afterwards. A message that reached one of your other seats is answered with org=<that organization>.",
+    "description": "Send a message to members (list of names, or ['all']); write to ['human'] to reach the person, who reads and answers it in the Relic App. Messages persist and are delivered to recipients at their next tool call. With auto-wake on (the default), a recipient whose seat has a configured session gets a turn automatically to handle it (a Codex chat open in the Codex desktop app gets it there). A ChatGPT chat member gets your message's full text in its chat; the ChatGPT app keeps the reply's text from plugins, so the person forwards it in the Relic App and it comes back to you as its message. When you need the answer in this turn, call inbox with wait afterwards. A message that reached one of your other seats is answered with org=<that organization>. The person's words you relay get Relic's check under them when Relic finds them in the person's own typing. While the person is away from the computer, a message to human says so in its result: do not wait for an answer.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -104,7 +104,7 @@
         },
         "recommend": {
           "type": "string",
-          "description": "With to=['human']: a question to the person, once, with the answer you recommend. The message says until when (an hour, or within); if the person has not written to you by then, the executor gets one notice to go ahead with it. Keep working on the rest meanwhile."
+          "description": "With to=['human']: a question to the person, once, with the answer you recommend. The message says until when (an hour, or within); if the person has not written to you by then, the executor gets one notice to go ahead with it. While the person is away from the computer it does not wait: the result tells you to go ahead now. Keep working on the rest meanwhile."
         },
         "within": {
           "type": "integer",

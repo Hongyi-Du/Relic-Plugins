@@ -2,7 +2,7 @@
 import json
 import time
 
-from .store import REPLY, WAY_PAST, has_check, language_name
+from .store import REPLY, WAY_PAST, away_note, has_check, language_name
 
 RECENT_TROUBLE = 24 * 3600  # a check program's failures are mentioned for a day after the latest one
 DOCUMENTS_ABOVE = 15  # document names of each organization above in a member's context, the most recently written first
@@ -99,6 +99,12 @@ def render(store, org, member, unread_count=None, full=True):
     lines.append("Governance: %s. Members (harness in parentheses): %s." % (gov, roster))
     lines.append("The person reads %s; write task titles, task reports and anything addressed to the person in that "
                  "language." % language_name())
+    try:
+        away = away_note(store.person_away()).strip()
+    except Exception:  # not knowing whether the person is around never breaks the context
+        away = ""
+    if away:
+        lines.append(away)
     above = store.ancestors(org)
     documents_above = _documents_above(above) if full else ""
     if org.get("auto_wake", True):

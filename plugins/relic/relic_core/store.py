@@ -111,6 +111,65 @@ def mask_secrets(text):
     return _SECRET.sub("[已隐藏]", str(text or ""))
 
 
+# The person's words relayed by a member are the person's (the person, 2026-11-15: 我跟 Claude 说的话，他转述给 Codex，
+# 结果 Codex 那边说这不是我人说的，然后又不干). A message that quotes them verbatim gets Relic's check under it: which words
+# are the person's own typing, when and in which seat's session (Store.person_quotes).
+QUOTE_SEED = 6  # characters (spaces and quote marks left out) that start a quoted stretch of the person's words
+QUOTE_SHOWN = 12  # weight of a stretch Relic names (a Chinese character weighs 2, a letter or digit 1)
+QUOTE_FLOOR = 16  # weight of the longest stretch before Relic vouches for a prompt: "好的", "继续", a name prove nothing
+_UNMARKED = re.compile(r"[\s「」『』“”\"'‘’《》〈〉（）()\[\]【】]+")
+
+
+def flat_words(text):
+    """Text without spaces and quote marks, for finding the person's words inside a member's message."""
+    return _UNMARKED.sub("", str(text or "")).lower()
+
+
+def _flat_with_places(text):
+    """flat_words(text), and where each of its characters stands in text."""
+    kept, places = [], []
+    for i, ch in enumerate(text):
+        if not _UNMARKED.fullmatch(ch):
+            kept.append(ch.lower())
+            places.append(i)
+    return "".join(kept), places
+
+
+def _weight(text):
+    return sum(2 if ord(ch) >= 0x2E80 else 1 for ch in text)
+
+
+def away_why(away):
+    """Why the person counts as away, as the person reads it (person_away's result)."""
+    from . import i18n
+    return i18n.t("away.locked") if away.get("locked") else i18n.t("away.idle", minutes=away.get("minutes", 0))
+
+
+def away_refusal(away):
+    """Why a harness's question tool (AskUserQuestion) is refused while the person is away (relic_hook)."""
+    from . import i18n
+    return i18n.t("away.ask_tool", why=away_why(away))
+
+
+def away_go_on(away):
+    """Why a turn that would end on a question to the person goes on while the person is away (relic_hook, Stop)."""
+    from . import i18n
+    return i18n.t("away.stop", why=away_why(away))
+
+
+def away_note(away):
+    """What a member is told while the person is away from the computer (Store.person_away): a woken turn, a
+    keep-going notice, the organization context. "" while the person is around."""
+    if not away:
+        return ""
+    return (" The person is away from the computer right now (%s): nobody answers questions or approvals until they "
+            "are back, so run on your own. Do not ask the person or wait for an approval: decide with your "
+            "recommendation and keep going. Only what is kept for the person (spending money, publishing, deleting "
+            "the person's data, sign-in credentials) and the hard protections (disk space, real quota) wait: note "
+            "those with message to=human and recommend, and go on with the rest. The person reads what you decided "
+            "when back." % away_why(away))
+
+
 def _rollout_limits():
     """The Codex plan's weekly limit from the newest Codex session files' own token_count events:
     {used_percent, resets_at, window_minutes, at}, or {}. Fresher than the Relic App's usage reader whenever the App is
@@ -178,33 +237,96 @@ def codex_reset():
 IDLE_AFTER = 600  # seconds without keyboard or mouse input: the person has left the computer
 GAMES = ("PBZ", "Seer", "VALORANT", "VALORANT-Win64-Shipping", "Hearthstone", "javaw", "RDR2", "GTA5", "cs2",
          "Overwatch", "League of Legends", "Diablo IV", "Wow", "StarRail", "GenshinImpact", "Cyberpunk2077")
+SHELL = ("explorer", "searchhost", "startmenuexperiencehost", "shellexperiencehost")  # the desktop, not a window in use
+LOCK_SCREENS = ("lockapp", "logonui")
+LOCKED_AFTER = 60  # no window in front and no input for this long: the screen is locked
+
+
+def _foreground():
+    """The window in front: (its process name without .exe, whether it fills its monitor without a title bar (a game,
+    a full-screen video), whether the screen is locked). Windows only."""
+    import ctypes
+    from ctypes import wintypes
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+    user32.MonitorFromWindow.restype = wintypes.HMONITOR
+    user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.c_void_p]
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = ctypes.c_long
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                                                    ctypes.POINTER(wintypes.DWORD)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return None, False, None  # nothing in front: locked (the secure desktop), or a moment between two windows
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    name = None
+    handle = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if handle:
+        try:
+            size = wintypes.DWORD(1024)
+            path = ctypes.create_unicode_buffer(size.value)
+            if kernel32.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size)):
+                name = os.path.splitext(os.path.basename(path.value))[0]
+        finally:
+            kernel32.CloseHandle(handle)
+    lowered = (name or "").lower()
+    if lowered in LOCK_SCREENS:
+        return name, False, True
+    full = False
+    rect = wintypes.RECT()
+    if lowered not in SHELL and user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                        ("dwFlags", wintypes.DWORD)]
+
+        monitor = user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
+        info = MONITORINFO(ctypes.sizeof(MONITORINFO))
+        if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            m = info.rcMonitor
+            covers = rect.left <= m.left and rect.top <= m.top and rect.right >= m.right and rect.bottom >= m.bottom
+            caption = 0x00C00000  # WS_CAPTION: a maximized window keeps it, a game or a full-screen video does not
+            full = covers and (user32.GetWindowLongW(hwnd, -16) & caption) != caption
+    return name, full, False
 
 
 def presence():
-    """Whether the person is at this computer: {idle_seconds, game, at_computer}. Windows only; elsewhere unknown
-    (at_computer None). A game running counts as at the computer whatever the input."""
+    """Whether the person is at this computer, from the keyboard and mouse and the window in front (the person,
+    2026-11-15: 看鼠标、前台): {idle_seconds, foreground, fullscreen, locked, game, at_computer}. A locked screen is
+    away at once; a game or a full-screen window in front counts as at the computer whatever the input. Windows only;
+    elsewhere unknown (at_computer None). RELIC_PRESENCE=here|away sets it (the test suite, a check by hand)."""
+    forced = os.getenv("RELIC_PRESENCE", "").strip().lower()
+    if forced in ("here", "away"):
+        return {"idle_seconds": 0.0 if forced == "here" else float(IDLE_AFTER), "foreground": None,
+                "fullscreen": False, "locked": False, "game": None, "at_computer": forced == "here"}
+    unknown = {"idle_seconds": None, "foreground": None, "fullscreen": False, "locked": False, "game": None,
+               "at_computer": None}
     if sys.platform != "win32":
-        return {"idle_seconds": None, "game": None, "at_computer": None}
+        return unknown
     import ctypes
-    import subprocess
 
     class LASTINPUTINFO(ctypes.Structure):
         _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
 
     info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
-    idle = None
-    if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
-        idle = max(0, (ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
-    game = None
     try:
-        out = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True, timeout=10,
-                             creationflags=0x08000000, encoding="utf-8", errors="replace").stdout
-        names = {line.split('","')[0].strip('"').rsplit(".", 1)[0] for line in out.splitlines() if line}
-        game = next((g for g in GAMES if g in names), None)
-    except (OSError, subprocess.SubprocessError):
-        pass
-    away = idle is not None and idle >= IDLE_AFTER and not game
-    return {"idle_seconds": idle, "game": game, "at_computer": None if idle is None else not away}
+        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+            return unknown  # no interactive desktop here (a service, another window station)
+        idle = max(0, (ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+        name, full, locked = _foreground()
+    except (OSError, AttributeError, ValueError):
+        return unknown
+    if locked is None:  # nothing in front: locked when no input for a minute too, not a switch between windows
+        locked = idle >= LOCKED_AFTER
+    game = name if name in GAMES else None
+    return {"idle_seconds": idle, "foreground": name, "fullscreen": full, "locked": locked, "game": game,
+            "at_computer": not locked and (idle < IDLE_AFTER or bool(game) or full)}
 
 
 def pause_end(until, now_ts):
@@ -1844,6 +1966,7 @@ class Store:
             raise OrgError("Empty message.")
         if recommend:
             return self._ask_send(org, member, to, body, recommend, due, executor, ask_key, episode_id)
+        body = self.with_quotes(body)  # the person's words it relays carry Relic's check
         # A seat's reply may also name members of another organization this seat can write to (above or below it),
         # not only those already in the thread: they get a copy, as thread participants from elsewhere do.
         reachable, refused = {}, {}
@@ -1912,6 +2035,10 @@ class Store:
                 reached.append(place)
             if reached:
                 result["delivered_orgs"] = list(dict.fromkeys(reached))
+        away = self.person_away() if HUMAN in recipients else None
+        if away:  # nobody reads it now: the sender does not stop to wait for an answer
+            from . import i18n
+            result["person_away"] = i18n.t("send.away", why=away_why(away))
         return result
 
     def _send_across(self, own, member, target, way, to, body, episode_id, reply_to):
@@ -1922,6 +2049,7 @@ class Store:
         if episode_id:
             raise OrgError("An episode belongs to one organization: leave episode_id out when you write to another one.")
         sender = qualified(own["id"], member)
+        body = self.with_quotes(body)  # the person's words it relays carry Relic's check
         with self.db() as db:
             root = self._thread_root(db, target["id"], reply_to)
             if root and not to:
@@ -2459,13 +2587,20 @@ class Store:
     # arms the delayed background check for next_timer, so it happens with nobody at work too.
     SCAN_EVERY = 600
     LEASE = 60  # a claimed timer comes again after this if its process died before finishing it
+    AWAY_LOOK = 300  # while a question to the person is open, whether the person has left the computer is looked at this often
 
-    def next_timer(self):
+    def next_timer(self, now_ts=None):
         """When the next pause or question is due: what the delayed background check is armed for. The scan of old
-        switch-offs is not one: it runs when members' hooks do, and never keeps a background check coming by itself."""
+        switch-offs is not one: it runs when members' hooks do, and never keeps a background check coming by itself.
+        An open question brings a check every AWAY_LOOK seconds: it stops waiting once the person has left."""
         with self.db() as db:
             row = db.execute("SELECT MIN(due) FROM timers WHERE kind<>'scan'").fetchone()
-        return row[0] if row and row[0] is not None else None
+            asking = db.execute("SELECT 1 FROM timers WHERE kind='ask' LIMIT 1").fetchone() is not None
+        due = row[0] if row and row[0] is not None else None
+        if asking:
+            look = (time.time() if now_ts is None else now_ts) + self.AWAY_LOOK
+            due = look if due is None else min(due, look)
+        return due
 
     def fire_timers(self, now_ts=None):
         """End the pauses and questions whose time has come. Each due timer is claimed for LEASE seconds (two processes
@@ -2475,6 +2610,11 @@ class Store:
         Every SCAN_EVERY seconds it also gives an end to switches an older plugin turned off without one."""
         now_ts = time.time() if now_ts is None else now_ts
         with self.db() as db:  # every hook asks: nothing due costs one read, no write lock
+            asking = db.execute("SELECT 1 FROM timers WHERE kind='ask' AND due>? LIMIT 1", (now_ts,)).fetchone()
+        if asking and self.person_away(now_ts):  # nobody to answer: the open questions are due now (_ask_ran_out)
+            with self.db() as db:
+                db.execute("UPDATE timers SET due=? WHERE kind='ask' AND due>?", (now_ts, now_ts))
+        with self.db() as db:
             nothing_due = db.execute("SELECT 1 FROM timers WHERE due<=? LIMIT 1", (now_ts,)).fetchone() is None
             scanned = db.execute("SELECT 1 FROM timers WHERE kind='scan'").fetchone() is not None
         if nothing_due:
@@ -2668,14 +2808,19 @@ class Store:
         key = str(key).strip()[:200] if key else "auto:" + hashlib.sha1(
             ("%s\n%s" % (" ".join(body.split())[:1000], recommend)).encode("utf-8")).hexdigest()[:16]
         hop = self._sender_hop(org["id"], member)
+        away = self.person_away()  # the person is not at the computer: the question does not wait (person_away)
         from . import i18n
         with self.change(org["id"]) as (o, db):
             for ask in (o.get("asks") or {}).values():
                 if ask.get("status") == "open" and ask.get("key") == key:
                     return {"message_id": ask["message_id"], "to": [HUMAN] + others, "ask": dict(ask),
                             "already_asked": True}
-            text = body.rstrip() + "\n\n" + i18n.t("ask.note", recommend=recommend, due=central(due),
-                                                   executor=executor or member)
+            doer = executor or member
+            why = away_why(away) if away else ""
+            if away:
+                text = body.rstrip() + "\n\n" + i18n.t("ask.away_note", recommend=recommend, why=why, executor=doer)
+            else:
+                text = body.rstrip() + "\n\n" + i18n.t("ask.note", recommend=recommend, due=central(due), executor=doer)
             recipients = [HUMAN] + others
             cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
                              "VALUES(?,?,?,?,?,?,?,?)", (o["id"], member, json.dumps(recipients), text, episode_id,
@@ -2685,15 +2830,27 @@ class Store:
             asks = o.setdefault("asks", {})
             o["counters"]["ask"] = o["counters"].get("ask", 0) + 1
             aid = "A%d" % o["counters"]["ask"]
-            asks[aid] = {"id": aid, "key": key, "asker": member, "executor": executor or member, "message_id": mid,
+            asks[aid] = {"id": aid, "key": key, "asker": member, "executor": doer, "message_id": mid,
                          "recommend": recommend[:1000], "due": iso(due), "status": "open", "at": now()}
-            db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES('ask', ?, ?, ?)",
-                       ("%s/%s" % (o["id"], aid), due, aid))
-            self._event(db, o["id"], member, "ask.opened", {"id": aid, "message_id": mid, "due": iso(due)})
+            go = None
+            if away:  # settled at once: the asker reads the go-ahead in its result, another executor gets it as a notice
+                asks[aid].update(status="away", settled_at=now())
+                self._event(db, o["id"], member, "ask.away", {"id": aid, "message_id": mid})
+                go = i18n.t("ask.away", id=mid, recommend=recommend, executor=doer, why=why)
+                if doer != member:
+                    self._post(db, o["id"], SYSTEM, [doer], go)
+                    self.__dict__.setdefault("posted", []).append(o["id"])
+            else:
+                db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES('ask', ?, ?, ?)",
+                           ("%s/%s" % (o["id"], aid), due, aid))
+                self._event(db, o["id"], member, "ask.opened", {"id": aid, "message_id": mid, "due": iso(due)})
             settled = [k for k, v in asks.items() if v.get("status") != "open"]
             for old in settled[:-50]:
                 asks.pop(old, None)  # keep the open ones and the last 50 settled
-            return {"message_id": mid, "to": recipients, "ask": dict(asks[aid])}
+            result = {"message_id": mid, "to": recipients, "ask": dict(asks[aid])}
+            if go:
+                result["person_away"] = go
+            return result
 
     ASK_ID = re.compile(r"(?<![A-Za-z0-9])A(\d+)(?![0-9])")
     MESSAGE_ID = re.compile(r"#(\d+)")
@@ -2728,6 +2885,7 @@ class Store:
         org_id, _, aid = key.partition("/")
         from . import i18n, monitor
         stopped = monitor.stopped()
+        away = self.person_away()  # before its hour is up when the person has left the computer (fire_timers)
         with self.change(org_id) as (org, db):
             if not self._still(db, "ask", key, ref):
                 return None
@@ -2736,17 +2894,20 @@ class Store:
             if not ask or ask.get("status") != "open":
                 return None
             held = stopped or (not org.get("auto_wake", True) and not org.get("pause"))
-            ask.update(status="held" if held else "ran_out", settled_at=now())
-            self._event(db, org_id, ask["asker"], "ask.held" if held else "ask.ran_out",
+            gone = "away" if away else "ran_out"
+            ask.update(status="held" if held else gone, settled_at=now())
+            self._event(db, org_id, ask["asker"], "ask.held" if held else "ask." + gone,
                         {"id": aid, "message_id": ask["message_id"]})
             if held:
                 return {"kind": "ask", "key": key, "outcome": "held by a stop"}
             to = [m for m in dict.fromkeys([ask.get("executor") or ask["asker"], ask["asker"]]) if m in org["members"]]
             if to:
-                self._post(db, org_id, SYSTEM, to, i18n.t("ask.ran_out", id=ask["message_id"],
-                                                         recommend=ask["recommend"], executor=to[0]))
+                text = (i18n.t("ask.away", id=ask["message_id"], recommend=ask["recommend"], executor=to[0],
+                               why=away_why(away)) if away else
+                        i18n.t("ask.ran_out", id=ask["message_id"], recommend=ask["recommend"], executor=to[0]))
+                self._post(db, org_id, SYSTEM, to, text)
                 self.__dict__.setdefault("posted", []).append(org_id)
-            return {"kind": "ask", "key": key, "outcome": "ran out"}
+            return {"kind": "ask", "key": key, "outcome": "person away" if away else "ran out"}
 
     def open_asks(self, org_id, member=None):
         return [dict(a) for a in (self.get(org_id).get("asks") or {}).values()
@@ -2781,6 +2942,84 @@ class Store:
         with self.db() as db:
             rows = db.execute(sql + " ORDER BY id DESC LIMIT ?", args + [max(1, min(int(limit or 10), 50))]).fetchall()
         return [{"at": at, "harness": h, "place": p, "text": t} for at, h, p, t in rows]
+
+    def person_away(self, now_ts=None):
+        """None while the person is around: at the computer (presence: keyboard, mouse, the window in front), or typed
+        to a member's session or wrote in the Relic App within IDLE_AFTER (from a phone too), or when it cannot be
+        told. Else {"minutes", "locked"}: then nobody waits for the person (the person, 2026-11-15: 我不在的话，那么他们
+        就应该是一个自主运行的模式……我他妈不在我怎么审批啊)."""
+        seen = presence()
+        if seen.get("at_computer") is not False:
+            return None
+        now_ts = time.time() if now_ts is None else now_ts
+        recent = iso(now_ts - IDLE_AFTER)
+        with self.db() as db:
+            if db.execute("SELECT 1 FROM person_words WHERE at>=? LIMIT 1", (recent,)).fetchone():
+                return None
+            if db.execute("SELECT 1 FROM messages WHERE sender=? AND at>=? LIMIT 1", (HUMAN, recent)).fetchone():
+                return None
+        return {"minutes": int((seen.get("idle_seconds") or 0) // 60), "locked": bool(seen.get("locked"))}
+
+    def person_quotes(self, body, days=7, most=3):
+        """The person's own words that body quotes verbatim: [{id, at, place, quoted}], newest prompt first, from
+        what the person typed into seats' sessions (person_said) in the last `days`. A member may quote part of a
+        prompt and leave words out: each stretch of it found in body counts (spaces and quote marks aside), and a
+        prompt counts when its longest stretch weighs QUOTE_FLOOR; the stretches shown are as the person typed them."""
+        body = str(body or "")
+        flat = flat_words(body[:20000])
+        if len(flat) < QUOTE_SEED:
+            return []
+        seeds = {flat[k:k + QUOTE_SEED] for k in range(len(flat) - QUOTE_SEED + 1)}
+        with self.db() as db:
+            rows = db.execute("SELECT id, at, place, text FROM person_words WHERE at>=? ORDER BY id DESC",
+                              (iso(time.time() - days * 86400),)).fetchall()
+        found, seen = [], set()
+        for wid, at, place, text in rows:
+            if "W%d]" % wid in body:
+                continue  # already vouched for in this text (a message passed on): "[Relic check W<id>]"
+            words, places = _flat_with_places(text or "")
+            if not any(words[k:k + QUOTE_SEED] in seeds for k in range(len(words) - QUOTE_SEED + 1)):
+                continue
+            stretches, i = [], 0
+            while i <= len(words) - QUOTE_SEED:
+                if words[i:i + QUOTE_SEED] not in seeds:
+                    i += 1
+                    continue
+                size = QUOTE_SEED
+                while i + size < len(words) and words[i:i + size + 1] in flat:
+                    size += 1
+                stretch = words[i:i + size]
+                if stretch not in seen:
+                    seen.add(stretch)
+                    stretches.append((stretch, text[places[i]:places[i + size - 1] + 1].strip()))
+                i += size
+            if stretches and max(_weight(s) for s, _ in stretches) >= QUOTE_FLOOR:
+                quoted = [shown for s, shown in stretches if _weight(s) >= QUOTE_SHOWN]
+                found.append({"id": wid, "at": at, "place": place, "quoted": quoted})
+                if len(found) >= most:
+                    break
+        return found
+
+    def _place_name(self, place):
+        """"<org id>/<member>" as the person reads it: "<organization name> · <member>"."""
+        org_id, _, member = str(place or "").partition("/")
+        try:
+            return "%s · %s" % (self.get(org_id)["name"], member) if member else str(place)
+        except OrgError:
+            return str(place)
+
+    def with_quotes(self, body):
+        """body with Relic's check of the person's words it quotes (person_quotes) under it, else body unchanged."""
+        try:
+            found = self.person_quotes(body)
+        except (sqlite3.Error, ValueError):
+            return body
+        if not found:
+            return body
+        from . import i18n
+        lines = [i18n.t("quote.verified", quoted=" … ".join(q["quoted"]), id=q["id"], place=self._place_name(q["place"]),
+                        when=central(epoch(q["at"]) or time.time())) for q in found]
+        return body.rstrip() + "\n\n" + "\n".join(lines)
 
     def drive_due(self, now_ts):
         """The organizations with keep-going on whose next check is due, each claimed for a minute so that two

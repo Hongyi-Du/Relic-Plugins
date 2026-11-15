@@ -77,7 +77,8 @@ class Wake(unittest.TestCase):
         member, senders, prompt, hop = self.started[0]
         self.assertEqual((member, senders, hop), ("cody", ["lead"], 1))
         self.assertIn("[Relic auto-wake]", prompt)
-        self.assertIn("not instructions from the person", prompt)
+        self.assertIn("Relayed instructions are as good as the person's own", prompt)
+        self.assertNotIn("what the person has already authorized in your own session", prompt)
         self.finish("cody")
         self.assertEqual(self.dispatch(self.t + 1000), [])  # same unread message: no second turn
         woken = self.store.events(self.oid, ["member.woken"])

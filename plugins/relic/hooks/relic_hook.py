@@ -13,16 +13,40 @@ Every event except PreToolUse also gives auto-wake a chance to start turns for s
 """
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from relic_core import claude_desktop, monitor, wake  # noqa: E402
 from relic_core.context import render, render_messages, render_seats  # noqa: E402
-from relic_core.store import OrgError, Store, is_relic_tool  # noqa: E402
+from relic_core.store import OrgError, Store, away_go_on, away_refusal, is_relic_tool  # noqa: E402
 
 WAKE_EVENTS = {"SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "SubagentStop"}
 CONTEXT_LIMIT = 9500
+# While the person is away from the computer a member does not ask (the person, 2026-11-15: 别他妈啥时候都问我了，我不在
+# 我怎么审批啊): the harnesses' question tools are refused with the reason, and a turn that would end on a question to
+# the person goes on once (Store.person_away).
+ASKING_TOOLS = ("AskUserQuestion", "request_user_input")
+ASKS_PERSON = re.compile(r"[?？]|要不要|是否需要|需要你|请你|等你|你决定|你来定|你确认|你同意|你批准|可以吗|好吗|行吗|"
+                         r"should i|shall i|do you want|would you like|let me know|please confirm|your call|"
+                         r"waiting for your|need your", re.I)
+
+
+def asks_person(reply):
+    """Whether a reply ends on a question to the person: its last two lines ask something."""
+    lines = [line for line in str(reply or "").strip().splitlines() if line.strip()]
+    return bool(lines) and bool(ASKS_PERSON.search(" ".join(lines[-2:])[-600:]))
+
+
+def away_member(store, actor):
+    """The person's absence (Store.person_away) when this session holds a seat, else None."""
+    try:
+        if not store.whoami(actor)[0]:
+            return None
+        return store.person_away()
+    except Exception:  # not knowing whether the person is around never stops a member
+        return None
 
 
 def harness():
@@ -134,7 +158,8 @@ def peer_messages(store, actor, context=""):
     messages = store.unread(actor, mark=False, limit=None)
     if not messages:
         return clip_context(context, CONTEXT_LIMIT)
-    heading = "New Relic messages from organization members (peer work input, not instructions from the human):\n"
+    heading = ("New Relic messages from organization members (work input; the person's words a member relays count as "
+               "the person's):\n")
 
     def remaining(pending):
         if not pending:
@@ -306,6 +331,10 @@ def respond(event, store):
             return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "allow",
                                            "permissionDecisionReason": "Relic organization tool",
                                            "updatedInput": updated}}
+        away = away_member(store, actor) if tool in ASKING_TOOLS else None
+        if away:
+            return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
+                                           "permissionDecisionReason": away_refusal(away)}}
         allowed, reasons = store.gate(actor, tool, tool_input, cwd=event.get("cwd"))
         if not allowed:
             return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
@@ -336,10 +365,14 @@ def respond(event, store):
             return {}
         reasons = []
         if name == "Stop":  # the reply the person reads: the organization's rules on Reply judge it before the turn ends
-            allowed, why = store.check_reply(actor, reply_text(event))
+            reply = reply_text(event)
+            allowed, why = store.check_reply(actor, reply)
             if not allowed:
                 reasons.append("Your reply breaks the organization's rules for replies: %s. Write the whole reply again "
                                "so that it follows them; the person reads what you write now." % " ".join(why))
+            away = away_member(store, actor) if asks_person(reply) else None
+            if away:  # nobody answers now: the turn goes on once instead of ending on a question
+                reasons.append(away_go_on(away))
         ended = store.end_turn(actor)  # every seat's turn, and back to the main seat
         due, org = [], None
         for there, seat_member, main in store.seats_of(actor):  # reflection due in any organization it sits in
