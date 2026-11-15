@@ -963,6 +963,24 @@ class Store:
         self.sync_offices(org_id)
         return {"org_id": org_id, "parent": parent_id}
 
+    def _other_seat(self, actor, own, target, up):
+        """(organization, member, target, way) for another seat of the session (not own) from which target is
+        reached: the nearest organization above target, else, with up, one below it. None when there is none, and
+        always for a call already scoped to one seat ("<actor>#<org id>")."""
+        base, scope = self.split_actor(actor)
+        if scope or not base:
+            return None
+        seats = {o["id"]: (o, m) for o, m, _ in self.seats_of(base) if o["id"] != own["id"]}
+        for ancestor in self.ancestors(target):  # nearest first
+            if ancestor["id"] in seats:
+                o, m = seats[ancestor["id"]]
+                return o, m, target, "down"
+        if up:
+            for o, m in seats.values():
+                if target["id"] in [a["id"] for a in self.ancestors(o)]:
+                    return o, m, target, "up"
+        return None
+
     def find_org(self, ref):
         """An active organization by id or by exact name."""
         ref = str(ref or "").strip()
@@ -977,7 +995,10 @@ class Store:
 
     def reach(self, actor, ref, up=False):
         """(your organization, you, the organization ref names, how it is related): "down" for one below yours at
-        any depth; with up, "up" for one above it; None when ref is your own organization."""
+        any depth; with up, "up" for one above it; None when ref is your own organization. When the session's main
+        seat is not related to it, another seat the session holds can be: the nearest one above it (with up, else one
+        below it), and the call acts as that seat's member (2026-11-14: a department head who also sits in the
+        cabinet could not reach the organizations under the cabinet from its department seat)."""
         org, member = self.require(actor)
         if not ref or str(ref).strip() in (org["id"], org["name"]):
             return org, member, org, None
@@ -985,9 +1006,12 @@ class Store:
         if target["id"] in self._ids_below([o for o in self.list_orgs() if o.get("status") == "active"], org["id"]):
             return org, member, target, "down"
         above = [a["id"] for a in self.ancestors(org)]
+        if target["id"] in above and up:
+            return org, member, target, "up"
+        other = self._other_seat(actor, org, target, up)
+        if other:
+            return other
         if target["id"] in above:
-            if up:
-                return org, member, target, "up"
             raise OrgError("%s is above your organization: report to its members with message (org=%s); its work "
                            "belongs to them." % (target["name"], target["id"]))
         raise OrgError("%s is neither above nor below your organization (the person sets that in the Relic App), so "

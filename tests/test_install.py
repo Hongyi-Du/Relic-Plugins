@@ -95,6 +95,15 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(any('codex' in c[0] for c in commands))
             self.assertEqual(installer.main(['--host', 'codex']), 1)  # asked for a host that is not there
 
+    def test_records_the_installed_folder_for_every_relic_process(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ, {'RELIC_HOME': temp}),                 mock.patch.object(installer, 'configure', lambda root: ROOT / 'plugins' / 'relic'),                 mock.patch.object(installer, 'shortcut', lambda python: None):
+            self.assertEqual(installer.main(['--host', 'none', '--no-shortcut']), 0)
+            record = Path(temp) / 'current.json'
+            self.assertEqual(installer.read_json(record), {'plugin': str(ROOT / 'plugins' / 'relic')})
+            record.unlink()
+            self.assertEqual(installer.main(['--configure-only']), 0)  # a prepared folder is not installed yet
+            self.assertFalse(record.exists())
+
     def test_the_relic_app_alone_needs_no_host(self):
         with mock.patch.object(installer, 'configure', lambda root: ROOT / 'plugins' / 'relic'), \
                 mock.patch.object(installer, 'cli', lambda name: (_ for _ in ()).throw(AssertionError('no host'))), \

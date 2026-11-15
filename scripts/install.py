@@ -38,6 +38,14 @@ def plugin_dir(root=ROOT):
     return plugin
 
 
+def record_installed(plugin):
+    """Name this plugin folder in the data root (current.json): every Relic process, however old the copy it runs,
+    starts member turns and background checks from the Relic installed last (relic_core.runner.entry)."""
+    home = Path(os.environ.get('RELIC_HOME') or Path.home() / '.relic')
+    home.mkdir(parents=True, exist_ok=True)
+    write_json(home / 'current.json', {'plugin': str(plugin)})
+
+
 def configure(root=ROOT, python=None):
     """Point the plugin's MCP server and hooks at this Python and this folder."""
     python = str(Path(python or sys.executable).resolve())
@@ -133,6 +141,7 @@ def main(argv=None):
         if args.configure_only:
             print('Configuration only. No plugin was installed and no host settings were changed.')
             return 0
+        record_installed(plugin)
         wanted = {'auto': ('claude', 'codex'), 'both': ('claude', 'codex'), 'none': ()}.get(args.host, (args.host,))
         found = {name: cli(name) for name in wanted}
         missing = [name for name, path in found.items() if not path]
