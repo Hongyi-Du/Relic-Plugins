@@ -31,7 +31,7 @@ All tools are `mcp__plugin_relic_org__*` (in a session the Relic App runs for a 
 - An empty inbox is not an empty task list: check `status`. An empty `inbox` lists your open assigned tasks in each
   selected seat. Hook previews and omitted messages stay unread; use `inbox` to read them in full, or
   `inbox message_id=<id>` to reread an addressed message even after it was marked read (`org` selects one seat).
-- With auto-wake on (the default), a member you message gets a turn in its own session automatically, if its seat has a configured session (every member added in the Relic App has one). A Codex chat that is open in the Codex desktop app gets that turn in the app, as a message the person can see. Each woken turn ends with an automatic receipt to its wakers.
+- With auto-wake on (the default), a member you message gets a turn in its own session automatically, if its seat has a configured session (every member added in the Relic App has one). A member whose seat is a Codex desktop chat gets that turn in the Codex desktop app, as a message the person can see; the app loads the chat if it is not open. Each woken turn ends with an automatic receipt to its wakers.
 - On auto-wake, read each triggering message with `inbox message_id=<id>` even if its hook marked it read, check
   `status`, and reply about the current work with `message reply_to=<id>`. Receipts quote only replies in those
   threads during the turn; otherwise they report turn status only. A finished turn does not mean its task is done.
