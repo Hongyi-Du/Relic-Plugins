@@ -81,6 +81,24 @@ def leads(org, member):
     return member in leaders(org)
 
 
+def codex_thread(carrier):
+    """The Codex thread a carrier names: "codex:<thread>", or "codex:<session>/<agent>" for a subagent that holds a
+    seat of its own (the hook names a Codex subagent by the session that spawned it and its own thread). None for a
+    carrier of another harness."""
+    carrier = str(carrier or "")
+    if not carrier.startswith("codex:"):
+        return None
+    return carrier.split(":", 1)[1].rsplit("/", 1)[-1] or None
+
+
+def codex_parent(carrier):
+    """"codex:<session>" for the carrier "codex:<session>/<agent>" of a Codex subagent; None for any other carrier."""
+    carrier = str(carrier or "")
+    if not carrier.startswith("codex:") or "/" not in carrier:
+        return None
+    return carrier.split("/", 1)[0]
+
+
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -1009,7 +1027,9 @@ class Store:
     def config_source(self, org_id, member, org=None):
         """(organization, member) of the seat whose config starts this seat's turns (see seat_config): the seat
         itself, or the seat of the same session it inherits from; None when neither has one. A Claude Desktop
-        session is addressed by that seat's name, whichever of the session's seats a turn is for."""
+        session is addressed by that seat's name, whichever of the session's seats a turn is for. A Codex subagent
+        with a seat of its own inherits from the session that spawned it: its turns then go only through the Codex
+        desktop app, while the app holds its thread (wake.subagent_open), never through a second writer."""
         org = org or self.get(org_id)
         seat = (org.get("members") or {}).get(member) or {}
         if seat.get("config"):
@@ -1018,6 +1038,10 @@ class Store:
             return None
         for other, name, main in self.seats_of(seat["carrier"]):
             if other["id"] != org_id and (other["members"].get(name) or {}).get("config"):
+                return other, name
+        parent = codex_parent(seat["carrier"])
+        for other, name, main in self.seats_of(parent) if parent else []:
+            if (other["members"].get(name) or {}).get("config"):
                 return other, name
         return None
 

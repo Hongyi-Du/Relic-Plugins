@@ -2,6 +2,24 @@
 
 ## Unreleased / 未发布
 
+- A Codex subagent with a seat of its own is woken through the Codex desktop app while the app holds its thread
+  (2026-11-16: Learning's astra-systems-lead had been unreachable for 15 hours. The app kept its thread loaded after
+  the parent left the app, so every follow-up from the parent, whose turns ran in a Relic runner, failed with
+  "already has an active writer").
+  - `codex_thread` and `codex_parent`: the carrier "codex:<session>/<agent>" names the subagent's own thread. Its
+    turns, transcript and trajectory are that thread's.
+  - Its seat starts turns like the session that spawned it (`Store.config_source`, and the overview).
+  - Before waking it, Relic asks the app once (read_thread, at most 3 seconds, reused for a minute). If the app holds
+    the thread, the turn goes to the app, which is that thread's writer. If it does not, nothing is started, no
+    failure is counted, and the spawning session drives it. Relic never starts an app-server on a subagent's thread.
+  - 有自己席位的 Codex 子代理，在 Codex 桌面 App 持有它的线程时经 App 叫醒（2026-11-16：Learning 的
+    astra-systems-lead 15 小时叫不醒。父线程离开 App 后，App 仍挂着子线程；父线程的回合在 Relic runner 里跑，每次
+    followup 都报 "already has an active writer"）。
+  - 席位 "codex:<会话>/<子代理>" 指子代理自己的线程，回合、转录和轨迹都按这条线程。
+  - 席位按派生它的会话的配置启动回合（`Store.config_source`，概况面板同样）。
+  - 唤醒前先问一次 App（read_thread，最多 3 秒，一分钟内复用）。App 持有这条线程，回合就交给 App，它就是这条线程的
+    写入者；App 不持有，就不启动、不算失败，由派生它的会话自己驱动。Relic 从不在子代理线程上另起 app-server。
+
 - Reports go first to the organization right above, and the secretariat can have two heads of the same rank (2026-11-15, the person:
   「不要让所有的下面干活的全都直接给秘书长汇报啊……你该汇报的你就跟他的科研领导汇报，然后我去问秘书长的时候，秘书长再去找
   这个科研的负责人去要啊」 and 「相当于 Claude 和 Codex 那边各有一个秘书处的负责人」).

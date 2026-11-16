@@ -292,11 +292,11 @@ class Desktop:
     def __init__(self, pipe):
         self.pipe = pipe
 
-    def call(self, tool, arguments, caller):
+    def call(self, tool, arguments, caller, timeout=30.0):
         params = {"arguments": arguments, "callerSource": "codex", "callId": "relic-" + uuid.uuid4().hex,
                   "hostId": "local", "namespace": NAMESPACE, "threadId": caller, "tool": tool,
                   "turnId": "relic-" + uuid.uuid4().hex}
-        reply = exchange(self.pipe, {"id": 1, "jsonrpc": "2.0", "method": "tools/call", "params": params}, 30.0)
+        reply = exchange(self.pipe, {"id": 1, "jsonrpc": "2.0", "method": "tools/call", "params": params}, timeout)
         if "error" in reply:
             raise DesktopError("%s: %s" % (tool, (reply.get("error") or {}).get("message")))
         result = reply.get("result") or {}
@@ -310,13 +310,13 @@ class Desktop:
                 return {"text": text}
         return {}
 
-    def read(self, thread_id, turns=1, host="local", caller=None):
+    def read(self, thread_id, turns=1, host="local", caller=None, timeout=30.0):
         """The chat's status and its newest turns, newest first. A ChatGPT chat has no host (host=None) and needs a
         Codex thread as the caller."""
         args = {"threadId": thread_id, "turnLimit": turns, "includeOutputs": False}
         if host:
             args["hostId"] = host
-        return self.call("read_thread", args, caller or thread_id)
+        return self.call("read_thread", args, caller or thread_id, timeout)
 
     def send(self, thread_id, prompt, host="local", caller=None):
         args = {"threadId": thread_id, "prompt": prompt}

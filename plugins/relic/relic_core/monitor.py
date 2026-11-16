@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import process, runner, usage
-from .store import data_home
+from .store import codex_thread, data_home
 
 ACTIVE = 150            # seconds since a session's transcript changed for it to count as working
 DAY = 24 * 3600
@@ -230,7 +230,7 @@ def _kill_tree(pid):
 
 
 def _thread(key):
-    return key.split(":", 1)[1] if key.startswith("codex:") else None
+    return codex_thread(key)
 
 
 def _in_app(state):
