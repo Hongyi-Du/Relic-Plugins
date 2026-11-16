@@ -211,6 +211,19 @@ def message_checkpoint(store, org_id):
         return db.execute("SELECT COALESCE(MAX(id), 0) FROM messages WHERE org_id=?", (org_id,)).fetchone()[0]
 
 
+def latest_message(store):
+    """The newest message id in any organization (0 when there is none)."""
+    with store.db() as db:
+        return db.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()[0]
+
+
+def written_since(store, first):
+    """Organizations that got a message after message id first, oldest first."""
+    with store.db() as db:
+        rows = db.execute("SELECT org_id, MIN(id) FROM messages WHERE id>? GROUP BY org_id ORDER BY MIN(id)", (first,))
+        return [row[0] for row in rows]
+
+
 def receipt(store, org_id, member, wake_from, after, state):
     """Report turn completion and only replies in its triggering threads, separately for each waker.
 

@@ -12,6 +12,9 @@
   - Before waking it, Relic asks the app once (read_thread, at most 3 seconds, reused for a minute). If the app holds
     the thread, the turn goes to the app, which is that thread's writer. If it does not, nothing is started, no
     failure is counted, and the spawning session drives it. Relic never starts an app-server on a subagent's thread.
+  - A turn's runner (always the Relic installed last) ends by dispatching every organization that got a message
+    during the turn, with its own rules: an older copy that wrote the message, such as a Codex plugin waiting for
+    the person's hook trust, does not know them.
   - 有自己席位的 Codex 子代理，在 Codex 桌面 App 持有它的线程时经 App 叫醒（2026-11-16：Learning 的
     astra-systems-lead 15 小时叫不醒。父线程离开 App 后，App 仍挂着子线程；父线程的回合在 Relic runner 里跑，每次
     followup 都报 "already has an active writer"）。
@@ -19,6 +22,8 @@
   - 席位按派生它的会话的配置启动回合（`Store.config_source`，概况面板同样）。
   - 唤醒前先问一次 App（read_thread，最多 3 秒，一分钟内复用）。App 持有这条线程，回合就交给 App，它就是这条线程的
     写入者；App 不持有，就不启动、不算失败，由派生它的会话自己驱动。Relic 从不在子代理线程上另起 app-server。
+  - 每个回合由最后安装的 Relic 跑；回合结束时，把这期间收到消息的组织都用它的规则再派发一遍。写消息的可能是
+    旧版（比如等人重新信任钩子的 Codex 插件），旧版不认识这些规则。
 
 - Reports go first to the organization right above, and the secretariat can have two heads of the same rank (2026-11-15, the person:
   「不要让所有的下面干活的全都直接给秘书长汇报啊……你该汇报的你就跟他的科研领导汇报，然后我去问秘书长的时候，秘书长再去找

@@ -206,9 +206,11 @@ def main():
     state.update(status="running", started=state.get("started") or time.time(), pid=os.getpid())
     runner.write_state(a.org, a.member, state)  # liveness: others check this pid before starting another turn
     after = 0
+    first = None
     harness = None
     try:
         store = Store()
+        first = wake.latest_message(store)
         after = wake.message_checkpoint(store, a.org)
         state["wake_after"] = after
         org = store.get(a.org)
@@ -265,6 +267,12 @@ def main():
                 # claim without calling it complete or scheduling a duplicate send.
                 wake.finish(store, a.org, a.member, None if state.get("delivery_possible") else error)
             wake.dispatch(store, a.org)  # messages that arrived while this seat or others were busy
+            # This runner is the Relic installed last (runner.entry). What was written anywhere during the turn is
+            # dispatched again with its rules, which an older copy that wrote it may lack (the Codex plugin waits
+            # for the person's hook trust after each upgrade; 2026-11-16: a Codex subagent woken through the app).
+            for org_id in wake.written_since(store, first) if first is not None else []:
+                if org_id != a.org:
+                    wake.dispatch(store, org_id)
         except Exception as error:  # the turn itself is recorded; the next dispatch elsewhere catches up
             state["after_turn_error"] = str(error)[-500:]
             runner.write_state(a.org, a.member, state)

@@ -149,6 +149,28 @@ class SubagentSeat(unittest.TestCase):
                     relic_run.run_codex(self.store, self.store.get(self.oid), "systems", self.config, "wake up",
                                         False, self.tmp.name, connect=lambda: app)
 
+    def test_a_turn_ends_by_dispatching_what_was_written_meanwhile(self):
+        # The runner is the Relic installed last; an older copy that wrote a message (a Codex plugin waiting for the
+        # person's hook trust) does not know a subagent can be woken. The turn's end dispatches again with its rules.
+        other = self.store.create("boss-session", "Elsewhere", "other work", "boss")["id"]
+        self.store.add_seat(other, "peer", "helper")
+        self.store.add_seat(self.oid, "worker", "builder", runner.default_config("codex"))
+        self.store.join("codex:th-worker", self.oid, "worker")
+        prompt = Path(self.tmp.name) / "prompt.txt"
+        prompt.write_text("wake up", encoding="utf-8")
+        dispatched = []
+
+        def turn(store, org, member, config, text, new, cwd):
+            store.send(PARENT, ["systems"], "next step")  # in Learning, during the turn
+            store.send("boss-session", ["peer"], "unrelated work elsewhere")
+            return "codex:th-worker", "done", False, None
+        argv = ["relic_run.py", "--org", self.oid, "--member", "worker", "--prompt-file", str(prompt)]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(relic_run, "run_codex", turn), \
+                mock.patch.object(wake, "dispatch", lambda store, org_id, **kw: dispatched.append(org_id)):
+            relic_run.main()
+        self.assertEqual(dispatched, [self.oid, other])
+        self.assertEqual(runner.run_state(self.oid, "worker")["status"], "done")
+
     def test_its_transcript_and_trajectory_are_its_own_thread(self):
         rollout = Path(os.environ["CODEX_HOME"]) / "sessions" / "2026" / "11" / "16"
         rollout.mkdir(parents=True)
