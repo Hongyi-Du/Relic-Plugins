@@ -2,6 +2,28 @@
 
 ## Unreleased / 未发布
 
+- A Codex subagent with a seat of its own is never woken by Relic (2026-11-16: Learning's astra-systems-lead had
+  been unreachable for 15 hours. The Codex desktop app kept its thread loaded after the parent left the app, so every
+  follow-up from the parent, whose turns ran in a Relic runner, failed with "already has an active writer". The app
+  also refuses direct input to such a thread: "direct app-server input is not allowed for multi-agent v2
+  sub-agents").
+  - Only the session that spawned it gives it a turn (followup_task). Relic never wakes the seat and never starts
+    anything on its thread. A wake-up that older copies started fails at once with that reason, and no app-server
+    is started.
+  - `codex_thread` and `codex_parent`: the carrier "codex:<session>/<agent>" names the subagent's own thread. Its
+    transcript, trajectory and monitor entry are that thread's.
+  - A turn's runner (always the Relic installed last) ends by dispatching every organization that got a message
+    during the turn, with its own rules. The message may have been written by an older copy, such as a Codex plugin
+    waiting for the person's hook trust.
+  - 有自己席位的 Codex 子代理不由 Relic 叫醒（2026-11-16：Learning 的 astra-systems-lead 15 小时叫不醒。父线程离开
+    App 后，App 仍挂着子线程；父线程的回合在 Relic runner 里跑，每次 followup 都报 "already has an active writer"。
+    App 也拒收直接给这种线程的输入："direct app-server input is not allowed for multi-agent v2 sub-agents"）。
+  - 只有派生它的会话能给它回合（followup_task）。Relic 不叫醒这个席位，也不在它的线程上启动任何东西。旧版发起的
+    唤醒会带着这个原因立刻失败，不起 app-server。
+  - 席位 "codex:<会话>/<子代理>" 指子代理自己的线程，转录、轨迹和监控都按这条线程。
+  - 每个回合由最后安装的 Relic 跑；回合结束时，把这期间收到消息的组织都用它的规则再派发一遍。写消息的可能是旧版
+    （比如等人重新信任钩子的 Codex 插件）。
+
 - Reports go first to the organization right above, and the secretariat can have two heads of the same rank (2026-11-15, the person:
   「不要让所有的下面干活的全都直接给秘书长汇报啊……你该汇报的你就跟他的科研领导汇报，然后我去问秘书长的时候，秘书长再去找
   这个科研的负责人去要啊」 and 「相当于 Claude 和 Codex 那边各有一个秘书处的负责人」).

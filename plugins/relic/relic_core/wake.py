@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 from . import desktop, gui_receipt, i18n, runner
-from .store import HUMAN, SYSTEM, away_note
+from .store import HUMAN, SYSTEM, away_note, codex_parent, codex_thread
 
 SETTLE = 10  # seconds after the newest unread message before waking: messages sent in a row make one wake-up
 QUIET = 60
@@ -47,6 +47,7 @@ MAX_FAILURES = 5  # after this many failed wake-ups in a row the messages wait f
 MAX_IN_USE = 6  # rechecks of a chat held by an app Relic cannot reach (30 minutes) before its messages wait
 IN_USE = "already has an active writer"  # Codex: the chat is open for writing elsewhere
 RECEIPT_MARK = "[Relic auto-receipt]"
+SUBAGENT_INPUT = "direct app-server input is not allowed for multi-agent v2 sub-agents"  # the Codex app's refusal
 
 
 def no_turn(error):
@@ -54,7 +55,7 @@ def no_turn(error):
     (a Claude Desktop session that still owes an earlier request its Stop counts as busy)."""
     text = str(error or "")
     return bool(text) and (IN_USE in text or desktop.BUSY in text or gui_receipt.WAITING in text or
-                           gui_receipt.DESKTOP_BUSY in text)
+                           gui_receipt.DESKTOP_BUSY in text or SUBAGENT_INPUT in text)
 
 
 def desktop_hold(store, seat, config):
@@ -181,6 +182,19 @@ def message_checkpoint(store, org_id):
         return db.execute("SELECT COALESCE(MAX(id), 0) FROM messages WHERE org_id=?", (org_id,)).fetchone()[0]
 
 
+def latest_message(store):
+    """The newest message id in any organization (0 when there is none)."""
+    with store.db() as db:
+        return db.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()[0]
+
+
+def written_since(store, first):
+    """Organizations that got a message after message id first, oldest first."""
+    with store.db() as db:
+        rows = db.execute("SELECT org_id, MIN(id) FROM messages WHERE id>? GROUP BY org_id ORDER BY MIN(id)", (first,))
+        return [row[0] for row in rows]
+
+
 def receipt(store, org_id, member, wake_from, after, state):
     """Report turn completion and only replies in its triggering threads, separately for each waker.
 
@@ -257,7 +271,7 @@ def transcripts(seat):
         return []  # a chat member's conversation is kept by its chat app, not on this machine
     if carrier.startswith("codex:"):
         root = Path(os.getenv("CODEX_HOME") or Path.home() / ".codex") / "sessions"
-        found = list(root.rglob("*%s*.jsonl" % carrier.split(":", 1)[1])) if root.is_dir() else []
+        found = list(root.rglob("*%s*.jsonl" % codex_thread(carrier))) if root.is_dir() else []
     else:
         root = Path(os.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
         found = list(root.glob("*/%s.jsonl" % carrier.split("/", 1)[0])) if root.is_dir() else []
@@ -293,6 +307,11 @@ def _due(org, org_id, member, messages, mine, now, age, store=None):
     triggers = [m for m in fresh if m["hop"] < MAX_HOPS]
     config = store.seat_config(org_id, member, org) if store is not None and seat else None
     if not wakeable(seat, config) or not triggers:
+        return None, None
+    if codex_parent(seat.get("carrier")):
+        # A Codex subagent with a seat of its own takes input only from the session that spawned it: the Codex
+        # desktop app refuses direct input to multi-agent v2 sub-agents (SUBAGENT_INPUT), and while the app holds
+        # its thread no other process can write there (2026-11-16, Learning's astra-systems-lead)
         return None, None
     if busy(store, org_id, member, seat, now):
         return RECHECK, None  # its runner dispatches when the turn ends; the retry covers a runner that dies

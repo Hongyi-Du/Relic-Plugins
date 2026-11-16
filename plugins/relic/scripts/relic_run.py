@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from relic_core import chat, claude_desktop, desktop, platform_support, runner, wake  # noqa: E402
-from relic_core.store import Store  # noqa: E402
+from relic_core.store import Store, codex_parent  # noqa: E402
 
 
 def run_claude(store, org, member, config, prompt, new, cwd):
@@ -77,6 +77,12 @@ def open_in_desktop(app, thread):
 
 
 def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.connect):
+    seat = org["members"][member]
+    if not new and seat.get("harness") == "codex" and codex_parent(seat.get("carrier")):
+        # a Codex subagent with a seat of its own ("codex:<session>/<agent>"): only the session that spawned it can
+        # give it input (the desktop app refuses direct input to multi-agent v2 sub-agents); nothing is started
+        raise RuntimeError("%s is a Codex subagent of %s; only that session gives it a turn (followup_task), %s." % (
+            member, codex_parent(seat["carrier"]), wake.SUBAGENT_INPUT))
     if sys.platform == "darwin" and config.get("surface") == "gui":
         capability = desktop.transport_capability()
         if not platform_support.can_auto_deliver("codex", "gui"):
@@ -190,9 +196,11 @@ def main():
     state.update(status="running", started=state.get("started") or time.time(), pid=os.getpid())
     runner.write_state(a.org, a.member, state)  # liveness: others check this pid before starting another turn
     after = 0
+    first = None
     harness = None
     try:
         store = Store()
+        first = wake.latest_message(store)
         after = wake.message_checkpoint(store, a.org)
         state["wake_after"] = after
         org = store.get(a.org)
@@ -249,6 +257,12 @@ def main():
                 # claim without calling it complete or scheduling a duplicate send.
                 wake.finish(store, a.org, a.member, None if state.get("delivery_possible") else error)
             wake.dispatch(store, a.org)  # messages that arrived while this seat or others were busy
+            # This runner is the Relic installed last (runner.entry). What was written anywhere during the turn is
+            # dispatched again with its rules, which an older copy that wrote it may lack (the Codex plugin waits
+            # for the person's hook trust after each upgrade; 2026-11-16: a Codex subagent woken through the app).
+            for org_id in wake.written_since(store, first) if first is not None else []:
+                if org_id != a.org:
+                    wake.dispatch(store, org_id)
         except Exception as error:  # the turn itself is recorded; the next dispatch elsewhere catches up
             state["after_turn_error"] = str(error)[-500:]
             runner.write_state(a.org, a.member, state)

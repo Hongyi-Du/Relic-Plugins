@@ -38,7 +38,7 @@ def claude_home():
 def locate(actor):
     """(harness, session id, transcript path or None) for an actor key."""
     if actor.startswith("codex:"):
-        thread = actor.split(":", 1)[1]
+        thread = actor.split(":", 1)[1].rsplit("/", 1)[-1]  # a subagent with its own seat: codex:<session>/<agent>
         root = codex_home()
         for db_path in sorted(root.glob("state_*.sqlite"), reverse=True):
             try:
@@ -294,7 +294,7 @@ def memory(actor):
     found = []
     if not actor.startswith("codex:"):
         return found  # Claude Code: project memory, not this session's
-    thread = actor.split(":", 1)[1]
+    thread = actor.split(":", 1)[1].rsplit("/", 1)[-1]
     root = codex_home() / "memories"
     summaries = root / "rollout_summaries"
     named = re.compile(r"(?m)^thread_id:\s*%s\s*$" % re.escape(thread))

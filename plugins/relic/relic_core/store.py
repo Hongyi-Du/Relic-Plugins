@@ -81,6 +81,24 @@ def leads(org, member):
     return member in leaders(org)
 
 
+def codex_thread(carrier):
+    """The Codex thread a carrier names: "codex:<thread>", or "codex:<session>/<agent>" for a subagent that holds a
+    seat of its own (the hook names a Codex subagent by the session that spawned it and its own thread). None for a
+    carrier of another harness."""
+    carrier = str(carrier or "")
+    if not carrier.startswith("codex:"):
+        return None
+    return carrier.split(":", 1)[1].rsplit("/", 1)[-1] or None
+
+
+def codex_parent(carrier):
+    """"codex:<session>" for the carrier "codex:<session>/<agent>" of a Codex subagent; None for any other carrier."""
+    carrier = str(carrier or "")
+    if not carrier.startswith("codex:") or "/" not in carrier:
+        return None
+    return carrier.split("/", 1)[0]
+
+
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
