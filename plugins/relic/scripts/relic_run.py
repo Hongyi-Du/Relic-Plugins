@@ -8,8 +8,10 @@ The prompt is the introduction (on --new), text the person wrote in the window, 
 prompt (--wake-from names the senders). Each waker gets a completion receipt quoting only replies in the triggering
 message threads; when the turn ends, waiting wake-ups of the organization are dispatched.
 
-A surface=gui Codex chat open in the desktop app uses desktop.py. A CLI seat keeps its app-server route and reports
-a writer lock when its old thread is desktop-owned; it never injects that prompt into the GUI.
+A surface=gui Codex chat goes to the desktop app through desktop.py whenever the app knows it, loaded or not (the app
+loads it); its app-server route is left for when the app is not running or does not take the prompt. A CLI seat keeps
+its app-server route and reports a writer lock when its old thread is desktop-owned; it never injects that prompt into
+the GUI.
 A ChatGPT chat member (chat.py) has no Relic tools: its turn carries the messages' text, and its reply goes back to
 their writers as its message (forwarded by the person when the ChatGPT app hides its text), which stands in for the
 receipt.
@@ -58,11 +60,12 @@ def run_claude(store, org, member, config, prompt, new, cwd):
     return session, str(result.get("result") or ""), bool(result.get("is_error")), None
 
 
-def run_in_desktop(app, thread, prompt):
-    """The chat is open in the Codex desktop app: the app runs the turn there, and the runner follows it. Once the
-    prompt may have reached the app it is never sent again, so a turn that fails there is reported in the receipt
-    instead of being retried (a retry would send the same prompt a second time)."""
-    reply, failed = desktop.run_turn(app, thread, prompt)
+def run_in_desktop(app, thread, prompt, load=False):
+    """The chat is open in the Codex desktop app (with load, one the app knows and loads for the turn): the app runs
+    the turn there, and the runner follows it. Once the prompt may have reached the app it is never sent again, so a
+    turn that fails there is reported in the receipt instead of being retried (a retry would send the same prompt a
+    second time)."""
+    reply, failed = desktop.run_turn(app, thread, prompt, load=load)
     if failed:
         reply = "The turn ended as failed in the Codex desktop app; the prompt was delivered and is not sent again. " + reply
     return "codex:" + thread, reply, False, None
@@ -70,10 +73,16 @@ def run_in_desktop(app, thread, prompt):
 
 def open_in_desktop(app, thread):
     """Whether the Codex desktop app has this chat loaded (then only the app can run a turn in it)."""
+    return desktop_state(app, thread) not in (None, desktop.NOT_LOADED)
+
+
+def desktop_state(app, thread):
+    """The chat's status in the Codex desktop app (desktop.NOT_LOADED for one it knows but has not loaded), or None
+    when the app cannot read it."""
     try:
-        return desktop.status(app.read(thread)) not in (None, desktop.NOT_LOADED)
+        return desktop.status(app.read(thread))
     except desktop.DesktopError:
-        return False
+        return None
 
 
 def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.connect):
@@ -103,8 +112,21 @@ def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.conn
     held = seat["carrier"].split(":", 1)[1] if resume else None
     gui = config.get("surface") == "gui"
     app = connect() if held and gui else None
-    if app and open_in_desktop(app, held):
+    state = desktop_state(app, held) if app else None
+    if state not in (None, desktop.NOT_LOADED):
         return run_in_desktop(app, held, prompt)
+    if state == desktop.NOT_LOADED:
+        # The app knows the chat but has not loaded it: it loads the chat for this turn, so the chat and the
+        # subagents it spawns stay in the app's one process. A runner app-server cannot reach a subagent thread the
+        # app holds, nor can anyone else give that subagent input (2026-11-16, Learning's astra-systems-lead).
+        # When the app takes nothing (a terminal session holds the chat, say), the runner tries, as before.
+        try:
+            return run_in_desktop(app, held, prompt, load=True)
+        except desktop.Uncertain:
+            raise  # the app may have it: never sent twice
+        except desktop.DesktopError as error:
+            if desktop.BUSY in str(error):
+                raise  # a turn is running there now: wait for it
     settings = {"cwd": cwd, "approvalPolicy": "on-request", "sandbox": runner.checked_permission(config),
                 "approvalsReviewer": config.get("reviewer") or runner.CODEX_REVIEWER}
     if runner.checked_model(config):

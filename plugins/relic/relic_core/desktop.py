@@ -1,7 +1,10 @@
 """Turns for Codex chats that the Codex desktop app has open, through the app's own tool pipe.
 
 The desktop app loads a chat when the person opens it and keeps it loaded, which locks the chat for writing: the
-runner's own `codex app-server` then cannot start a turn there ("already has an active writer"). The app serves its
+runner's own `codex app-server` then cannot start a turn there ("already has an active writer"). The app also takes a
+prompt for a chat it knows but has not loaded, and loads it for the turn (run_turn load=True; 2026-11-16). Relic sends
+a desktop chat's turns there, so the chat and the subagents it spawns stay in the app's one process: a subagent thread
+the app holds takes input only from its parent in that process. The app serves its
 own tools (namespace codex_app) to the MCP servers of its chats over a named pipe, whose name it passes to them in
 CODEX_APP_TOOLS_PIPE_PATH; the older relic-organization plugin reached desktop chats through the same pipe. Relic uses
 two of those tools:
@@ -387,15 +390,17 @@ def started_by(turn, prompt):
 
 
 def run_turn(app, thread_id, prompt, poll=5.0, start_wait=180.0, blind=600.0, limit=6 * 3600, sleep=time.sleep,
-             clock=time.time, host="local", caller=None):
+             clock=time.time, host="local", caller=None, load=False):
     """Send the prompt into a chat the app has open and follow the turn it starts until it ends.
     Returns (final reply, failed). Raises DesktopError(BUSY) without sending when a turn is already running there.
     Turns the person starts in that chat meanwhile are told apart (started_by) and not reported as the reply. Reads
     that fail now and then while a turn runs are waited out for up to `blind` seconds. A prompt is never sent twice:
     when the turn cannot be followed to its end, the reply says so instead.
-    host and caller: None and a Codex thread for a ChatGPT chat (see the module docstring)."""
+    host and caller: None and a Codex thread for a ChatGPT chat (see the module docstring).
+    load: the chat may also be one the app knows but has not loaded; the app loads it to run the turn."""
     before = app.read(thread_id, 3, host, caller)
-    if status(before) != IDLE:
+    ready = (IDLE, NOT_LOADED) if load else (IDLE,)
+    if status(before) not in ready:
         raise DesktopError("the chat %s (%s)" % (BUSY, status(before)))
     known = {t.get("id") for t in before.get("turns") or []}
     unconfirmed = None
@@ -421,7 +426,7 @@ def run_turn(app, thread_id, prompt, poll=5.0, start_wait=180.0, blind=600.0, li
                 if isinstance(error, dict):
                     error = error.get("message")
                 return reply_of(turn) or str(error or ""), turn.get("status") != "completed"
-        elif clock() - sent > start_wait and status(data) == IDLE:
+        elif clock() - sent > start_wait and status(data) in ready:
             if unconfirmed:
                 return ("The Codex desktop app did not confirm the prompt (%s) and no turn of it appeared; it is not "
                         "sent again." % unconfirmed), False

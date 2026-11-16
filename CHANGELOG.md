@@ -2,6 +2,17 @@
 
 ## Unreleased / 未发布
 
+- A Codex desktop chat's turn goes to the Codex desktop app even when the app has not loaded the chat: the app loads
+  it (2026-11-16). Until now Relic ran such a turn in its own runner app-server. A subagent the chat had spawned and
+  the app still held was then out of the chat's reach ("already has an active writer"). Runner turns started from
+  inside another member's Codex turn were also seen to end when that turn ended; a turn in the app does not. The
+  runner route is left for when the app is not running or takes nothing, for example when a terminal session holds
+  the chat.
+  - Codex 桌面席位的聊天即使 App 没加载，回合也交给 App 跑，App 会自己加载（2026-11-16）。以前这种回合由 Relic
+    另起的 runner app-server 跑：聊天派生、仍挂在 App 里的子代理就够不着了（"already has an active writer"）。
+    还观察到：从别的成员的 Codex 回合里拉起的 runner 回合，会随那个回合一起结束；在 App 里跑的回合不会。App 没在
+    运行、或不接收（比如聊天被终端里的会话占着）时，仍走 runner。
+
 - A Codex subagent with a seat of its own is never woken by Relic (2026-11-16: Learning's astra-systems-lead had
   been unreachable for 15 hours. The Codex desktop app kept its thread loaded after the parent left the app, so every
   follow-up from the parent, whose turns ran in a Relic runner, failed with "already has an active writer". The app
