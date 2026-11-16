@@ -98,8 +98,9 @@ TOOLS = [
                                          "question with the same key that is still open is not asked again and keeps "
                                          "its first deadline (default: the question and the recommendation)."),
           "org": dict(ORG, description="An organization you hold a seat in always selects that seat, even above "
-                                       "your main organization. Otherwise write to one below yours, or one above "
-                                       "it to report. A sender named <org id>/<member> is answered with "
+                                       "your main organization. Otherwise write to one below yours, or one above it "
+                                       "to report: the one right above yours first; past it only when it cannot wait "
+                                       "(the result says so). A sender named <org id>/<member> is answered with "
                                        "to=['<org id>/<member>'] or with org=<org id>, to=[member].")},
          ["body"]),
     tool("inbox", "Read your unread messages (marks them read), in every organization you hold a seat in; one that "
@@ -207,7 +208,8 @@ TOOLS = [
          "parent) each get a seat in it with their own session and name, and leader (one of them) leads it. No "
          "approval needed. op=close {org} closes a subgroup (its leader). op=reparent {parent, org?, reason} | leader "
          "{member, org?, reason} | dissolve {org?, reason} change a formal organization (yours, or one below it): the "
-         "secretary-general (the cabinet's leader) or, without a cabinet, the person approves; you get a message when "
+         "secretary-general (the cabinet's leader, or co-leader) or, without a cabinet, the person approves; you get a "
+         "message when "
          "it is decided. op=approve | deny {request_id, note}: the secretary-general decides a request. op=list: "
          "requests waiting on you, your own requests and the subgroups of your organization.",
          {"op": {"enum": ["create", "close", "reparent", "leader", "dissolve", "approve", "deny", "list"]},

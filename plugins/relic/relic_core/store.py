@@ -66,6 +66,21 @@ def inherits(protocol):
     return bool(p["inherit"] if "inherit" in p else p.get("downward"))
 
 
+def leaders(org):
+    """The leader of a leader-led organization and its co-leaders, who lead it with the same say (2026-11-15: the
+    person gave the secretariat two heads of the same rank, 「相当于 Claude 和 Codex 那边各有一个秘书处的负责人」)."""
+    org = org or {}
+    if org.get("governance") != "leader":
+        return []
+    first = [org["leader"]] if org.get("leader") else []
+    return first + [m for m in org.get("co_leaders") or [] if m not in first and m in (org.get("members") or {})]
+
+
+def leads(org, member):
+    """Whether member is the leader or a co-leader of org."""
+    return member in leaders(org)
+
+
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -1140,6 +1155,25 @@ class Store:
         raise OrgError("%s is neither above nor below your organization (the person sets that in the Relic App), so "
                        "you cannot act in it." % target["name"])
 
+    @staticmethod
+    def adjacent(org, other):
+        """Whether other is right above org or right below it: the organizations a member writes to."""
+        return other["id"] == org.get("parent") or other.get("parent") == org["id"]
+
+    def passed_over(self, own, target, way):
+        """The organization a message from own to target goes past: the one right above own (way "up") or the one
+        right below own on the way down to target; None when target is right above or below own. Such a message goes
+        through, and its result names the first choice (2026-11-15, the person: 你该汇报的你就跟他的科研领导汇报 ……
+        越级可以发，但是它的第一选择应该是只发给直属上级)."""
+        if not way or self.adjacent(own, target):
+            return None
+        if way == "up":
+            try:
+                return self.get(own["parent"]) if own.get("parent") else None
+            except OrgError:
+                return None
+        return next((a for a in self.ancestors(target) if a.get("parent") == own["id"]), None)
+
     def reach_to_read(self, actor, ref):
         """reach for reading (status, work op=doc_read): an organization the session can act in comes as reach gives
         it ("down", through any of its seats); else an organization above one of its seats comes as reach gives it
@@ -1202,9 +1236,12 @@ class Store:
 
     # ---------------- formal organizations: the cabinet and ex officio seats ----------------
     # Formal organizations are standing ones (departments); subgroups are made for one piece of work. The person marks
-    # one formal organization as the cabinet (the secretariat); its leader is the secretary-general. The leader of a
-    # formal organization holds a seat ex officio in the formal organization right above it and in the cabinet,
-    # carried by the session of its leader seat (seat["ex_officio"] = {"org": department, "member": leader}).
+    # one formal organization as the cabinet (the secretariat); its leader (and co-leaders) is the secretary-general.
+    # The leader of a formal organization holds a seat ex officio in the formal organization right above it, or, with
+    # none above it, in the cabinet, carried by the session of its leader seat (seat["ex_officio"] = {"org":
+    # department, "member": leader}). Reports go first to the organization right above (2026-11-15, the person: 不要让所有
+    # 的下面干活的全都直接给秘书长汇报……那我要中间的那一级科研部的负责人干什么): the leaders of organizations further
+    # down no longer sit in the cabinet.
     def cabinet(self):
         """The active organization marked as the cabinet, or None."""
         found = [o for o in self.list_orgs() if o.get("cabinet") and o.get("status") == "active"]
@@ -1212,10 +1249,14 @@ class Store:
 
     def is_secretary_general(self, actor):
         """Whether the session holds the cabinet's leader seat."""
+        return bool(self._cabinet_head(actor))
+
+    def _cabinet_head(self, actor):
+        """The cabinet seat (member name) through which the session is one of the cabinet's heads, or None."""
         cab = self.cabinet()
-        if not cab or not cab.get("leader"):
-            return False
-        return any(o["id"] == cab["id"] and m == cab["leader"] for o, m, _ in self.seats_of(self.split_actor(actor)[0]))
+        heads = leaders(cab)
+        return next((m for o, m, _ in self.seats_of(self.split_actor(actor)[0]) if cab and o["id"] == cab["id"]
+                     and m in heads), None)
 
     def set_cabinet(self, org_id, on=True):
         """The person marks a formal organization as the cabinet (there is one at most), or unmarks it."""
@@ -1250,6 +1291,29 @@ class Store:
                 self._event(db, org_id, by, "organization.leader_set", {"leader": member, "previous": previous})
         self.sync_offices(org_id)
         return {"org_id": org_id, "leader": member, "previous": previous}
+
+    def set_co_leaders(self, org_id, members, by=HUMAN):
+        """Co-leaders for a leader-led organization: they lead it with the leader's say (leaders). The person sets
+        them (2026-11-15: two heads of the same rank for the secretariat)."""
+        members = [str(m) for m in dict.fromkeys(members or [])]
+        with self.change(org_id) as (org, db):
+            if org.get("governance") != "leader":
+                raise OrgError("%s decides by majority; it has no leader." % org["name"])
+            unknown = [m for m in members if m not in org["members"]]
+            if unknown:
+                raise OrgError("Unknown members: " + ", ".join(unknown))
+            members = [m for m in members if m != org.get("leader")]
+            previous = list(org.get("co_leaders") or [])
+            if members:
+                org["co_leaders"] = members
+            else:
+                org.pop("co_leaders", None)
+            for m in members:  # a head's seat stands on its own: not an ex officio seat that ends with an office
+                org["members"][m].pop("ex_officio", None)
+            if previous != members:
+                self._event(db, org_id, by, "organization.co_leaders_set", {"co_leaders": members, "previous": previous})
+            leader = org.get("leader")
+        return {"org_id": org_id, "leader": leader, "co_leaders": members}
 
     def dissolve(self, org_id, by=HUMAN):
         """End a formal organization: its sessions leave their seats there; its record stays."""
@@ -1287,9 +1351,9 @@ class Store:
             targets = []
             parent = orgs.get(dept.get("parent"))
             if parent and kind_of(parent) == "formal":
-                targets.append(parent["id"])
-            if cab and cab["id"] != dept["id"] and cab["id"] not in targets:
-                targets.append(cab["id"])
+                targets.append(parent["id"])  # it reports to the organization right above it
+            elif cab and cab["id"] != dept["id"]:
+                targets.append(cab["id"])  # a formal organization under no other one reports to the cabinet
             carrier = seat.get("carrier") if (seat.get("config") or {}).get("surface") != "acp" else None
             for target in targets:
                 wanted[(target, dept["id"])] = (dept["leader"], carrier, seat.get("harness") or "", dept)
@@ -1463,13 +1527,15 @@ class Store:
                  "approver": "secretary-general" if cab else HUMAN, "at": now()}
             home.setdefault("requests", {})[rid] = r
             self._event(db, home_id, sender, "request.filed", {"id": rid, "kind": kind, "args": args})
-            if cab and cab.get("leader") and cab["leader"] in home["members"] and sender != cab["leader"]:
-                self._post(db, home_id, sender, [cab["leader"]],
+            heads = [m for m in leaders(cab) if m in home["members"] and m != sender] if cab else []
+            if heads:
+                self._post(db, home_id, sender, heads,
                            "Approval request %s from %s: %s.%s\nDecide with the Relic group tool: op=approve or "
                            "op=deny, request_id=%s, note=<why>." % (rid, sender, self.request_text(r),
                                                                    (" Reason: " + r["reason"]) if r["reason"] else "", rid),
                            hop=self._sender_hop(org["id"], me) if org else 0)
-        who = "the secretary-general (%s of %s)" % (cab["leader"], cab["name"]) if cab else "the person, in the Relic App"
+        who = ("the secretary-general (%s of %s)" % (" or ".join(leaders(cab)), cab["name"]) if cab
+               else "the person, in the Relic App")
         return {"request_id": rid, "status": "pending", "kind": kind, "approver": r["approver"],
                 "text": "Request %s is filed and waits for %s; you get a message when it is decided." % (rid, who)}
 
@@ -1497,9 +1563,11 @@ class Store:
         cab = self.cabinet()
         if not cab:
             raise OrgError("There is no cabinet: the person decides requests in the Relic App.")
-        if not self.is_secretary_general(actor):
-            raise OrgError("Only the secretary-general (the leader of %s) decides requests." % cab["name"])
-        return self._decide(cab["id"], request_id, decision, note, cab["leader"])
+        head = self._cabinet_head(actor)
+        if not head:
+            raise OrgError("Only the secretary-general (a head of %s: %s) decides requests."
+                           % (cab["name"], ", ".join(leaders(cab))))
+        return self._decide(cab["id"], request_id, decision, note, head)
 
     def decide_request_as_human(self, org_id, request_id, decision, note=""):
         return self._decide(org_id, request_id, decision, note, HUMAN)
@@ -1960,7 +2028,15 @@ class Store:
         if org:
             own, member, target, way = self.reach(actor, org, up=True)
             if way:
-                return self._send_across(own, member, target, way, to, body, episode_id, reply_to)
+                result = self._send_across(own, member, target, way, to, body, episode_id, reply_to)
+                first = self.passed_over(own, target, way)
+                if first:  # it goes through: the result says which organization is the first choice
+                    from . import i18n
+                    if way == "up":
+                        result["note"] = i18n.t("send.past_up", org=first["name"], id=first["id"])
+                    else:
+                        result["note"] = i18n.t("send.past_down", org=first["name"], id=first["id"])
+                return result
         org, member = self.require(actor)
         if not body or not body.strip():
             raise OrgError("Empty message.")
@@ -3155,7 +3231,7 @@ class Store:
                 target = a.get("member") or member
                 if target not in org["members"]:
                     raise OrgError("Unknown member " + target)
-                if target != member and org.get("leader") not in (None, member):
+                if target != member and leaders(org) and not leads(org, member):
                     raise OrgError("Only the leader assigns roles to others; members set their own.")
                 org["members"][target]["role"] = a.get("role", "")
                 self._event(db, org["id"], member, "role.set", {"member": target, "role": a.get("role", "")})
@@ -3177,9 +3253,9 @@ class Store:
         """work op=purpose: the leader brings its own organization's purpose up to date, or a member of an
         organization above does it there (member "<org id>/<name>"), e.g. after the person changed a rule the purpose
         states. It takes a reason; the person is told, with the purpose it replaces."""
-        if "/" not in member and org.get("governance") == "leader" and org.get("leader") != member:
+        if "/" not in member and org.get("governance") == "leader" and not leads(org, member):
             raise OrgError("The purpose is changed by the leader (%s), or from an organization above."
-                           % org.get("leader"))
+                           % ", ".join(leaders(org)))
         text = (a.get("purpose") or "").strip()
         if not text:
             raise OrgError("purpose needs the new purpose text: the whole text, as members should read it.")
@@ -3202,9 +3278,9 @@ class Store:
     def _drive_op(self, org, db, member, a):
         """work op=drive: the leader switches keep-going in its own organization, or a member of an organization above
         does it there (member "<org id>/<name>"). Switching it off tells the person why."""
-        if "/" not in member and org.get("governance") == "leader" and org.get("leader") != member:
+        if "/" not in member and org.get("governance") == "leader" and not leads(org, member):
             raise OrgError("Keep-going is switched by the leader (%s), or from an organization above."
-                           % org.get("leader"))
+                           % ", ".join(leaders(org)))
         on = a.get("on")
         if not isinstance(on, bool):
             raise OrgError("drive needs on: true or false.")
@@ -3241,7 +3317,7 @@ class Store:
             if not ep:
                 raise OrgError("Unknown episode.")
             if op == "close":
-                if member not in (ep["owner"], org.get("leader")):
+                if member != ep["owner"] and not leads(org, member):
                     raise OrgError("The episode owner or leader closes it.")
                 if a.get("outcome") not in ("success", "failure", "partial", "cancelled"):
                     raise OrgError("outcome: success, failure, partial or cancelled.")
@@ -3287,7 +3363,7 @@ class Store:
         approvals = {m for m, v in p["votes"].items() if v["vote"] == "approve" and m in org["members"]}
         rejects = {m for m, v in p["votes"].items() if v["vote"] == "reject" and m in org["members"]}
         need = self._threshold(org)
-        leader_ok = org["governance"] != "leader" or org["leader"] in approvals
+        leader_ok = org["governance"] != "leader" or bool(set(leaders(org)) & approvals)
         if leader_ok and len(approvals) >= need:
             if p.get("retire_target"):
                 target = org["protocols"].get(p["retire_target"])
@@ -3303,7 +3379,7 @@ class Store:
             self._event(db, org["id"], p["author"], "protocol.activated", {"id": p["id"], "strength": p["strength"]})
             if p["status"] == "active":
                 self._copy_to_person(db, org, p)
-        elif len(rejects) > len(org["members"]) - need or (org["governance"] == "leader" and org["leader"] in rejects):
+        elif len(rejects) > len(org["members"]) - need or (org["governance"] == "leader" and bool(set(leaders(org)) & rejects)):
             p.update(status="rejected")
             self._event(db, org["id"], p["author"], "protocol.rejected", {"id": p["id"]})
 
@@ -3815,10 +3891,11 @@ class Store:
 
     @staticmethod
     def reviewers(org, subject):
-        """Who is asked to review a member's call: the leader (when it is someone else), otherwise the other members;
-        three at most."""
-        if org.get("governance") == "leader" and org.get("leader") in org["members"] and org["leader"] != subject:
-            return [org["leader"]]
+        """Who is asked to review a member's call: the leaders (those who are someone else), otherwise the other
+        members; three at most."""
+        heads = [m for m in leaders(org) if m in org["members"] and m != subject]
+        if heads:
+            return heads[:3]
         return [m for m in org["members"] if m != subject][:3]
 
     def review(self, actor, op, a):
