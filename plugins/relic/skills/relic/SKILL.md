@@ -55,6 +55,10 @@ An organization with keep-going on goes on with its work between the person's vi
   Ask the person only for what the rules reserve for them, with your recommendation, and go on with the rest.
 - It is no timer: a second notice needs progress after the first (a message between members, an edit, a command), so a
   driver that has nothing left to do sends the person a summary and gets no more notices. At most 12 a day.
+- A background job you leave running (a controller, an experiment, a build) is work going on, though no session has a
+  turn: name its process on the task it belongs to, `work op=task {task_id, job: <pid>}`. While that process runs,
+  keep-going sends no notice. When it exits, the end counts as progress: if nobody picks it up within 10 minutes, the
+  driver's notice says which job ended. Attach the new process when another takes over; `job: 0` detaches it.
 - The leader, or a member of an organization above, switches it: `work op=drive {on: true, goal: "<the person's
   instruction, in their words>", driver?}` (with `org=<id>` from above); `{on: false, reason}` switches it off and
   tells the person why.

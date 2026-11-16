@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 from . import desktop, gui_receipt, i18n, runner
-from .store import HUMAN, SYSTEM, away_note, codex_parent, codex_thread
+from .store import HUMAN, SYSTEM, away_note, codex_parent, codex_thread, iso
 
 SETTLE = 10  # seconds after the newest unread message before waking: messages sent in a row make one wake-up
 QUIET = 60
@@ -480,6 +480,16 @@ DRIVE_RECHECK = 300  # look again this soon while someone is working
 DRIVE_IDLE = 1800  # look again this long after an organization stopped, or while it cannot get a notice
 DRIVE_TASKS = 8  # unfinished tasks listed in a notice
 WORK_KINDS = ("edit", "run")  # activity kinds that count as progress (reading around does not)
+# A background job a task waits on (work op=task job=<pid>: a controller, an experiment) is work going on, though no
+# seat has a turn (research-head, 2026-11-16: the Glaze S model and its controller ran for hours while keep-going said
+# three times that nobody worked). While one runs, drive_check holds the organization's next check until the job's
+# horizon, so that an older Relic process (a Codex plugin waiting for the person to trust its new hooks) cannot claim
+# the check and send such a notice; watch_jobs looks at the job's process every JOB_LOOK and makes the check due once
+# it is gone. Its end counts as progress, and the next notice says it ended.
+JOB_HORIZON = 24 * 3600  # a job counts as work at most this long after it was attached: one that never ends must not
+#                          silence keep-going for good
+JOB_LOOK = 300
+JOB_EVERY = 60  # at most one look a minute, machine-wide: drive_due runs on every member's tool call
 
 
 def _drive_scope(store, org_id):
@@ -520,6 +530,118 @@ def _drive_tools(store, keys):
         if (org_id, member) in keys and at:
             tools.setdefault((org_id, member), {})[kind] = at
     return tools
+
+
+def job_runs(job):
+    """Whether a task's background job still runs: its process is alive and, where its start time can be read, it is
+    the process that was attached, not a later one that got the same id."""
+    alive, started = runner.process_start(job.get("pid"))
+    if not alive:
+        return False
+    return started is None or job.get("started") is None or abs(started - job["started"]) < 2
+
+
+def _job_counts(task, job, now):
+    """Whether a job can still count as work: its task is unfinished, it has not been seen to end, and it was attached
+    less than JOB_HORIZON ago."""
+    return (task.get("status") in ("open", "working", "blocked") and not job.get("ended_at")
+            and now - (_epoch(job.get("at")) or now) < JOB_HORIZON)
+
+
+def _jobs(subtree):
+    """[(org, task, job)] for the tasks in the subtree that name a background job."""
+    return [(o, t, t["job"]) for o in subtree for t in (o.get("tasks") or {}).values() if t.get("job")]
+
+
+def _job_ended(store, org_id, task_id, job, now):
+    """Record that a task's background job is gone (its process exited); the end counts as progress."""
+    job["ended_at"] = iso(now)
+    with store.change(org_id) as (org, db):
+        stored = ((org.get("tasks") or {}).get(task_id) or {}).get("job")
+        if not stored or stored.get("pid") != job.get("pid") or stored.get("ended_at"):
+            return
+        stored["ended_at"] = job["ended_at"]
+        store._event(db, org_id, SYSTEM, "task.job_ended", {"id": task_id, "pid": job.get("pid")})
+
+
+def _running_jobs(store, subtree, now):
+    """[(org, task, job)] for the background jobs in the subtree that still run and count as work; the ones found gone
+    are recorded as ended."""
+    running = []
+    for o, t, job in _jobs(subtree):
+        if not _job_counts(t, job, now):
+            continue
+        if job_runs(job):
+            running.append((o, t, job))
+        else:
+            _job_ended(store, o["id"], t["id"], job, now)
+    return running
+
+
+def _hold(store, org, keys):
+    """Remember which jobs ("<org id>/<task id>") hold the organization's keep-going for watch_jobs, or that none does."""
+    keys = sorted(keys)
+    if ((org.get("drive") or {}).get("held") or []) == keys:
+        return
+    with store.change(org["id"]) as (fresh, db):
+        drive = fresh.setdefault("drive", {})
+        if keys:
+            drive["held"] = keys
+        else:
+            drive.pop("held", None)
+
+
+def _jobs_look_path():
+    return runner.runs_dir() / "jobs-look.json"
+
+
+def watch_jobs(store, now):
+    """Look at the processes of the background jobs that hold keep-going somewhere (drive_check); an organization none
+    of whose jobs runs any longer has its check made due now. Returns when to look again, or None when no job holds
+    anything. At most one look every JOB_EVERY, machine-wide."""
+    path = _jobs_look_path()
+    try:
+        seen = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        seen = {}
+    if now - seen.get("looked", 0) < JOB_EVERY:
+        return seen.get("next")
+    held = False
+    for org_id in store.drive_checks():
+        try:
+            org = store.get(org_id)
+        except Exception:  # an organization that is gone
+            continue
+        keys = (org.get("drive") or {}).get("held") or []
+        if not keys:
+            continue
+        runs = False
+        for key in keys:
+            place, _, task_id = key.partition("/")
+            try:
+                task = (store.get(place).get("tasks") or {}).get(task_id) or {}
+            except Exception:
+                continue
+            job = task.get("job")
+            if not job or not _job_counts(task, job, now):
+                continue
+            if job_runs(job):
+                runs = True
+            else:
+                _job_ended(store, place, task_id, job, now)
+        if runs:
+            held = True
+        else:
+            _hold(store, org, [])
+            store.set_drive_check(org_id, now)
+    following = now + JOB_LOOK if held else None
+    try:
+        temp = path.with_name(path.name + ".%d" % os.getpid())
+        temp.write_text(json.dumps({"looked": now, "next": following}), encoding="utf-8")
+        os.replace(temp, path)
+    except OSError:
+        pass
+    return following
 
 
 def _drive_busy(store, keys, everything, now, stillness, tools):
@@ -583,19 +705,23 @@ def _drive_record(store, subtree_ids, tools, stillness, now, since_id, since_at)
             "moved": progress, "question": question}
 
 
-def drive_notice(org, subtree, drive, quiet):
-    """The notice the driver gets, in the person's language: the standing instruction and the work still open."""
+def drive_notice(org, subtree, drive, quiet, ended=()):
+    """The notice the driver gets, in the person's language: the standing instruction, the background jobs that ended
+    since the previous notice (ended: [(org, task, job)]) and the work still open."""
     open_tasks = [(o["name"], t) for o in subtree for t in (o.get("tasks") or {}).values()
                   if t.get("status") in ("open", "working", "blocked")]
     lines = ["- %s %s [%s] %s: %s" % (name, t["id"], t["status"], t.get("owner", ""), (t.get("title") or "")[:120])
              for name, t in open_tasks[-DRIVE_TASKS:]]
     if len(open_tasks) > DRIVE_TASKS:
         lines.insert(0, i18n.t("drive.more_tasks", n=len(open_tasks) - DRIVE_TASKS))
+    jobs = [i18n.t("drive.job_ended", org=o["name"], id=t["id"], title=(t.get("title") or "")[:120],
+                   pid=job.get("pid"), when=job.get("ended_at", "")) for o, t, job in ended]
     by = drive.get("set_by") or HUMAN
     return i18n.t("drive.notice", org=org["name"], minutes=int(quiet // 60), goal=drive.get("goal", ""),
                   when=drive.get("set_at", ""),
                   by=i18n.t("drive.by_person") if by == HUMAN else i18n.t("drive.by_member", member=by),
-                  tasks=i18n.t("drive.tasks", list="\n".join(lines)) if lines else "")
+                  tasks=(i18n.t("drive.jobs", list="\n".join(jobs)) if jobs else "") +
+                  (i18n.t("drive.tasks", list="\n".join(lines)) if lines else ""))
 
 
 def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
@@ -617,6 +743,13 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
 
     if not org.get("auto_wake", True):  # Stop all, or the person switched auto-wake off here: nothing starts by itself
         return later("paused", now + DRIVE_IDLE)
+    running = _running_jobs(store, subtree, now)
+    _hold(store, org, ["%s/%s" % (o["id"], t["id"]) for o, t, _ in running])
+    if running:  # held until the earliest horizon; watch_jobs makes the check due once the jobs are gone
+        o, t, job = running[0]
+        return later("busy", min(_epoch(j.get("at")) or now for _, _, j in running) + JOB_HORIZON,
+                     why="%s %s waits on its background job (process %s)" % (o["name"], t["id"], job.get("pid")),
+                     held=len(running))
     keys, sessions = _drive_seats(subtree, everything)
     stillness = {seat["carrier"]: age(seat) for seat in sessions}
     tools = _drive_tools(store, keys)
@@ -626,10 +759,12 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
     last = drive.get("last") or {}
     seen = _drive_record(store, [o["id"] for o in subtree], tools, stillness, now, last.get("id", 0),
                          last.get("at", 0))
-    quiet_since = max(seen["message"], seen["tool"], seen["transcript"])
+    ended = [(o, t, job) for o, t, job in _jobs(subtree) if _epoch(job.get("ended_at"))]
+    finished = max([_epoch(job["ended_at"]) for _, _, job in ended] or [0])  # a job's end is progress
+    quiet_since = max(seen["message"], seen["tool"], seen["transcript"], finished)
     if now - quiet_since < DRIVE_QUIET:
         return later("wait", quiet_since + DRIVE_QUIET)
-    if last and not seen["moved"]:
+    if last and not seen["moved"] and finished <= last.get("at", 0):
         return later("idle", now + DRIVE_IDLE)
     question = seen["question"]
     if question and question["id"] > last.get("id", 0) and now - question["at"] < DRIVE_ASK_WAIT:
@@ -645,7 +780,9 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
             with store.change(org_id) as (fresh, db):
                 fresh.setdefault("drive", {})["unreachable_at"] = now
         return later("unreachable", now + DRIVE_IDLE, driver=driver)
-    mid = store.send_system(org_id, [driver], drive_notice(org, subtree, drive, now - quiet_since))
+    mid = store.send_system(org_id, [driver], drive_notice(
+        org, subtree, drive, now - quiet_since,
+        ended=[(o, t, job) for o, t, job in ended if _epoch(job["ended_at"]) > last.get("at", 0)]))
     with store.change(org_id) as (fresh, db):
         record = fresh.setdefault("drive", {})
         record["last"] = {"id": mid, "at": now}
@@ -745,6 +882,10 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
             _dispatch(store, org_id, now, start or runner.start_turn, age or transcript_age, retry or schedule_retry)
     except Exception:  # timers must never stand in the way of keep-going or a wake-up
         pass
+    try:  # background jobs that hold keep-going: an organization whose jobs are gone is checked now
+        jobs = watch_jobs(store, now)
+    except Exception:
+        jobs = None
     for org_id in store.drive_due(now):
         try:
             results.append((org_id, drive_check(store, org_id, now, age, start, retry)))
@@ -752,6 +893,10 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
             store.set_drive_check(org_id, now + DRIVE_QUIET)
             results.append((org_id, {"state": "error", "error": str(error)[-300:]}))
     due = list(store.drive_checks().values())
+    if any(outcome.get("held") for _, outcome in results):  # a hold that began here: the jobs are looked at again
+        jobs = min(jobs or now + JOB_LOOK, now + JOB_LOOK)
+    if jobs is not None:
+        due.append(jobs)
     next_timer = store.next_timer(now)
     if next_timer is not None:
         due.append(next_timer)

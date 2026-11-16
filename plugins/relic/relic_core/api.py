@@ -115,7 +115,7 @@ TOOLS = [
                          "your seats (or only the seat selected by org). Returns its full text and marks it read."}}),
     tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} (with org: also of an "
          "organization above or below yours) | "
-         "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | "
+         "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?, job?} | "
          "role {member?, role} | note {body} (private to you; not inherited by a replacement) | "
          "said {query?, limit?, hours?}: what the person typed lately into the sessions of seats in your "
          "organization and the ones below it, with where and when: read it yourself instead of asking members for "
@@ -142,6 +142,10 @@ TOOLS = [
           "hours": {"type": "integer", "description": "said: how far back (default 72)."},
           "expected_revision": {"type": "integer"}, "task_id": S, "title": S, "owner": S, "status": S,
           "evidence": SL,
+          "job": {"type": "integer", "description": "task: the process id of a background job the task waits on (a "
+                  "controller, an experiment, a build) that runs on this computer; 0 detaches it. While it runs, "
+                  "keep-going counts the organization as working; when it exits, keep-going looks again and its next "
+                  "notice says the job ended. Attach the job again when a new process takes over."},
           "report": dict(S, description="Required when a task becomes done; a done task's report can also be added "
                                         "or replaced later. A short report of what the task achieved and how it "
                                         "turned out, in the person's language: Markdown, at most 1000 characters."),

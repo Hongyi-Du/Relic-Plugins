@@ -315,6 +315,8 @@
  "decision.wake_failed": "Couldn't auto-wake {name}",
  "drive.by_member": "set by {member} on the person's word",
  "drive.by_person": "set by the person",
+ "drive.job_ended": "- {org} {id} {title}: its background job (process {pid}) was found ended at {when}",
+ "drive.jobs": "Background jobs that ended:\n{list}\nLook at what they left and go on from there.\n",
  "drive.more_tasks": "(older unfinished tasks not listed: {n})",
  "drive.notice": "[Relic keep-going] Nobody in {org} or the organizations below it has worked for {minutes} minutes, and nothing is waiting to be delivered: the work has stopped here.\nThe person's standing instruction ({by}, {when}): {goal}\n{tasks}As the driver, go on now: look at the latest results, decide the next step, and give it to the members who do it (message), or do it yourself. Do not stop to wait for the person's confirmation.\nWrite to human only for what the rules reserve for the person (spending, going beyond the approved scale, publishing, deleting the person's data, sign-in credentials, changing the goal itself): say what you need from them and what you recommend, and go on with the rest meanwhile.\nWhen the goal is reached, send human a summary. This notice needs no reply.",
  "drive.off_by": "{member} switched keep-going off in {org}: {reason}",

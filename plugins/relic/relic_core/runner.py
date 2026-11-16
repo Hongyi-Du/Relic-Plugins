@@ -216,6 +216,45 @@ def pid_alive(pid):
     return True
 
 
+def process_start(pid):
+    """(whether process pid runs on this computer, when it started in epoch seconds or None when that cannot be read).
+    The start time tells a process from a later one that got the same id. A process of another account (a sandbox
+    user) that Windows will not open for querying still runs; its start time is unknown."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False, None
+    if pid <= 0:
+        return False, None
+    if WINDOWS:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5, None  # ERROR_ACCESS_DENIED: it exists
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:  # STILL_ACTIVE
+                return False, None
+            times = [wintypes.FILETIME() for _ in range(4)]  # creation, exit, kernel, user
+            if not kernel32.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+                return True, None
+            ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime  # 100 ns since 1601
+            return True, ticks / 1e7 - 11644473600
+        finally:
+            kernel32.CloseHandle(handle)
+    if not pid_alive(pid):
+        return False, None
+    try:
+        out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10,
+                             env=dict(os.environ, LC_ALL="C"), creationflags=NO_WINDOW)
+        return True, time.mktime(time.strptime(out.stdout.strip(), "%a %b %d %H:%M:%S %Y"))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return True, None
+
+
 def is_running(org_id, member, now=None):
     """A turn is running while its runner process is alive; a runner that died leaves a "running" state behind."""
     state = run_state(org_id, member)

@@ -159,7 +159,7 @@
   },
   {
     "name": "work",
-    "description": "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} (with org: also of an organization above or below yours) | task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | role {member?, role} | note {body} (private to you; not inherited by a replacement) | said {query?, limit?, hours?}: what the person typed lately into the sessions of seats in your organization and the ones below it, with where and when: read it yourself instead of asking members for the person's exact words | drive {on, goal?, driver?, reason?, until?}: keep-going, switched by the leader or from an organization above, on the person's word: while on, when this organization and the ones below it have had nobody working for 10 minutes and work is unfinished, the driver (default: the leader) gets a notice with the goal to decide the next step. goal: the person's standing instruction, in their words; switching it off needs a reason, which the person is told. purpose {purpose, reason}: bring the organization's purpose up to date (the whole new text), e.g. after the person changed a rule it states; the leader, or from an organization above. The person is told, with the text it replaces. The person reads the tasks: write task titles in the person's language, and mark a task done with evidence and a short report (at most 1000 characters, Markdown) of what it achieved and how it turned out, in the person's language too.",
+    "description": "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} (with org: also of an organization above or below yours) | task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?, job?} | role {member?, role} | note {body} (private to you; not inherited by a replacement) | said {query?, limit?, hours?}: what the person typed lately into the sessions of seats in your organization and the ones below it, with where and when: read it yourself instead of asking members for the person's exact words | drive {on, goal?, driver?, reason?, until?}: keep-going, switched by the leader or from an organization above, on the person's word: while on, when this organization and the ones below it have had nobody working for 10 minutes and work is unfinished, the driver (default: the leader) gets a notice with the goal to decide the next step. goal: the person's standing instruction, in their words; switching it off needs a reason, which the person is told. purpose {purpose, reason}: bring the organization's purpose up to date (the whole new text), e.g. after the person changed a rule it states; the leader, or from an organization above. The person is told, with the text it replaces. The person reads the tasks: write task titles in the person's language, and mark a task done with evidence and a short report (at most 1000 characters, Markdown) of what it achieved and how it turned out, in the person's language too.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -232,6 +232,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "job": {
+          "type": "integer",
+          "description": "task: the process id of a background job the task waits on (a controller, an experiment, a build) that runs on this computer; 0 detaches it. While it runs, keep-going counts the organization as working; when it exits, keep-going looks again and its next notice says the job ended. Attach the job again when a new process takes over."
         },
         "report": {
           "type": "string",
