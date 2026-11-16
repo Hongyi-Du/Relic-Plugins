@@ -1027,9 +1027,7 @@ class Store:
     def config_source(self, org_id, member, org=None):
         """(organization, member) of the seat whose config starts this seat's turns (see seat_config): the seat
         itself, or the seat of the same session it inherits from; None when neither has one. A Claude Desktop
-        session is addressed by that seat's name, whichever of the session's seats a turn is for. A Codex subagent
-        with a seat of its own inherits from the session that spawned it: its turns then go only through the Codex
-        desktop app, while the app holds its thread (wake.subagent_open), never through a second writer."""
+        session is addressed by that seat's name, whichever of the session's seats a turn is for."""
         org = org or self.get(org_id)
         seat = (org.get("members") or {}).get(member) or {}
         if seat.get("config"):
@@ -1038,10 +1036,6 @@ class Store:
             return None
         for other, name, main in self.seats_of(seat["carrier"]):
             if other["id"] != org_id and (other["members"].get(name) or {}).get("config"):
-                return other, name
-        parent = codex_parent(seat["carrier"])
-        for other, name, main in self.seats_of(parent) if parent else []:
-            if (other["members"].get(name) or {}).get("config"):
                 return other, name
         return None
 

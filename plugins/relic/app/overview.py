@@ -21,7 +21,7 @@ import threading
 import time
 
 from relic_core import i18n, monitor, runner, wake
-from relic_core.store import codex_parent, kind_of
+from relic_core.store import kind_of
 
 from . import naming, views
 
@@ -251,14 +251,8 @@ def _configs(orgs, mains):
                 continue
             main = mains.get(seat["carrier"])
             others = sorted(held.get(seat["carrier"], []), key=lambda place: (place[0]["id"], place[1]) != main)
-            config = next(((place["members"][member].get("config") or {}) for place, member in others
-                           if place["id"] != org["id"] and place["members"][member].get("config")), {})
-            parent = codex_parent(seat["carrier"])
-            if not config and parent:  # a Codex subagent with its own seat: the session that spawned it
-                spawner = sorted(held.get(parent, []), key=lambda place: (place[0]["id"], place[1]) != mains.get(parent))
-                config = next(((place["members"][member].get("config") or {}) for place, member in spawner
-                               if place["members"][member].get("config")), {})
-            out[(org["id"], name)] = config
+            out[(org["id"], name)] = next(((place["members"][member].get("config") or {}) for place, member in others
+                                           if place["id"] != org["id"] and place["members"][member].get("config")), {})
     return out
 
 

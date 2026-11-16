@@ -1,10 +1,10 @@
 """A Codex subagent that holds a seat of its own ("codex:<session>/<agent>").
 
-The session that spawned it drives it with its own tools. Once the Codex desktop app has loaded the subagent's thread,
-nothing else can write there: the spawning session, running its turns in a Relic runner, then fails with "already has
-an active writer" (2026-11-16, Learning's astra-systems-lead). Relic then gives the subagent its turn through the app,
-the thread's writer, and nowhere else: a thread the app does not hold is left to the spawning session, and no second
-writer is ever started on it. Synthetic store, a fake app pipe and a fake starter: no live Codex."""
+Only the session that spawned it can give it input (followup_task): the Codex desktop app refuses direct input to
+multi-agent v2 sub-agents, and while the app holds the subagent's thread no other process can write there (2026-11-16,
+Learning's astra-systems-lead). So Relic never wakes such a seat or starts anything on its thread. Its transcript and
+trajectory are its own thread's. A turn's runner, always the Relic installed last, ends by dispatching every
+organization written during the turn with its own rules. Synthetic store and fake starter: no live Codex."""
 import importlib.util
 import os
 import sys
@@ -18,7 +18,6 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app import overview  # noqa: E402
 from relic_core import desktop, monitor, runner, trajectory, wake  # noqa: E402
 from relic_core.store import Store, codex_parent, codex_thread  # noqa: E402
 
@@ -30,17 +29,6 @@ PARENT = "codex:01a179c9-0000-7000-8000-000000000001"
 CHILD = "01a179cb-0000-7000-8000-000000000002"
 SUB = PARENT + "/" + CHILD
 LEAD = "lead-session"
-
-
-class App:
-    """The app's codex_app tools: read_thread answers with the status the test sets; send records the prompt."""
-
-    def __init__(self, status):
-        self.status, self.reads = status, []
-
-    def read(self, thread_id, turns=1, host="local", caller=None, timeout=30.0):
-        self.reads.append((thread_id, caller, timeout))
-        return {"thread": {"id": thread_id, "status": {"type": self.status}}, "turns": []}
 
 
 class Carriers(unittest.TestCase):
@@ -69,89 +57,60 @@ class SubagentSeat(unittest.TestCase):
         self.config = dict(runner.default_config("codex"), surface="gui")
         s.add_seat(self.oid, "coordinator", "lead", self.config)  # the spawning session's seat, set up by the person
         s.join(PARENT, self.oid, "coordinator")
-        s.add_seat(self.oid, "systems", "source writer")  # the subagent's own seat: nobody set it up
+        s.add_seat(self.oid, "systems", "source writer")  # the subagent's own seat
         s.join(SUB, self.oid, "systems")
         self.started, self.retries = [], []
         self.settle, wake.SETTLE = wake.SETTLE, 0
-        wake._subagent_looks.clear()
 
     def tearDown(self):
         wake.SETTLE = self.settle
-        wake._subagent_looks.clear()
         os.environ.clear()
         os.environ.update(self.saved)
         self.tmp.cleanup()
 
     def start(self, org_id, member, prompt, wake_from, wake_hop, wake_message_ids=None):
-        self.started.append((member, wake_from))
+        self.started.append(member)
         runner.write_state(org_id, member, {"status": "running", "started": time.time(), "pid": os.getpid()})
 
-    def dispatch(self, app, at=None):
-        with mock.patch.object(desktop, "connect", return_value=app):
+    def dispatch(self, at=None):
+        def no_app():
+            raise AssertionError("waking a subagent never asks the desktop app: it refuses input to sub-agents")
+        with mock.patch.object(desktop, "connect", no_app):
             return wake.dispatch(self.store, self.oid, now=at or time.time(), start=self.start, age=lambda seat: None,
                                  retry=lambda org_id, delay: self.retries.append(delay))
 
-    def test_its_turns_start_like_the_session_that_spawned_it(self):
-        self.assertEqual(self.store.seat_config(self.oid, "systems"), self.config)
-        self.assertEqual(self.store.config_source(self.oid, "systems")[1], "coordinator")
-        configs = overview._configs([self.store.get(self.oid)], {})
-        self.assertEqual(configs[(self.oid, "systems")], self.config)
-
-    def test_held_by_the_desktop_app_it_is_woken_there(self):
+    def test_it_is_never_woken_even_when_set_up(self):
         self.store.send(PARENT, ["systems"], "wire the new tool")
-        app = App("idle")
-        self.assertEqual(self.dispatch(app), ["systems"])
-        self.assertEqual(self.started, [("systems", ["coordinator"])])
-        self.assertEqual(app.reads, [(CHILD, CHILD, wake.SUBAGENT_TIMEOUT)])  # its own thread, asked briefly
-
-    def test_not_held_by_the_app_it_is_left_to_the_session_that_spawned_it(self):
-        self.store.send(PARENT, ["systems"], "wire the new tool")
-        for app in (App("notLoaded"), None):
-            wake._subagent_looks.clear()
-            self.assertEqual(self.dispatch(app), [])
+        self.assertEqual(self.store.seat_config(self.oid, "systems"), {})  # it does not inherit its spawner's config
+        self.assertEqual(self.dispatch(), [])
+        self.store.set_seat_fields(self.oid, "systems", config=self.config)  # even a seat someone set up by hand
+        self.assertEqual(self.dispatch(), [])
         self.assertEqual(self.started, [])
         self.assertEqual(self.retries, [])  # nothing scheduled, nothing counted as a failure
         self.assertEqual(self.store.events(self.oid, ["member.woken", "member.wake_failed"]), [])
 
-    def test_a_look_at_the_app_is_reused_for_a_minute(self):
-        self.store.send(PARENT, ["systems"], "wire the new tool")
-        t = time.time()
-        app = App("notLoaded")
-        self.assertEqual(self.dispatch(app, t), [])
-        self.assertEqual(self.dispatch(app, t + 10), [])
-        self.assertEqual(len(app.reads), 1)
-        app.status = "idle"
-        self.assertEqual(self.dispatch(app, t + wake.SUBAGENT_LOOK + 1), ["systems"])
+    def test_the_session_that_spawned_it_is_still_woken(self):
+        self.store.send(SUB, ["coordinator"], "wired; tests pass")
+        self.assertEqual(self.dispatch(), ["coordinator"])
 
-    def test_its_turn_runs_in_the_app_on_its_own_thread(self):
-        ran = []
-
-        def in_app(app, thread, prompt):
-            ran.append(thread)
-            return "wired; replied to coordinator", False
-
-        def no_server(*_, **__):
-            raise AssertionError("a subagent's thread never gets a second writer")
-        with mock.patch.object(runner, "CodexAppServer", no_server), mock.patch.object(desktop, "run_turn", in_app):
-            session, reply, failed, _ = relic_run.run_codex(self.store, self.store.get(self.oid), "systems",
-                                                           self.config, "wake up", False, self.tmp.name,
-                                                           connect=lambda: App("idle"))
-        self.assertEqual((session, reply, failed), (SUB, "wired; replied to coordinator", False))
-        self.assertEqual(ran, [CHILD])
-
-    def test_no_turn_anywhere_else_when_the_app_does_not_hold_it(self):
-        def no_server(*_, **__):
-            raise AssertionError("a subagent's thread never gets a second writer")
-        for app in (App("notLoaded"), None):
-            with self.subTest(app=app), mock.patch.object(runner, "CodexAppServer", no_server), \
-                    mock.patch.object(runner, "find_codex", return_value="codex"):
-                with self.assertRaisesRegex(desktop.DesktopError, "does not hold"):
-                    relic_run.run_codex(self.store, self.store.get(self.oid), "systems", self.config, "wake up",
-                                        False, self.tmp.name, connect=lambda: app)
+    def test_a_turn_started_for_it_by_hand_starts_nothing(self):
+        def nothing(*_, **__):
+            raise AssertionError("nothing may be started on a subagent's thread")
+        with mock.patch.object(runner, "CodexAppServer", nothing), mock.patch.object(desktop, "run_turn", nothing), \
+                mock.patch.object(runner, "find_codex", return_value="codex"):
+            with self.assertRaisesRegex(RuntimeError, "only that session gives it a turn") as caught:
+                relic_run.run_codex(self.store, self.store.get(self.oid), "systems", self.config, "wake up", False,
+                                    self.tmp.name, connect=nothing)
+        self.assertIn(PARENT, str(caught.exception))
+        self.assertIn(wake.SUBAGENT_INPUT, str(caught.exception))
+        # no turn reached the member: its wakers (an older copy may still wake it) get no failure receipt
+        self.assertTrue(wake.no_turn(str(caught.exception)))
+        self.assertFalse(relic_run.needs_receipt("codex", str(caught.exception)))
+        self.assertTrue(wake.no_turn("send_message_to_thread: " + wake.SUBAGENT_INPUT))  # the app's own refusal
 
     def test_a_turn_ends_by_dispatching_what_was_written_meanwhile(self):
         # The runner is the Relic installed last; an older copy that wrote a message (a Codex plugin waiting for the
-        # person's hook trust) does not know a subagent can be woken. The turn's end dispatches again with its rules.
+        # person's hook trust) may lack its rules. The turn's end dispatches again with them.
         other = self.store.create("boss-session", "Elsewhere", "other work", "boss")["id"]
         self.store.add_seat(other, "peer", "helper")
         self.store.add_seat(self.oid, "worker", "builder", runner.default_config("codex"))

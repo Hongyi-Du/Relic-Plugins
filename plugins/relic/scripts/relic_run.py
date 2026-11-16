@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from relic_core import chat, claude_desktop, desktop, platform_support, runner, wake  # noqa: E402
-from relic_core.store import Store, codex_parent, codex_thread  # noqa: E402
+from relic_core.store import Store, codex_parent  # noqa: E402
 
 
 def run_claude(store, org, member, config, prompt, new, cwd):
@@ -76,23 +76,13 @@ def open_in_desktop(app, thread):
         return False
 
 
-def run_subagent(seat, member, prompt, connect=desktop.connect):
-    """A Codex subagent with a seat of its own ("codex:<session>/<agent>") takes its turn in the Codex desktop app,
-    which holds its thread; nowhere else, so its thread never gets a second writer. Without the app holding it, the
-    session that spawned it drives it with its own tools."""
-    thread = codex_thread(seat["carrier"])
-    app = connect()
-    if app is None or not open_in_desktop(app, thread):
-        raise desktop.DesktopError("%s is a Codex subagent whose thread the desktop app does not hold; the session that "
-                                   "spawned it drives it (Relic starts no second writer)." % member)
-    _, reply, failed, approvals = run_in_desktop(app, thread, prompt)
-    return seat["carrier"], reply, failed, approvals
-
-
 def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.connect):
     seat = org["members"][member]
     if not new and seat.get("harness") == "codex" and codex_parent(seat.get("carrier")):
-        return run_subagent(seat, member, prompt, connect)
+        # a Codex subagent with a seat of its own ("codex:<session>/<agent>"): only the session that spawned it can
+        # give it input (the desktop app refuses direct input to multi-agent v2 sub-agents); nothing is started
+        raise RuntimeError("%s is a Codex subagent of %s; only that session gives it a turn (followup_task), %s." % (
+            member, codex_parent(seat["carrier"]), wake.SUBAGENT_INPUT))
     if sys.platform == "darwin" and config.get("surface") == "gui":
         capability = desktop.transport_capability()
         if not platform_support.can_auto_deliver("codex", "gui"):

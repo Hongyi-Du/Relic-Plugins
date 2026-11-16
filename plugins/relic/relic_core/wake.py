@@ -47,36 +47,7 @@ MAX_FAILURES = 5  # after this many failed wake-ups in a row the messages wait f
 MAX_IN_USE = 6  # rechecks of a chat held by an app Relic cannot reach (30 minutes) before its messages wait
 IN_USE = "already has an active writer"  # Codex: the chat is open for writing elsewhere
 RECEIPT_MARK = "[Relic auto-receipt]"
-SUBAGENT_LOOK = 60  # seconds a look at whether the desktop app holds a subagent's thread is reused
-SUBAGENT_TIMEOUT = 3.0  # a look never holds up the message send that dispatched it for longer
-_subagent_looks = {}  # thread -> (looked at, held by the app): per process
-
-
-def subagent_open(seat, now=None, connect=None):
-    """Whether the Codex desktop app holds this Codex subagent's thread (loaded there, idle or in a turn).
-
-    A subagent with a seat of its own ("codex:<session>/<agent>") takes its turns from the session that spawned it.
-    Once the app has loaded its thread, nothing else can write there: the spawning session, when its turns run in a
-    Relic runner instead of the app, fails with "already has an active writer". Relic then gives the subagent its
-    turn through the app, the thread's writer (2026-11-16: Learning's astra-systems-lead, held by the app for 15 hours
-    after its parent left the app). A thread the app does not hold is left to the spawning session's own tools; Relic
-    never opens a second writer on it."""
-    thread = codex_thread((seat or {}).get("carrier"))
-    if not thread or not codex_parent(seat["carrier"]):
-        return False
-    now = time.time() if now is None else now
-    looked = _subagent_looks.get(thread)
-    if looked and now - looked[0] < SUBAGENT_LOOK:
-        return looked[1]
-    held = False
-    try:
-        app = (connect or desktop.connect)()
-        if app is not None:
-            held = desktop.status(app.read(thread, caller=thread, timeout=SUBAGENT_TIMEOUT)) not in (None, desktop.NOT_LOADED)
-    except Exception:  # no app, a pipe that does not answer, a refused read: the app does not hold it for Relic
-        held = False
-    _subagent_looks[thread] = (now, held)
-    return held
+SUBAGENT_INPUT = "direct app-server input is not allowed for multi-agent v2 sub-agents"  # the Codex app's refusal
 
 
 def no_turn(error):
@@ -84,7 +55,7 @@ def no_turn(error):
     (a Claude Desktop session that still owes an earlier request its Stop counts as busy)."""
     text = str(error or "")
     return bool(text) and (IN_USE in text or desktop.BUSY in text or gui_receipt.WAITING in text or
-                           gui_receipt.DESKTOP_BUSY in text)
+                           gui_receipt.DESKTOP_BUSY in text or SUBAGENT_INPUT in text)
 
 
 def desktop_hold(store, seat, config):
@@ -337,8 +308,11 @@ def _due(org, org_id, member, messages, mine, now, age, store=None):
     config = store.seat_config(org_id, member, org) if store is not None and seat else None
     if not wakeable(seat, config) or not triggers:
         return None, None
-    if codex_parent(seat.get("carrier")) and not subagent_open(seat, now):
-        return None, None  # a subagent the app does not hold: the session that spawned it drives it
+    if codex_parent(seat.get("carrier")):
+        # A Codex subagent with a seat of its own takes input only from the session that spawned it: the Codex
+        # desktop app refuses direct input to multi-agent v2 sub-agents (SUBAGENT_INPUT), and while the app holds
+        # its thread no other process can write there (2026-11-16, Learning's astra-systems-lead)
+        return None, None
     if busy(store, org_id, member, seat, now):
         return RECHECK, None  # its runner dispatches when the turn ends; the retry covers a runner that dies
     held = desktop_hold(store, seat, config)
