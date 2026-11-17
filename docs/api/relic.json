@@ -235,7 +235,7 @@
         },
         "job": {
           "type": "integer",
-          "description": "task: the process id of a background job the task waits on (a controller, an experiment, a build) that runs on this computer; 0 detaches it. While it runs, keep-going counts the organization as working; when it exits, keep-going looks again and its next notice says the job ended. Attach the job again when a new process takes over."
+          "description": "task: the process id of a background job the task waits on (a controller, an experiment, a build) that runs on this computer; 0 detaches it. While it runs, keep-going counts the organization as working; when it exits, the task's owner gets a message saying so (it wakes them), keep-going looks again and its next notice says the job ended. Attach the job again when a new process takes over."
         },
         "report": {
           "type": "string",

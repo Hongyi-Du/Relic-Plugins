@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 from . import desktop, gui_receipt, i18n, runner
-from .store import HUMAN, SYSTEM, away_note, codex_parent, codex_thread, iso
+from .store import HUMAN, SYSTEM, away_note, codex_parent, codex_thread, iso, leaders
 
 SETTLE = 10  # seconds after the newest unread message before waking: messages sent in a row make one wake-up
 QUIET = 60
@@ -554,7 +554,8 @@ def _jobs(subtree):
 
 
 def _job_ended(store, org_id, task_id, job, now):
-    """Record that a task's background job is gone (its process exited); the end counts as progress."""
+    """Record that a task's background job is gone (its process exited); the end counts as progress, and the task's
+    owner is told (_tell_job_ended)."""
     job["ended_at"] = iso(now)
     with store.change(org_id) as (org, db):
         stored = ((org.get("tasks") or {}).get(task_id) or {}).get("job")
@@ -562,6 +563,28 @@ def _job_ended(store, org_id, task_id, job, now):
             return
         stored["ended_at"] = job["ended_at"]
         store._event(db, org_id, SYSTEM, "task.job_ended", {"id": task_id, "pid": job.get("pid")})
+    _tell_job_ended(store, org_id, task_id, now)
+    job["told_at"] = iso(now)  # the caller's copy: drive_check does not look at it again
+
+
+def _tell_job_ended(store, org_id, task_id, now):
+    """Tell the owner of an unfinished task (or, when no seated member owns it, the organization's leaders) that its
+    background job ended, once, in a message that wakes them (drive_due): a job may leave nobody else to say so
+    (research-head, 2026-11-17: the OrgBench replay batch only runs, stops and writes its results), and keep-going
+    speaks only once the whole subtree has gone quiet. The job is marked told, so the message goes out once whoever
+    records the end; drive_check catches up on an end that an older Relic recorded without telling."""
+    with store.change(org_id) as (org, db):
+        task = (org.get("tasks") or {}).get(task_id) or {}
+        job = task.get("job") or {}
+        if not job.get("ended_at") or job.get("told_at") or task.get("status") not in ("open", "working", "blocked"):
+            return
+        job["told_at"] = iso(now)
+        owner = task.get("owner")
+        to = [owner] if owner in (org.get("members") or {}) else leaders(org)
+        body = i18n.t("task.job_ended", org=org.get("name", org_id), id=task_id,
+                      title=(task.get("title") or "")[:120], pid=job.get("pid"), when=job["ended_at"])
+    if to:
+        store.send_system(org_id, to, body)
 
 
 def _running_jobs(store, subtree, now):
@@ -744,6 +767,9 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
     if not org.get("auto_wake", True):  # Stop all, or the person switched auto-wake off here: nothing starts by itself
         return later("paused", now + DRIVE_IDLE)
     running = _running_jobs(store, subtree, now)
+    for o, t, job in _jobs(subtree):  # an end an older Relic recorded without telling the task's owner
+        if job.get("ended_at") and not job.get("told_at") and now - _epoch(job["ended_at"]) < JOB_HORIZON:
+            _tell_job_ended(store, o["id"], t["id"], now)
     _hold(store, org, ["%s/%s" % (o["id"], t["id"]) for o, t, _ in running])
     if running:  # held until the earliest horizon; watch_jobs makes the check due once the jobs are gone
         o, t, job = running[0]
@@ -868,6 +894,16 @@ def hand_over_desktop(store, now, start, age, retry):
     return None
 
 
+def _wake_posted(store, now, start, age, retry):
+    """Wake whom the plugin itself wrote to (Store.send_system notes the organizations in store.posted): a pause that
+    ended, a question to the person that ran out, a background job that ended."""
+    for org_id in dict.fromkeys(store.__dict__.pop("posted", [])):
+        try:
+            _dispatch(store, org_id, now, start or runner.start_turn, age or transcript_age, retry or schedule_retry)
+        except Exception:  # one organization that cannot be woken must not stand in the way of the others
+            pass
+
+
 def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
     """Run the keep-going checks that are due (Store.drive_due claims them); returns [(org_id, outcome)]. Then make
     sure one delayed check comes for the earliest next one (arm, default schedule_drive; Store.arm_drive makes it one,
@@ -878,8 +914,7 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
     results = []
     try:  # pauses that end and questions to the person that run out (Store.fire_timers), then wake who heard of it
         store.fire_timers(now)
-        for org_id in dict.fromkeys(store.__dict__.pop("posted", [])):
-            _dispatch(store, org_id, now, start or runner.start_turn, age or transcript_age, retry or schedule_retry)
+        _wake_posted(store, now, start, age, retry)
     except Exception:  # timers must never stand in the way of keep-going or a wake-up
         pass
     try:  # background jobs that hold keep-going: an organization whose jobs are gone is checked now
@@ -892,6 +927,7 @@ def drive_due(store, now=None, start=None, age=None, retry=None, arm=None):
         except Exception as error:  # a check that breaks is not retried on every call
             store.set_drive_check(org_id, now + DRIVE_QUIET)
             results.append((org_id, {"state": "error", "error": str(error)[-300:]}))
+    _wake_posted(store, now, start, age, retry)  # the owners told that a background job ended (_job_ended)
     due = list(store.drive_checks().values())
     if any(outcome.get("held") for _, outcome in results):  # a hold that began here: the jobs are looked at again
         jobs = min(jobs or now + JOB_LOOK, now + JOB_LOOK)
