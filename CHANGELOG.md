@@ -2,6 +2,23 @@
 
 ## Unreleased / 未发布
 
+- A task can name the background job it waits on: `work op=task {task_id, job: <pid>}` (2026-11-16: keep-going told
+  科研部 three times that nobody worked while the Glaze S model and its controller ran for hours).
+  - Relic records the process with its start time, so a later process that gets the same id is not taken for it.
+  - While the process runs, keep-going counts the organization as working and sends no notice. It holds the check
+    until the job's horizon (24 hours after it was attached), so an older Relic process cannot claim it meanwhile.
+  - watch_jobs looks at the process every 5 minutes and makes the check due once it is gone. The end counts as
+    progress: after 10 quiet minutes the driver's notice says which job ended. `job: 0` detaches it.
+  - Status shows the job on its task.
+  - 任务可以挂上它在等的后台作业：`work op=task {task_id, job: <进程号>}`（2026-11-16：Glaze S 的做题模型和控制器连跑
+    几个小时，持续推进却三次说科研部没人干活）。
+  - Relic 记下进程和它的启动时间，之后别的进程拿到同一个进程号也不会被当成它。
+  - 进程在跑，持续推进就算这个组织在干活，不发提醒。检查会一直推到作业的期限（挂上后 24 小时），这样旧版 Relic
+    进程在这期间抢不到检查、也发不了提醒。
+  - watch_jobs 每 5 分钟看一次进程，进程没了就让检查立刻到期。作业结束算进展：安静 10 分钟后，推进人收到的提醒里
+    会写哪个作业结束了。`job: 0` 取消挂接。
+  - 状态里的任务会显示挂着的作业。
+
 - A Codex desktop chat's turn goes to the Codex desktop app even when the app has not loaded the chat: the app loads
   it (2026-11-16). Until now Relic ran such a turn in its own runner app-server. A subagent the chat had spawned and
   the app still held was then out of the chat's reach ("already has an active writer"). Runner turns started from

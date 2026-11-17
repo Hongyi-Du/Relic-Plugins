@@ -504,6 +504,32 @@ def task_report(value):
     return value
 
 
+# A task can name the background job it waits on (a controller, an experiment, a build): a process on this computer.
+# research-head, 2026-11-16 (科研部): keep-going told them three times that nobody worked while the Glaze S model and its
+# controller ran for hours; 需要区分「席位会话空闲」与「受控后台作业在运行」，保留作业失败/退出后的接续唤醒. While the job
+# runs, keep-going counts its organization as working (wake.drive_check); once it exits, the next notice says so.
+def attach_job(task, value, member):
+    """work op=task job=<pid>: record the process the task waits on, with its start time (so a later process with the
+    same id is not taken for it); job=0 detaches it. Returns the job, or None when detached."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise OrgError("job: the process id of a background job running on this computer, or 0 to detach it.")
+    try:
+        pid = int(value)
+    except ValueError:
+        raise OrgError("job: the process id of a background job running on this computer, or 0 to detach it.")
+    if pid <= 0:
+        task.pop("job", None)
+        return None
+    if task["status"] in ("done", "dropped"):
+        raise OrgError("A background job belongs to an unfinished task.")
+    from .runner import process_start
+    alive, started = process_start(pid)
+    if not alive:
+        raise OrgError("No process %d runs on this computer: attach a job while it runs." % pid)
+    task["job"] = {"pid": pid, "started": started, "by": member, "at": now()}
+    return task["job"]
+
+
 def report_needed():
     """What to write when a task becomes done (the person's language named)."""
     return ("a report: a short report of what the task achieved and how it turned out (Markdown, at most %d "
@@ -3240,6 +3266,9 @@ class Store:
                     task["done_at"] = now()
                 if report:
                     task["report"] = report
+                if a.get("job") is not None:
+                    job = attach_job(task, a["job"], member)
+                    self._event(db, org["id"], member, "task.job", {"id": tid, "pid": job["pid"] if job else 0})
                 task["at"] = now()
                 self._event(db, org["id"], member, "task.updated", dict(
                     {"id": tid, "status": task["status"], "owner": task["owner"]},

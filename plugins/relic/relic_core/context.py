@@ -8,6 +8,16 @@ RECENT_TROUBLE = 24 * 3600  # a check program's failures are mentioned for a day
 DOCUMENTS_ABOVE = 15  # document names of each organization above in a member's context, the most recently written first
 
 
+def task_state(task):
+    """A task's status, with the background job it waits on (work op=task job=<pid>)."""
+    job = task.get("job")
+    if not job:
+        return task["status"]
+    if job.get("ended_at"):
+        return "%s; its background job, process %s, ended by %s" % (task["status"], job.get("pid"), job["ended_at"])
+    return "%s; waits on its background job, process %s" % (task["status"], job.get("pid"))
+
+
 def _pause_text(what, pause):
     end = ("Relic asks %s every 2 hours whether the reason is still there; to end it at a set time, switch it off again "
            "with until" % (pause.get("by") or "whoever paused it")) if pause.get("review") else (
@@ -234,10 +244,10 @@ def render(store, org, member, unread_count=None, full=True):
             r["reason"][:120]))
     mine = [t for t in org["tasks"].values() if t["owner"] == member and t["status"] not in ("done", "dropped")]
     if mine:
-        lines.append("Your open tasks: " + "; ".join("%s %s (%s)" % (t["id"], t["title"], t["status"]) for t in mine[:8]))
+        lines.append("Your open tasks: " + "; ".join("%s %s (%s)" % (t["id"], t["title"], task_state(t)) for t in mine[:8]))
     others = [t for t in org["tasks"].values() if t["owner"] != member and t["status"] not in ("done", "dropped")]
     if others and full:
-        lines.append("Others' open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], t["status"]) for t in others[:10]))
+        lines.append("Others' open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], task_state(t)) for t in others[:10]))
     if org["documents"] and full:
         lines.append("Shared documents: " + ", ".join("%s(r%d)" % (k, v["revision"]) for k, v in org["documents"].items()))
     if documents_above:
@@ -336,7 +346,7 @@ def _outline(store, org):
                                                                     p["title"], above["name"]))
     tasks = [t for t in org["tasks"].values() if t["status"] not in ("done", "dropped")]
     if tasks:
-        lines.append("Open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], t["status"])
+        lines.append("Open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], task_state(t))
                                                for t in tasks[:15]))
     return lines
 
