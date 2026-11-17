@@ -554,18 +554,31 @@ def _jobs(subtree):
 
 
 def _job_ended(store, org_id, task_id, job, now):
-    """Record that a task's background job is gone (its process exited); the end counts as progress. The task's owner
-    (or, when no seated member owns it, the organization's leaders) is told once, in a message that wakes them
-    (drive_due): a job may leave nobody else to say it ended (research-head, 2026-11-17: the OrgBench replay batch only
-    runs, stops and writes its results), and keep-going speaks only once the whole subtree has gone quiet."""
+    """Record that a task's background job is gone (its process exited); the end counts as progress, and the task's
+    owner is told (_tell_job_ended)."""
     job["ended_at"] = iso(now)
     with store.change(org_id) as (org, db):
-        task = (org.get("tasks") or {}).get(task_id) or {}
-        stored = task.get("job")
+        stored = ((org.get("tasks") or {}).get(task_id) or {}).get("job")
         if not stored or stored.get("pid") != job.get("pid") or stored.get("ended_at"):
             return
         stored["ended_at"] = job["ended_at"]
         store._event(db, org_id, SYSTEM, "task.job_ended", {"id": task_id, "pid": job.get("pid")})
+    _tell_job_ended(store, org_id, task_id, now)
+    job["told_at"] = iso(now)  # the caller's copy: drive_check does not look at it again
+
+
+def _tell_job_ended(store, org_id, task_id, now):
+    """Tell the owner of an unfinished task (or, when no seated member owns it, the organization's leaders) that its
+    background job ended, once, in a message that wakes them (drive_due): a job may leave nobody else to say so
+    (research-head, 2026-11-17: the OrgBench replay batch only runs, stops and writes its results), and keep-going
+    speaks only once the whole subtree has gone quiet. The job is marked told, so the message goes out once whoever
+    records the end; drive_check catches up on an end that an older Relic recorded without telling."""
+    with store.change(org_id) as (org, db):
+        task = (org.get("tasks") or {}).get(task_id) or {}
+        job = task.get("job") or {}
+        if not job.get("ended_at") or job.get("told_at") or task.get("status") not in ("open", "working", "blocked"):
+            return
+        job["told_at"] = iso(now)
         owner = task.get("owner")
         to = [owner] if owner in (org.get("members") or {}) else leaders(org)
         body = i18n.t("task.job_ended", org=org.get("name", org_id), id=task_id,
@@ -754,6 +767,9 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
     if not org.get("auto_wake", True):  # Stop all, or the person switched auto-wake off here: nothing starts by itself
         return later("paused", now + DRIVE_IDLE)
     running = _running_jobs(store, subtree, now)
+    for o, t, job in _jobs(subtree):  # an end an older Relic recorded without telling the task's owner
+        if job.get("ended_at") and not job.get("told_at") and now - _epoch(job["ended_at"]) < JOB_HORIZON:
+            _tell_job_ended(store, o["id"], t["id"], now)
     _hold(store, org, ["%s/%s" % (o["id"], t["id"]) for o, t, _ in running])
     if running:  # held until the earliest horizon; watch_jobs makes the check due once the jobs are gone
         o, t, job = running[0]

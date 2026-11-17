@@ -239,6 +239,25 @@ class Jobs(unittest.TestCase):
         self.due(gone + wake.JOB_LOOK + 1)
         self.assertEqual(len(self.told()), 1)
 
+    def test_an_end_an_older_relic_recorded_is_told_by_the_next_check(self):
+        self.store.set_drive(self.oid, True, goal="go on", driver="cody")
+        self.task_with_job()
+        at = int(time.time()) + 3600
+        with self.store.change(self.child) as (org, db):  # an older Relic saw it end and told nobody
+            org["tasks"]["T1"]["job"]["ended_at"] = wake.iso(at)
+        del self.processes[JOB]
+        self.assertEqual(self.check(at + 60)["state"], "wait")
+        [(to, body)] = self.told()
+        self.assertEqual(to, ["bob"])
+        self.assertIn("was found ended at %s" % wake.iso(at), body)
+        self.check(at + 120)
+        self.assertEqual(len(self.told()), 1)
+        with self.store.change(self.child) as (org, db):  # an end from long ago is not told
+            org["tasks"]["T1"]["job"] = {"pid": JOB, "started": 1000.0, "by": "bob", "at": wake.iso(at - 2 * 86400),
+                                         "ended_at": wake.iso(at - 2 * 86400 + 60)}
+        self.check(at + 180)
+        self.assertEqual(len(self.told()), 1)
+
     def test_with_no_seated_owner_its_leaders_are_told(self):
         self.store.set_drive(self.oid, True, goal="go on", driver="cody")
         task = self.store.work(CODY, "task", {"title": "Glaze T replay", "status": "working"})

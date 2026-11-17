@@ -5,11 +5,13 @@
 - When a task's background job ends, the task's owner gets a message saying so, which wakes them (2026-11-17: the
   OrgBench replay batch only runs, stops and writes its results, so nothing else says it ended). Keep-going alone was
   not enough: it speaks only once the whole subtree has been quiet for 10 minutes, which does not happen while other
-  work goes on below. With no seated owner, the organization's leaders get the message. The keep-going notice still
-  lists the job.
+  work goes on below. With no seated owner, the organization's leaders get the message. It goes out once, whichever
+  process finds the end: an older Relic records an end without telling anyone, and the next keep-going check then
+  sends the message. The keep-going notice still lists the job.
   - 任务挂着的后台作业结束时，任务负责人会收到一条消息并被叫醒（2026-11-17：OrgBench 回放批处理只管跑、停和写
     结果，作业结束没有别的东西会说）。只靠持续推进不够：它要等整个下属范围安静 10 分钟才提醒，下面还有别的工作在跑
-    时等不到。任务没有在座的负责人时，消息发给组织负责人。持续推进的提醒里照样会列出这个作业。
+    时等不到。任务没有在座的负责人时，消息发给组织负责人。不管哪个进程先发现结束，消息都只发一次：旧版 Relic
+    发现结束时只记录、不通知，持续推进的下一次检查会补发。持续推进的提醒里照样会列出这个作业。
 
 - A task can name the background job it waits on: `work op=task {task_id, job: <pid>}` (2026-11-16: keep-going told
   科研部 three times that nobody worked while the Glaze S model and its controller ran for hours).
