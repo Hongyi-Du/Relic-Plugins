@@ -3,8 +3,10 @@ told 科研部 three times that nobody worked while the Glaze S model and its co
 
 While the job's process runs, keep-going holds the organization's next check until the job's horizon (so an older
 Relic process cannot claim it meanwhile) and sends no notice; watch_jobs looks at the process and makes the check due
-once it is gone; the end counts as progress and the next notice says the job ended. Processes are faked except where
-process_start itself is tested."""
+once it is gone; the end counts as progress and the next notice says the job ended. The end is also told to the task's
+owner at once, in a message that wakes them (research-head, 2026-11-17: the OrgBench replay batch tells nobody when it
+ends, and keep-going waits until the whole subtree is quiet). Processes are faked except where process_start itself is
+tested."""
 import json
 import os
 import subprocess
@@ -82,8 +84,17 @@ class Jobs(unittest.TestCase):
                               retry=lambda org_id, delay: self.retries.append(delay), arm=self.armed.append)
 
     def notices(self):
+        """The keep-going notices (the plugin's other messages left out)."""
         with self.store.db() as db:
-            return [r[0] for r in db.execute("SELECT body FROM messages WHERE sender=? ORDER BY id", (SYSTEM,))]
+            return [r[0] for r in db.execute("SELECT body FROM messages WHERE sender=? AND body LIKE ? ORDER BY id",
+                                             (SYSTEM, "[Relic keep-going]%"))]
+
+    def told(self):
+        """[(recipients, body)] of the plugin's messages saying that a task's background job ended."""
+        with self.store.db() as db:
+            return [(json.loads(r[0]), r[1]) for r in db.execute(
+                "SELECT recipients, body FROM messages WHERE sender=? AND body LIKE ? ORDER BY id",
+                (SYSTEM, "[Relic background job]%"))]
 
     def task_with_job(self, pid=JOB, **extra):
         task = self.store.work(BOB, "task", dict({"title": "Glaze S formal run", "status": "working"}, **extra))
@@ -151,6 +162,7 @@ class Jobs(unittest.TestCase):
         self.assertIn("Bench T1 Glaze S formal run: its background job (process %d) was found ended at %s" % (
             JOB, wake.iso(end)), body)
         self.assertEqual(self.started, ["cody"])
+        self.assertEqual([to for to, _ in self.told()], [["bob"]])  # the owner heard of it when it was found
 
     def test_its_end_is_progress_after_an_earlier_notice(self):
         self.store.set_drive(self.oid, True, goal="go on", driver="cody")
@@ -205,6 +217,40 @@ class Jobs(unittest.TestCase):
         [(org_id, outcome)] = self.due(gone)  # the look makes the check due, and the same pass runs it
         self.assertEqual((outcome["state"], outcome["next"]), ("wait", gone + wake.DRIVE_QUIET))
         self.assertEqual(self.notices(), [])
+
+    # ------------------------------------------------------------------ telling the task's owner
+    def test_its_end_is_told_to_the_task_owner_once_and_wakes_them(self):
+        self.store.set_drive(self.oid, True, goal="go on", driver="cody")
+        self.task_with_job()  # bob owns Bench T1
+        at = int(time.time()) + 3600
+        self.assertEqual(self.due(at)[0][1]["state"], "busy")
+        self.assertEqual((self.told(), self.started), ([], []))  # nothing while it runs
+        del self.processes[JOB]  # the batch exits and tells nobody itself
+        gone = at + wake.JOB_LOOK + 1
+        [(org_id, outcome)] = self.due(gone)
+        self.assertEqual(outcome["state"], "wait")  # keep-going would wait for 10 quiet minutes
+        [(to, body)] = self.told()
+        self.assertEqual(to, ["bob"])
+        self.assertIn("Bench T1 Glaze S formal run: its background job (process %d) was found ended at %s" % (
+            JOB, wake.iso(gone)), body)
+        self.assertEqual(self.started, ["bob"])  # the message wakes the owner at once
+        self.assertEqual(self.notices(), [])
+        self.check(gone + 120)  # later checks and looks do not tell it again
+        self.due(gone + wake.JOB_LOOK + 1)
+        self.assertEqual(len(self.told()), 1)
+
+    def test_with_no_seated_owner_its_leaders_are_told(self):
+        self.store.set_drive(self.oid, True, goal="go on", driver="cody")
+        task = self.store.work(CODY, "task", {"title": "Glaze T replay", "status": "working"})
+        self.store.work(CODY, "task", {"task_id": task["id"], "job": JOB})
+        with self.store.change(self.oid) as (org, db):
+            org["tasks"][task["id"]]["owner"] = "someone-who-left"
+        del self.processes[JOB]
+        self.assertEqual(self.check(int(time.time()) + 3600)["state"], "wait")
+        [(to, body)] = self.told()
+        self.assertEqual(to, ["lead"])
+        self.assertIn("Lab %s Glaze T replay: its background job (process %d)" % (task["id"], JOB), body)
+        self.assertEqual(self.started, [])  # a check outside drive_due leaves the waking to drive_due
 
 
 if __name__ == "__main__":

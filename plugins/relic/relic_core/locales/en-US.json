@@ -813,6 +813,7 @@
  "task.blocked": "Blocked",
  "task.done": "Done",
  "task.dropped": "Dropped",
+ "task.job_ended": "[Relic background job] {org} {id} {title}: its background job (process {pid}) was found ended at {when}. Nothing else may report it: look at what it left (results, logs, how it exited) and go on with the task: report it, start the next step, or hand it to whoever takes it on. This message needs no reply.",
  "task.open": "To do",
  "task.working": "In progress",
  "thread.last_reply": "· Last reply {when}",

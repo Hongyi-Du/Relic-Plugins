@@ -144,8 +144,9 @@ TOOLS = [
           "evidence": SL,
           "job": {"type": "integer", "description": "task: the process id of a background job the task waits on (a "
                   "controller, an experiment, a build) that runs on this computer; 0 detaches it. While it runs, "
-                  "keep-going counts the organization as working; when it exits, keep-going looks again and its next "
-                  "notice says the job ended. Attach the job again when a new process takes over."},
+                  "keep-going counts the organization as working; when it exits, the task's owner gets a message "
+                  "saying so (it wakes them), keep-going looks again and its next notice says the job ended. Attach "
+                  "the job again when a new process takes over."},
           "report": dict(S, description="Required when a task becomes done; a done task's report can also be added "
                                         "or replaced later. A short report of what the task achieved and how it "
                                         "turned out, in the person's language: Markdown, at most 1000 characters."),

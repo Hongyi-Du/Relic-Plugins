@@ -768,6 +768,7 @@
  "task.blocked": "受阻",
  "task.done": "完成",
  "task.dropped": "放弃",
+ "task.job_ended": "[Relic 后台作业] {org} {id}「{title}」的后台作业（进程 {pid}）在 {when} 发现已结束。可能没有别人会报这件事：请看它留下的结果、日志和退出情况，接着推进这项任务：汇报、开始下一步，或交给接手的人。这条消息不用回复。",
  "task.open": "待办",
  "task.working": "进行中",
  "thread.last_reply": "· 最后回复 {when}",
