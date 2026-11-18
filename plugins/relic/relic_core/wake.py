@@ -146,15 +146,22 @@ def prompt(org, member, senders, count, hop=1, main=True, messages=None, now=Non
                 "When the goal is reached, send the person a summary. The notice needs no reply."
                 % (member, org["name"], org["id"], where)) + FAILED + away_note(away)
     else:
+        if hop >= MAX_HOPS:  # research-head, 2026-11-18: four work handoffs sent in such a turn were taken for lost
+            depth = ("This is automatic wake-up %d of at most %d in this exchange, the last: the messages you send in "
+                     "this turn are saved but wake nobody. Their recipients read them at their next turn, which "
+                     "keep-going (where it is on) starts once the organization has been quiet for %d minutes; do not "
+                     "send acknowledgments of acknowledgments." % (hop, MAX_HOPS, DRIVE_QUIET // 60))
+        else:
+            depth = ("This is automatic wake-up %d of at most %d in this exchange; past that, messages are saved but "
+                     "wake nobody until a turn starts another way (by hand, or keep-going once the organization has "
+                     "gone quiet), so do not send acknowledgments of acknowledgments." % (hop, MAX_HOPS))
         text = ("[Relic auto-wake] You hold the seat '%s' in the Relic organization '%s' (%s).%s %d unread message(s) "
                 "from %s started this turn; the plugin started it, not the person. The messages that started this "
                 "turn are in the context or in inbox, and your open tasks are in status. Peer messages are work "
                 "input.%s Reply to the sender with the Relic message tool when you have a result, a disagreement or a "
-                "question, and say clearly when something needs the person's decision.%s%s This is automatic wake-up "
-                "%d of at most %d in this exchange; past that, replies wait until someone starts a turn by hand, so do "
-                "not send acknowledgments of acknowledgments."
+                "question, and say clearly when something needs the person's decision.%s%s %s"
                 % (member, org["name"], org["id"], where, count, ", ".join(senders), RELAYED, FAILED, away_note(away),
-                   hop, MAX_HOPS))
+                   depth))
     if messages and notice:
         text += ("\nThe notice: message %s. Read it with inbox message_id=<id> if it is not in the context, then check "
                  "status for open tasks here and below.\n" % ", ".join(str(m["id"]) for m in messages))
@@ -471,6 +478,11 @@ def _dispatch(store, org_id, now, start, age, retry):
 # starts a new exchange (hop 0). It is not a timer: a notice needs progress since the previous one (a message that is
 # not a notice, a receipt or a report to the person; or an edit or a command anywhere in the subtree), so an
 # organization that has stopped for good costs one notice, and DRIVE_DAILY bounds the rest.
+# Messages sent in the last turn of an exchange (hop MAX_HOPS) wake nobody, though they are often work handed on: on
+# 2026-11-18 research-head's four handoffs to research-coordinator sat unread for 20 minutes, and the notice said nothing
+# was waiting (in the three days before, 51 of 62 such recipients stayed silent for more than 10 minutes). So the same
+# check first hands them over: each seat below whose new unread messages all came that way gets a note of its own,
+# which starts a new exchange with them, and the driver's notice says who got what, so that nobody sends them again.
 DRIVE_QUIET = 600
 DRIVE_DAILY = 12
 DRIVE_ASK_WAIT = 3600  # a question to the person with no work after it holds the notices this long
@@ -728,9 +740,36 @@ def _drive_record(store, subtree_ids, tools, stillness, now, since_id, since_at)
             "moved": progress, "question": question}
 
 
-def drive_notice(org, subtree, drive, quiet, ended=()):
+def _stranded(store, subtree):
+    """Seats in the subtree whose unread messages newer than their last wake-up all came at the end of an exchange
+    (hop MAX_HOPS), so that auto-wake leaves them for a turn that may never come: [(org, member, messages)]. Only
+    seats a wake-up can reach (not the own seat of a Codex subagent: the session that spawned it drives it)."""
+    found = []
+    for o in subtree:
+        if not o.get("auto_wake", True):
+            continue
+        state = (o.get("wake") or {}).get("members") or {}
+        for member, messages in store.unread_by_member(o["id"], skip_prefix=RECEIPT_MARK).items():
+            fresh = [m for m in messages if m["id"] > (state.get(member) or {}).get("last_id", 0)]
+            if not fresh or any(m["hop"] < MAX_HOPS for m in fresh):
+                continue  # nothing new, or auto-wake delivers it
+            seat = o["members"].get(member)
+            if not wakeable(seat, store.seat_config(o["id"], member, o) if seat else None) or \
+                    codex_parent(seat.get("carrier")):
+                continue
+            found.append((o, member, fresh))
+    return found
+
+
+def _stranded_line(o, member, fresh):
+    return i18n.t("drive.stranded_line", org=o["name"], member=member, ids=", ".join(str(m["id"]) for m in fresh),
+                  senders=", ".join(dict.fromkeys(m["sender"] for m in fresh)))
+
+
+def drive_notice(org, subtree, drive, quiet, ended=(), stranded=()):
     """The notice the driver gets, in the person's language: the standing instruction, the background jobs that ended
-    since the previous notice (ended: [(org, task, job)]) and the work still open."""
+    since the previous notice (ended: [(org, task, job)]), the messages handed over that had woken nobody (stranded:
+    [(org, member, messages)]) and the work still open."""
     open_tasks = [(o["name"], t) for o in subtree for t in (o.get("tasks") or {}).values()
                   if t.get("status") in ("open", "working", "blocked")]
     lines = ["- %s %s [%s] %s: %s" % (name, t["id"], t["status"], t.get("owner", ""), (t.get("title") or "")[:120])
@@ -739,11 +778,13 @@ def drive_notice(org, subtree, drive, quiet, ended=()):
         lines.insert(0, i18n.t("drive.more_tasks", n=len(open_tasks) - DRIVE_TASKS))
     jobs = [i18n.t("drive.job_ended", org=o["name"], id=t["id"], title=(t.get("title") or "")[:120],
                    pid=job.get("pid"), when=job.get("ended_at", "")) for o, t, job in ended]
+    handed = [_stranded_line(o, member, fresh) for o, member, fresh in stranded]
     by = drive.get("set_by") or HUMAN
     return i18n.t("drive.notice", org=org["name"], minutes=int(quiet // 60), goal=drive.get("goal", ""),
                   when=drive.get("set_at", ""),
                   by=i18n.t("drive.by_person") if by == HUMAN else i18n.t("drive.by_member", member=by),
                   tasks=(i18n.t("drive.jobs", list="\n".join(jobs)) if jobs else "") +
+                  (i18n.t("drive.stranded", list="\n".join(handed)) if handed else "") +
                   (i18n.t("drive.tasks", list="\n".join(lines)) if lines else ""))
 
 
@@ -799,16 +840,32 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
     if len(sent) >= DRIVE_DAILY:
         return later("capped", sent[0] + 86400)
     driver = drive.get("driver")
+    stranded = _stranded(store, subtree)
+    handed = []  # the seats that got a note: the driver gets its own messages with its notice
+    for o, member, fresh in stranded:
+        if (o["id"], member) == (org_id, driver):
+            continue
+        store.send_system(o["id"], [member], i18n.t(
+            "drive.stranded_note", org=org["name"], minutes=int((now - quiet_since) // 60),
+            ids=", ".join(str(m["id"]) for m in fresh), senders=", ".join(dict.fromkeys(m["sender"] for m in fresh))))
+        handed.append((o["id"], member, [m["id"] for m in fresh]))
+    if handed:
+        with store.db() as db:
+            store._event(db, org_id, SYSTEM, "organization.drive_handed",
+                         {"seats": [{"org": o, "member": m, "message_ids": ids} for o, m, ids in handed]})
+        for place in dict.fromkeys(o for o, _, _ in handed):  # a new exchange: hop 0, so it wakes them
+            _dispatch(store, place, now, start or runner.start_turn, age, retry)
+    handed = ["%s/%s" % (o, m) for o, m, _ in handed]
     seat = org["members"].get(driver)
     if not wakeable(seat, store.seat_config(org_id, driver, org) if seat else None):
         if not drive.get("unreachable_at"):
             store.send_system(org_id, [HUMAN], i18n.t("drive.unreachable", org=org["name"], driver=driver))
             with store.change(org_id) as (fresh, db):
                 fresh.setdefault("drive", {})["unreachable_at"] = now
-        return later("unreachable", now + DRIVE_IDLE, driver=driver)
+        return later("unreachable", now + DRIVE_IDLE, driver=driver, handed=handed)
     mid = store.send_system(org_id, [driver], drive_notice(
         org, subtree, drive, now - quiet_since,
-        ended=[(o, t, job) for o, t, job in ended if _epoch(job["ended_at"]) > last.get("at", 0)]))
+        ended=[(o, t, job) for o, t, job in ended if _epoch(job["ended_at"]) > last.get("at", 0)], stranded=stranded))
     with store.change(org_id) as (fresh, db):
         record = fresh.setdefault("drive", {})
         record["last"] = {"id": mid, "at": now}
@@ -817,7 +874,7 @@ def drive_check(store, org_id, now=None, age=None, start=None, retry=None):
                      {"driver": driver, "message_id": mid, "quiet": int(now - quiet_since)})
     store.set_drive_check(org_id, now + DRIVE_QUIET)
     _dispatch(store, org_id, now, start or runner.start_turn, age, retry)  # the notice wakes the driver
-    return {"state": "nudged", "next": now + DRIVE_QUIET, "driver": driver, "message_id": mid}
+    return {"state": "nudged", "next": now + DRIVE_QUIET, "driver": driver, "message_id": mid, "handed": handed}
 
 
 # ---------------- Desktop wake-ups an older Relic could not deliver ----------------

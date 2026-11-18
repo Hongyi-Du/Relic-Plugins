@@ -1,7 +1,9 @@
 """Keep-going (持续推进): an organization with keep-going on, whose subtree has gone quiet with work unfinished, gets one
 notice to its driver; nothing while anyone works or a wake-up is under way; a second notice only after progress; a
 question to the person holds them for a while; a daily cap; a driver that cannot be woken is reported to the person
-once. Turns are recorded by a fake starter that writes run states the way runner.start_turn does."""
+once; messages sent in the last turn of an exchange, which woke nobody, are handed to their recipients. Turns are
+recorded by a fake starter that writes run states the way runner.start_turn does."""
+import json
 import os
 import sys
 import tempfile
@@ -113,6 +115,93 @@ class Drive(unittest.TestCase):
                        (self.oid, "ana", '["cody"]', "done with step 6", "2000-01-01T00:00:00Z", wake.MAX_HOPS))
         self.assertEqual(self.check()["state"], "nudged")
         self.assertEqual([s[4] for s in self.started], [1])
+
+    # ------------------------------------------------------------------ messages that woke nobody
+    def last_turn(self, sender, recipient, body, org_id=None):
+        """A message sent in the last automatically started turn of an exchange: kept, but it wakes nobody."""
+        with self.store.db() as db:
+            return db.execute("INSERT INTO messages(org_id,sender,recipients,body,at,hop) VALUES(?,?,?,?,?,?)",
+                              (org_id or self.oid, sender, json.dumps([recipient]), body, "2000-01-01T00:00:00Z",
+                               wake.MAX_HOPS)).lastrowid
+
+    def test_messages_that_woke_nobody_are_handed_to_their_recipient(self):
+        """2026-11-18: research-head's four handoffs to research-coordinator, sent in the last turn of an exchange,
+        sat unread for 20 minutes, and the notice said nothing was waiting to be delivered."""
+        self.drive()
+        first = self.last_turn("cody", "ana", "Step 7 is yours: wire the material in.")
+        second = self.last_turn("cody", "ana", "The seed is ready; reuse it.")
+        self.assertEqual(wake._dispatch(self.store, self.oid, time.time() + 700, self.start, lambda seat: None,
+                                        lambda org_id, delay: None), [])  # auto-wake leaves them
+        outcome = self.check()
+        self.assertEqual((outcome["state"], outcome["handed"]), ("nudged", ["%s/ana" % self.oid]))
+        [(note, recipients, body, hop)] = self.notices("ana")
+        self.assertEqual((recipients, hop), ('["ana"]', 0))  # a new exchange
+        self.assertIn("Your unread message(s) %d, %d (from cody)" % (first, second), body)
+        notice = self.notices("cody")[0][2]
+        self.assertIn("- Lab ana: %d, %d (from cody)" % (first, second), notice)
+        self.assertIn("do not send them again", notice)
+        woken = {s[1]: s for s in self.started}
+        self.assertEqual(sorted(woken), ["ana", "cody"])
+        _, _, senders, prompt, hop = woken["ana"]
+        self.assertEqual((senders, hop), (["cody", SYSTEM], 1))
+        self.assertIn("Current triggering message ids: %d, %d, %d" % (first, second, note), prompt)
+        self.finish("ana")
+        self.finish("cody")
+        self.assertEqual(self.check(time.time() + 2000)["state"], "idle")  # handed once: they are not new any more
+
+    def test_a_seat_below_gets_them_in_its_own_organization(self):
+        self.drive()
+        mid = self.last_turn("%s/cody" % self.oid, "bob", "Run the harder set.", org_id=self.child)
+        self.assertEqual(self.check()["handed"], ["%s/bob" % self.child])
+        with self.store.db() as db:
+            note = db.execute("SELECT org_id, hop, body FROM messages WHERE sender=? AND recipients=?",
+                              (SYSTEM, '["bob"]')).fetchone()
+        self.assertEqual(note[:2], (self.child, 0))
+        self.assertIn(str(mid), note[2])
+        self.assertIn((self.child, "bob"), [(s[0], s[1]) for s in self.started])
+
+    def test_the_drivers_own_come_with_its_notice(self):
+        self.drive()
+        mid = self.last_turn("ana", "cody", "Step 6 is done; the results are in out/.")
+        outcome = self.check()
+        self.assertEqual((outcome["state"], outcome["handed"]), ("nudged", []))
+        [(_, recipients, notice, _)] = self.notices()
+        self.assertEqual(recipients, '["cody"]')
+        self.assertIn("- Lab cody: %d (from ana)" % mid, notice)
+        [(_, member, _, prompt, hop)] = self.started
+        self.assertEqual((member, hop), ("cody", 1))
+        self.assertIn("[msg %d from ana" % mid, prompt)
+
+    def test_only_seats_a_wake_up_reaches_and_only_messages_auto_wake_left(self):
+        self.drive()
+        self.store.add_seat(self.oid, "sub", "writer", runner.default_config("codex"))
+        self.store.join("codex:th-cody/th-sub", self.oid, "sub")  # a Codex subagent's seat: its parent drives it
+        self.last_turn("ana", "sub", "For the source writer.")
+        self.last_turn("ana", "lead", "For the record.")  # lead has no session to start
+        self.last_turn("cody", "ana", "Late in the exchange.")
+        with self.store.db() as db:  # ana also has a message that auto-wake delivers: nothing to hand over there
+            db.execute("INSERT INTO messages(org_id,sender,recipients,body,at,hop) VALUES(?,?,?,?,?,?)",
+                       (self.oid, "cody", '["ana"]', "Early in another exchange.", "2000-01-01T00:00:00Z", 2))
+        outcome = self.check()
+        self.assertEqual((outcome["state"], outcome["handed"]), ("nudged", []))
+        self.assertEqual([r[1] for r in self.notices()], ['["cody"]'])
+        self.assertNotIn("For the", self.notices()[0][2])
+
+    def test_the_last_turn_says_that_its_messages_wake_nobody(self):
+        org = self.store.get(self.oid)
+        last = wake.prompt(org, "ana", ["cody"], 1, hop=wake.MAX_HOPS)
+        self.assertIn("the last: the messages you send in this turn are saved but wake nobody", last)
+        self.assertIn("quiet for %d minutes" % (wake.DRIVE_QUIET // 60), last)
+        self.assertNotIn("the last:", wake.prompt(org, "ana", ["cody"], 1, hop=2))
+        runner.write_state(self.oid, "ana", {"status": "running", "started": time.time(), "pid": os.getpid(),
+                                             "wake_hop": wake.MAX_HOPS})
+        result = self.store.send(ANA, ["cody"], "Step 7 is yours.")
+        self.assertIn("wakes nobody", result["wakes_nobody"])
+        self.assertIn("wakes nobody", self.store.send(ANA, ["bob"], "Run it.", org=self.child)["wakes_nobody"])
+        self.assertNotIn("wakes_nobody", self.store.send(ANA, [HUMAN], "A report."))  # the person is not woken
+        runner.write_state(self.oid, "ana", {"status": "running", "started": time.time(), "pid": os.getpid(),
+                                             "wake_hop": 2})
+        self.assertNotIn("wakes_nobody", self.store.send(ANA, ["cody"], "Step 3 is yours."))
 
     # ------------------------------------------------------------------ not while work goes on
     def test_no_notice_while_a_turn_runs_anywhere_below(self):

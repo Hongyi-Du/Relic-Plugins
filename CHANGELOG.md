@@ -2,6 +2,19 @@
 
 ## Unreleased / 未发布
 
+- Keep-going hands over the messages that woke nobody because they were sent in the last turn of an exchange of
+  automatic wake-ups (2026-11-18: research-head's four work handoffs to research-coordinator sat unread for 20 minutes,
+  and the notice said nothing was waiting to be delivered; in the three days before, 51 of 62 such recipients stayed
+  silent for more than 10 minutes). When the organization has been quiet for 10 minutes, each seat below whose new
+  unread messages all came that way gets a note of its own, which starts a new exchange with those messages; the
+  driver's notice says who got what, so nobody sends them again. A message sent in such a turn says `wakes_nobody` in
+  its result, and the prompt of that turn says so too.
+  - 持续推进会把「一轮自动唤醒最后一回合里发的、没叫醒人的消息」送到收件人（2026-11-18：research-head 派给
+    research-coordinator 的四条实质任务停了 20 分钟没人看，持续推进的提醒还说没有待送的消息；之前三天里，62 个这样的
+    收件人有 51 个之后 10 分钟以上没动静）。组织安静 10 分钟时，下面凡是新未读消息全是这样来的席位，各收到一条提醒，
+    带着这些消息开新一轮；推进人的提醒里写明谁收到了哪几条，不用重发。这样的回合里发消息，结果会带 `wakes_nobody`，
+    这一回合的唤醒提示也会写明。
+
 - When a task's background job ends, the task's owner gets a message saying so, which wakes them (2026-11-17: the
   OrgBench replay batch only runs, stops and writes its results, so nothing else says it ended). Keep-going alone was
   not enough: it speaks only once the whole subtree has been quiet for 10 minutes, which does not happen while other
