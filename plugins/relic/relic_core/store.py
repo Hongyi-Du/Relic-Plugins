@@ -2134,9 +2134,10 @@ class Store:
                                    (" (%s)" % reasons if reasons else ""))
             if not recipients:
                 raise OrgError("No other members yet.")
+            hop = self._sender_hop(org["id"], member)
             cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
                              "VALUES(?,?,?,?,?,?,?,?)", (org["id"], member, json.dumps(recipients), body, episode_id,
-                                                         now(), self._sender_hop(org["id"], member), root))
+                                                         now(), hop, root))
             thread = {"reply_to": root} if root else {}
             self._event(db, org["id"], member, "message.sent", dict({"id": cur.lastrowid, "to": recipients}, **thread))
             result = dict({"message_id": cur.lastrowid, "to": recipients}, **thread)
@@ -2149,12 +2150,15 @@ class Store:
                 # participant who wrote from another organization, as receipts do.
                 copied = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
                                     "VALUES(?,?,?,?,?,?,?,?)", (place, qualified(org["id"], member), json.dumps([other]),
-                                    body, None, now(), self._sender_hop(org["id"], member), None))
+                                    body, None, now(), hop, None))
                 self._event(db, place, qualified(org["id"], member), "message.sent",
                             {"id": copied.lastrowid, "to": [other], "from_org": org["id"], "source_reply": cur.lastrowid})
                 reached.append(place)
             if reached:
                 result["delivered_orgs"] = list(dict.fromkeys(reached))
+        last = self._last_hop_note(hop, recipients)
+        if last:
+            result["wakes_nobody"] = last
         away = self.person_away() if HUMAN in recipients else None
         if away:  # nobody reads it now: the sender does not stop to wait for an answer
             from . import i18n
@@ -2185,16 +2189,31 @@ class Store:
                     raise OrgError("Unknown members of %s: %s" % (target["name"], ", ".join(sorted(unknown))))
             if not recipients:
                 raise OrgError("%s has no members to write to." % target["name"])
+            hop = self._sender_hop(own["id"], member)
             cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
                              "VALUES(?,?,?,?,?,?,?,?)", (target["id"], sender, json.dumps(recipients), body, None, now(),
-                                                         self._sender_hop(own["id"], member), root))
+                                                         hop, root))
             thread = {"reply_to": root} if root else {}
             self._event(db, target["id"], sender, "message.sent",
                         dict({"id": cur.lastrowid, "to": recipients, "from_org": own["id"]}, **thread))
             self._event(db, own["id"], member, "organization.reached",
                         {"what": "message", "org": target["id"], "name": target["name"], "way": way,
                          "id": cur.lastrowid, "to": recipients})
-        return dict({"message_id": cur.lastrowid, "to": recipients, "org_id": target["id"]}, **thread)
+        result = dict({"message_id": cur.lastrowid, "to": recipients, "org_id": target["id"]}, **thread)
+        last = self._last_hop_note(hop, recipients)
+        if last:
+            result["wakes_nobody"] = last
+        return result
+
+    @staticmethod
+    def _last_hop_note(hop, recipients):
+        """What a message sent in the last automatically started turn of an exchange tells its sender: it is kept,
+        but it wakes nobody (wake.MAX_HOPS). research-head, 2026-11-18: four work handoffs sent that way were taken for
+        lost; the send result now tells a message kept from one that also wakes its recipient."""
+        from . import i18n, wake
+        if hop < wake.MAX_HOPS or not [r for r in recipients if r != HUMAN]:
+            return None
+        return i18n.t("send.last_hop", hop=hop, max=wake.MAX_HOPS, minutes=wake.DRIVE_QUIET // 60)
 
     def _work_below(self, own, member, target, op, a):
         if op not in ("task", "doc_read", "drive", "purpose"):
