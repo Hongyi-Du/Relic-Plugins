@@ -293,6 +293,37 @@ class Wake(unittest.TestCase):
         self.assertNotIn("failures", mine)
         self.assertIsNone(mine.get("last_id"))
 
+    def test_a_chat_that_waits_for_the_person_is_reported_to_them_once(self):
+        """2026-11-18: chief's chat waited on an approval in the Codex app for 16 hours. Its wake-up was retried every
+        two minutes as busy, and nobody heard of it."""
+        os.environ["RELIC_LANG"] = "en-US"
+
+        def waiting(since):
+            return desktop.busy_error({"thread": {"id": "t", "title": "Chief secretary", "updatedAt": since, "status": {
+                "type": "active", "activeFlags": ["waitingOnApproval"]}}})
+
+        def told():
+            with self.store.db() as db:
+                return [r[0] for r in db.execute("SELECT body FROM messages WHERE sender='relic' AND recipients=?",
+                                                 ('["human"]',))]
+
+        self.store.send(LEAD, ["cody"], "please review")
+        for _ in range(3):  # retried every GAP while it waits: the person hears of it once
+            self.assertEqual(self.dispatch(), ["cody"])
+            self.assertEqual(self.finish("cody", waiting(1794953295)), wake.GAP)
+            self.t += wake.GAP + wake.QUIET + 1
+        [note] = told()
+        self.assertIn('cody\'s Codex chat "Chief secretary" has been waiting for you', note)
+        self.assertIn("(an approval)", note)
+        self.assertIn("22:08Z", note)
+        self.assertEqual(self.dispatch(), ["cody"])
+        self.finish("cody")  # the person answered: the turn went through
+        self.store.send(LEAD, ["cody"], "and the next one")
+        self.t += wake.GAP + wake.QUIET + 1
+        self.assertEqual(self.dispatch(), ["cody"])
+        self.finish("cody", waiting(1794960000))  # a new wait is told again
+        self.assertEqual(len(told()), 2)
+
     def test_inbox_finds_a_message_behind_many_for_others(self):
         for n in range(21):
             self.store.send(LEAD, ["ana"], "for ana %d" % n)

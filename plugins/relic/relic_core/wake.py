@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 from . import desktop, gui_receipt, i18n, runner
-from .store import HUMAN, SYSTEM, away_note, codex_parent, codex_thread, iso, leaders
+from .store import HUMAN, SYSTEM, away_note, central, codex_parent, codex_thread, epoch, iso, leaders
 
 SETTLE = 10  # seconds after the newest unread message before waking: messages sent in a row make one wake-up
 QUIET = 60
@@ -339,6 +339,17 @@ def _due(org, org_id, member, messages, mine, now, age, store=None):
                "hop": min(m["hop"] for m in triggers) + 1}
 
 
+def waits_text(member, waits):
+    """What the person is told when a seat's chat waits for them in the Codex desktop app (desktop.WAITS matched the
+    wake-up's error): which chat, since when, for what, and that only they can answer it."""
+    flags, since, title = waits.groups()
+    names = {"waitingOnApproval": i18n.t("wake.waiting_on_approval"),
+             "waitingOnUserInput": i18n.t("wake.waiting_on_input")}
+    what = " / ".join(names.get(f, f) for f in flags.split(","))
+    when = central(epoch(since)) if epoch(since) else since
+    return i18n.t("wake.waits_for_person", member=member, title=title, since=when, what=what)
+
+
 def _settle(store, org_id, member, claimed_at, error=None, busy=False):
     """Close a wake-up: on success clear its claim and failures; on failure give the claim back so the messages are
     tried again: after GAP when the seat was busy (its runner, or a turn in the desktop app), after RECHECK when its
@@ -350,10 +361,17 @@ def _settle(store, org_id, member, claimed_at, error=None, busy=False):
         mine = wake.setdefault("members", {}).setdefault(member, {})
         claim = mine.pop("claim", {})
         if error is None:
-            for key in ("failures", "error", "retry_at", "in_use", "waiting_since", "gave_up_at", "told"):
+            for key in ("failures", "error", "retry_at", "in_use", "waiting_since", "gave_up_at", "told",
+                        "person_told"):
                 mine.pop(key, None)
             return None
         busy = busy or desktop.BUSY in str(error) or gui_receipt.WAITING in str(error)
+        waits = desktop.WAITS.search(str(error))
+        if waits and mine.get("person_told") != waits.group(2):  # once for each wait, however often it is retried
+            mine["person_told"] = waits.group(2)
+            store._post(db, org_id, SYSTEM, [HUMAN], waits_text(member, waits))
+            store._event(db, org_id, member, "member.waits_for_person", {"flags": waits.group(1),
+                                                                         "since": waits.group(2)})
         held = not busy and IN_USE in str(error)
         if held:
             mine["in_use"] = mine.get("in_use", 0) + 1

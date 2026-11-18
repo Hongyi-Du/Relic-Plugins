@@ -98,6 +98,22 @@ class RunTurn(unittest.TestCase):
         self.assertIn(desktop.BUSY, str(caught.exception))
         self.assertTrue(wake.no_turn(str(caught.exception)))
         self.assertEqual(app.sent, [])
+        self.assertIsNone(desktop.WAITS.search(str(caught.exception)))
+
+    def test_a_chat_that_waits_for_the_person_says_for_what_and_since_when(self):
+        """2026-11-18: chief's chat waited on an approval in the app for 16 hours; all Relic saw was "busy"."""
+        data = {"thread": {"id": THREAD, "title": 'Chief "secretary"\n office', "updatedAt": 1794953295,
+                           "status": {"type": "active", "activeFlags": ["waitingOnApproval"]}},
+                "turns": [turn("t1", "inProgress")]}
+        app = FakeApp([data])
+        with self.assertRaises(desktop.DesktopError) as caught:
+            self.run_turn(app)
+        text = str(caught.exception)
+        self.assertIn(desktop.BUSY, text)
+        self.assertTrue(wake.no_turn(text))  # still a wait, retried quietly: nothing was sent
+        self.assertEqual(desktop.WAITS.search(text).groups(),
+                         ("waitingOnApproval", "2026-11-17T22:08:15Z", "Chief 'secretary' office"))
+        self.assertEqual(app.sent, [])
 
     def test_failed_turn_is_reported_as_failed(self):
         app = FakeApp([thread("idle"), thread("idle", [turn("t2", "failed")])])

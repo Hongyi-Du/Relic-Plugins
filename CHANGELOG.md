@@ -2,6 +2,14 @@
 
 ## Unreleased / 未发布
 
+- When a Codex desktop chat cannot be woken because its turn waits for the person in the app (an approval, an
+  answer), the person is told once: which member's chat, since when and what it waits for (2026-11-18: chief's chat
+  waited on an approval for 16 hours while its wake-up was retried every two minutes as "busy" and nobody heard of
+  it). The retries go on as before; a new wait is told again.
+  - Codex 桌面聊天的回合在 App 里等人处理（审批、回答）、Relic 因此叫不醒它时，会告诉人一次：哪个成员的聊天、
+    从什么时候起、在等什么（2026-11-18：chief 的聊天等审批等了 16 小时，Relic 每 2 分钟当作「忙」重试一次，谁也
+    不知道）。重试照旧；之后再遇到新的等待会再说一次。
+
 - Keep-going hands over the messages that woke nobody because they were sent in the last turn of an exchange of
   automatic wake-ups (2026-11-18: research-head's four work handoffs to research-coordinator sat unread for 20 minutes,
   and the notice said nothing was waiting to be delivered; in the three days before, 51 of 62 such recipients stayed
