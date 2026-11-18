@@ -47,6 +47,11 @@ NOT_LOADED = "notLoaded"
 IDLE = "idle"
 FINISHED = ("completed", "failed", "interrupted")
 BUSY = "is busy in the Codex desktop app"  # a turn is running in the chat: wait for it, never interject
+# A running turn can stop on something only the person can give in the app: an approval, an answer (the thread's
+# status shows it in activeFlags). 2026-11-18: chief's chat waited on an approval for 16 hours, while Relic retried its
+# wake-up every two minutes without a word to anyone.
+WAITS_FOR_PERSON = "waits for the person"
+WAITS = re.compile(r"waits for the person: ([\w,]+) since (\S+), chat \"(.*)\"")
 MAX_FRAME = 8 * 1024 * 1024  # the desktop tools bridge's documented-by-installed-host frame limit
 REQUIRED_TOOLS = {"read_thread", "send_message_to_thread", "list_threads"}
 
@@ -365,6 +370,20 @@ def status(data):
     return ((data.get("thread") or {}).get("status") or {}).get("type")
 
 
+def busy_error(data):
+    """Why a chat cannot take a prompt now: its turn runs, and maybe waits for the person (WAITS: what for, since when
+    and which chat, so that wake._settle can tell the person once)."""
+    thread = data.get("thread") or {}
+    flags = [str(f) for f in (thread.get("status") or {}).get("activeFlags") or [] if str(f).startswith("waitingOn")]
+    text = "the chat %s (%s)" % (BUSY, status(data))
+    if flags:
+        since = thread.get("updatedAt")
+        since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since)) if isinstance(since, (int, float)) else "?"
+        title = " ".join(str(thread.get("title") or thread.get("id") or "").split()).replace('"', "'")[:80]
+        text += "; it %s: %s since %s, chat \"%s\"" % (WAITS_FOR_PERSON, ",".join(flags), since, title)
+    return text
+
+
 def reply_of(turn):
     text = ""
     for item in (turn or {}).get("items") or []:
@@ -401,7 +420,7 @@ def run_turn(app, thread_id, prompt, poll=5.0, start_wait=180.0, blind=600.0, li
     before = app.read(thread_id, 3, host, caller)
     ready = (IDLE, NOT_LOADED) if load else (IDLE,)
     if status(before) not in ready:
-        raise DesktopError("the chat %s (%s)" % (BUSY, status(before)))
+        raise DesktopError(busy_error(before))
     known = {t.get("id") for t in before.get("turns") or []}
     unconfirmed = None
     try:
