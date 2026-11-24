@@ -1,7 +1,8 @@
 """Native Claude Desktop delivery and opt-in public Stop receipts.
 
 A wake-up goes into the seat's live session through that session's own inbox (inbox_route: no CLI login, no model
-call). Only when the inbox cannot be reached does a fresh message router use the CLI. It never resumes the member's
+call). When no process carries the seat's session at all, a live Desktop session of a member starts it first
+(relay_route). Only when neither can reach it does a fresh message router use the CLI. It never resumes the member's
 carrier.
 The router's local hooks gate the exact target/payload and reserve one send before
 it can happen; stream-json tool records, never helper prose, establish delivery.
@@ -418,9 +419,8 @@ def key_name(pid, socket_path):
     return "%d.%s.key" % (int(pid), hashlib.sha256(canonical.encode("utf-8")).hexdigest())
 
 
-def live_session(carrier, expected):
-    """The registry record of the live Claude Code process that carries a seat's session: by its session id (the
-    seat's carrier), else the one live session titled with the seat's address. None when there is none."""
+def live_records():
+    """The registry records of the live Claude Code processes that listen on an inbox."""
     folder = sessions_dir()
     if folder is None:
         raise TransportError("unavailable", "a test run never reaches the person's live Claude sessions")
@@ -433,6 +433,13 @@ def live_session(carrier, expected):
         if (isinstance(record, dict) and isinstance(record.get("pid"), int) and record.get("messagingSocketPath")
                 and runner.pid_alive(record["pid"])):
             records.append(record)
+    return records
+
+
+def live_session(carrier, expected, records=None):
+    """The registry record of the live Claude Code process that carries a seat's session: by its session id (the
+    seat's carrier), else the one live session titled with the seat's address. None when there is none."""
+    records = live_records() if records is None else records
     for key, value in (("sessionId", carrier), ("name", expected)):
         found = [record for record in records if value and record.get(key) == value]
         if len(found) == 1:
@@ -510,33 +517,140 @@ def inbox_route(request, config, folder, writer=None):
     receipt (gui_receipt) still proves the turn happened."""
     record = live_session(request.get("carrier"), request.get("expected"))
     if record is None:
-        raise TransportError("unavailable", "no live Claude Code session carries %s" % request.get("expected"))
+        absent = TransportError("unavailable", "no live Claude Code session carries %s" % request.get("expected"))
+        absent.absent = True  # no process to write to: a live Desktop session can start one (relay_route)
+        raise absent
     if record.get("status") == "busy":
         busy = TransportError("unavailable", "%s %s (a turn is running); nothing was sent" % (
             request.get("expected"), gui_receipt.DESKTOP_BUSY))
         busy.busy = True  # wait for the session, never the CLI router
         raise busy
-    token = peer_token(record)
-    if token is None:
-        raise TransportError("unavailable", "the live session of %s published no inbox key" % request.get("expected"))
-    frames = (json.dumps({"type": "auth", "token": token}) + "\n" +
-              json.dumps({"type": "user", "message": {"role": "user", "content": payload(request)}},
-                         ensure_ascii=False) + "\n").encode("utf-8")
-    (writer or write_inbox)(record["messagingSocketPath"], frames)
+    send_user(record, payload(request), request.get("expected"), writer)
     _write(folder / "delivery.json", {"outcome": "sent", "via": "inbox", "pid": record["pid"],
                                       "session": record.get("sessionId")})
     return "sent"
 
 
-def deliver(request, config, folder):
-    """The session's own inbox first; the CLI router only when the inbox cannot be reached (the router needs a
+def send_user(record, content, label, writer=None):
+    """Write one user message into a live session's inbox: an auth line with its peer key, then the message."""
+    token = peer_token(record)
+    if token is None:
+        raise TransportError("unavailable", "the live session of %s published no inbox key" % label)
+    frames = (json.dumps({"type": "auth", "token": token}) + "\n" +
+              json.dumps({"type": "user", "message": {"role": "user", "content": content}},
+                         ensure_ascii=False) + "\n").encode("utf-8")
+    (writer or write_inbox)(record["messagingSocketPath"], frames)
+
+
+# ---------------- a seat whose session is not running: started through a live Desktop session ----------------
+# The Claude desktop app runs a session's process only while the session is open or at work; after the app restarts,
+# a seat's session has no process, so no inbox, until something starts it, and only a Desktop session can start
+# another one (the app's own session tools). So when no process carries the seat, Relic asks a live, idle Desktop
+# session of a member (the cabinet's, whenever one is live) to start it with a short message; once it is up and idle,
+# the wake-up itself goes into its own inbox as above, word for word. 2026-11-24: after the app restarted on 11-23,
+# OrgBench's benchlead could not be woken for a day, and the CLI route needs a login the person does not keep.
+RELAY_WAIT = 600     # seconds for the seat's session to come up and end the turn that starts it
+RELAY_SETTLE = 8     # seconds it must stay idle before the wake-up goes in, so the start turn has really ended
+RELAY_POLL = 2
+START_TEXT = ("[Relic auto-wake] Relic is starting this session to deliver a wake-up, which follows as soon as this "
+              "turn ends. Do nothing in this turn: end it now with one word.")
+
+
+def relay_text(request):
+    """What the live Desktop session is asked to do: start the seat's session, found by its exact title."""
+    return ("[Relic auto-wake] [Relic relay] Relic has a wake-up for the Claude Desktop session titled exactly \"%s\", "
+            "but that session is not running, so Relic cannot reach it, and only a Desktop session can start it. "
+            "Start it for Relic: find the one session with exactly that title with "
+            "mcp__ccd_session_mgmt__list_sessions (limit 200), then send it the message between the lines below with "
+            "mcp__ccd_session_mgmt__send_message (its sessionId from that list; or, without that tool, SendMessage "
+            "with `to` set to that id).\n---\n%s\n---\nDo nothing else for this request: Relic delivers the wake-up "
+            "itself once the session is up. If no session or more than one has that title, send nothing. End your "
+            "turn with one short line saying what you did." % (request.get("expected"), START_TEXT))
+
+
+def relay_session(store, request, records):
+    """The live Claude Desktop session that starts the seat's session for Relic: one holding a Relic seat (never one of
+    the person's own chats) and not the seat's own. The secretary-general's session whenever one is live (it
+    coordinates Relic, and the person reads it; a department's or a member's own work session stays its own), else
+    another session of the cabinet, else any member's; of that tier, the most recently active that is idle and owes no
+    Relic request its Stop. None when no such session is live; a busy TransportError when each one of that tier is in
+    a turn (the wake-up then waits, as for a busy seat)."""
+    cabinet = store.cabinet()
+    tiers = ([], [], [])
+    for record in records:
+        sid = record.get("sessionId")
+        if (record.get("entrypoint") != "claude-desktop" or not sid or sid == request.get("carrier") or
+                record.get("name") == request.get("expected")):
+            continue
+        seats = store.seats_of(sid)
+        if not seats or peer_token(record) is None:  # without an inbox key it can never be asked
+            continue
+        in_cabinet = bool(cabinet) and any(org["id"] == cabinet["id"] for org, _, _ in seats)
+        tiers[0 if in_cabinet and store.is_secretary_general(sid) else 1 if in_cabinet else 2].append(record)
+    pool = next((tier for tier in tiers if tier), [])
+    if not pool:
+        return None
+    free = [record for record in pool if record.get("status") != "busy" and not hold(store, record["sessionId"])]
+    if free:
+        return max(free, key=lambda record: record.get("updatedAt") or 0)
+    error = TransportError("unavailable", "the Desktop session that would start %s %s; nothing was sent" % (
+        request.get("expected"), gui_receipt.DESKTOP_BUSY))
+    error.busy = True
+    raise error
+
+
+def relay_route(store, request, config, folder, writer=None, sleep=time.sleep, clock=time.monotonic):
+    """Have a live Desktop session start the seat's session (relay_session), then deliver the request into the seat's
+    own inbox once that session is up and idle. Returns "sent", like inbox_route."""
+    relay = relay_session(store, request, live_records())
+    if relay is None:
+        raise TransportError("unavailable", "no live Claude Desktop session of a member can start it")
+    send_user(relay, relay_text(request), relay.get("name") or relay.get("sessionId"), writer)
+    _write(folder / "relay.json", {"via": relay.get("sessionId"), "pid": relay["pid"], "at": time.time()})
+    try:
+        with store.db() as db:
+            store._event(db, request["org_id"], request["member"], "member.desktop_relayed",
+                         {"nonce": request["nonce"], "via": relay.get("sessionId")})
+    except Exception:  # the record is a courtesy; relay.json is what matters
+        pass
+    deadline, idle_since, record = clock() + RELAY_WAIT, None, None
+    while True:
+        record = live_session(request.get("carrier"), request.get("expected"))
+        if record is None or record.get("status") == "busy":
+            idle_since = None
+        elif idle_since is None:
+            idle_since = clock()
+        elif clock() - idle_since >= RELAY_SETTLE:
+            return inbox_route(request, config, folder, writer=writer)
+        if clock() >= deadline:
+            break
+        sleep(RELAY_POLL)
+    if record is None:
+        raise TransportError("unavailable", "asked %s to start it, and it did not come up within %d s" % (
+            relay.get("name") or relay.get("sessionId"), RELAY_WAIT))
+    busy = TransportError("unavailable", "%s %s (it is still in the turn that started it); nothing was sent" % (
+        request.get("expected"), gui_receipt.DESKTOP_BUSY))
+    busy.busy = True
+    raise busy
+
+
+def deliver(request, config, folder, store=None):
+    """The session's own inbox first; when no process carries the seat's session, a live Desktop session of a member
+    starts it (relay_route, given the store); the CLI router only when neither can reach it (the router needs a
     separate claude.ai CLI login)."""
     try:
         return inbox_route(request, config, folder)
     except TransportError as error:
         if error.outcome != "unavailable" or getattr(error, "busy", False):
             raise
-        first = str(error)
+        first, absent = str(error), getattr(error, "absent", False)
+    if absent and store is not None:
+        try:
+            return relay_route(store, request, config, folder)
+        except TransportError as error:
+            if error.outcome != "unavailable" or getattr(error, "busy", False):
+                raise
+            first = "%s; starting it: %s" % (first, error)
     try:
         return route(request, config, folder)
     except TransportError as error:
@@ -620,7 +734,7 @@ def run_turn(store, org, member, config, prompt, new, cwd, route_message=None, t
     _write(folder / "request.json", request)
     _write(path, request)
     try:
-        outcome = (route_message or deliver)(request, config, folder)
+        outcome = route_message(request, config, folder) if route_message else deliver(request, config, folder, store)
     except TransportError as error:
         if not error.possible:
             _write(folder / "delivery.json", {"outcome": error.outcome, "records": []})

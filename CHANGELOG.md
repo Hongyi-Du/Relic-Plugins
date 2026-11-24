@@ -2,6 +2,20 @@
 
 ## Unreleased / 未发布
 
+- A Claude Desktop seat whose session is not running can be woken again. The desktop app runs a session's process
+  only while the session is open or at work, so after the app restarts a seat has no inbox until something starts
+  it, and only a Desktop session can start another one (2026-11-24: after the app restarted on 11-23, OrgBench's
+  benchlead could not be woken for a day; the CLI route needs a login the person does not keep). Relic now asks a
+  live, idle Desktop session of a member to start the seat's session with a short message: the secretary-general's
+  whenever one is live, else another session of the cabinet, else any member's, and never one of the person's own
+  chats. Once that session is up and idle, the wake-up goes into its own inbox word for word, as before. When the
+  sessions it would ask are in a turn, the wake-up waits quietly, as for a busy seat.
+  - 会话没在运行的 Claude 桌面席位又能叫醒了。桌面应用只在会话打开或正在干活时运行它的进程，应用一重启，席位就没有
+    收件箱，要等别的东西把它拉起来，而只有桌面会话能拉起另一个会话（2026-11-24：应用 11-23 重启后，OrgBench 的
+    benchlead 一整天叫不醒；CLI 路线又要人不打算保留的登录）。现在 Relic 会请一个在运行、闲着的成员桌面会话发一句
+    短话把席位的会话拉起来：秘书长的会话在运行就用它，否则用秘书处的其他会话，再否则用任一成员的，从不用人自己的
+    聊天。等它起来闲下来，叫醒消息照旧原样写进它自己的收件箱。要请的会话都在忙时，叫醒安静等着，和席位自己忙时一样。
+
 - A pause that waits for the Codex weekly limit to reset (`until: quota:codex`) now also ends once the newest usage
   reading's own reset time has been past for 30 minutes (2026-11-23: the limit reset at 15:34Z, but the newest
   reading was from 11-19, because the Codex sessions that would have written a newer one were the paused ones; the
