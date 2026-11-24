@@ -14,12 +14,13 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from relic_core import claude_desktop as gui, runner, wake
+from relic_core import claude_desktop as gui, monitor, runner, wake
 from relic_core.store import Store
 
 NAME = "SCOPE development and pilot 2026-10-19 · claude-reviewer"
 SID = "99bb1e11-21c6-437f-9933-f07432b1a7f7"
 PIPE = "\\\\.\\pipe\\LOCAL\\cc-msg-1a2B3c"
+RELAY_PIPE = "\\\\.\\pipe\\LOCAL\\cc-msg-relay"
 TOKEN = "0123456789abcdef0123456789abcdef"
 
 
@@ -49,9 +50,10 @@ class InboxDelivery(unittest.TestCase):
                         "nonce": "abc123", "prompt": "Exact\n payload 中文", "created": time.time()}
         self.writes = []
 
-    def register(self, pid=None, session=SID, name=NAME, pipe=PIPE, key=True, token=TOKEN):
+    def register(self, pid=None, session=SID, name=NAME, pipe=PIPE, key=True, token=TOKEN, **extra):
         pid = os.getpid() if pid is None else pid
         record = {"pid": pid, "sessionId": session, "name": name, "messagingSocketPath": pipe, "kind": "interactive"}
+        record.update(extra)
         (self.config_dir / "sessions" / ("%d.json" % pid)).write_text(json.dumps(record), encoding="utf-8")
         if key:
             (self.config_dir / "sessions" / gui.key_name(pid, pipe)).write_text(
@@ -219,6 +221,148 @@ class InboxDelivery(unittest.TestCase):
                          self.tmp.name, timeout=0)
         self.assertEqual(again.exception.outcome, "blocked")
         self.assertEqual(len(self.writes), 1)
+
+    # ---- a seat whose session is not running: started through a live Desktop session of a member ----
+
+    def relay(self, **extra):
+        """The session 'lead' (it holds the organization's lead seat), live and idle in the Claude desktop app."""
+        return self.register(pid=os.getppid(), session="lead", name="SCOPE · lead", pipe=RELAY_PIPE,
+                             entrypoint="claude-desktop", status="idle", **extra)
+
+    def test_a_session_that_is_not_running_is_started_by_a_members_desktop_session(self):
+        self.relay()
+        clock, started = [0.0], []
+
+        def sleep(seconds):
+            clock[0] += seconds
+            if not started:  # the app starts the seat's session once the relay has sent it the short message
+                started.append(self.register(entrypoint="claude-desktop", status="idle"))
+
+        self.assertEqual(gui.relay_route(self.store, self.request, self.config, self.folder, writer=self.writer,
+                                         sleep=sleep, clock=lambda: clock[0]), "sent")
+        self.assertEqual([path for path, _ in self.writes], [RELAY_PIPE, PIPE])
+        ask = json.loads(self.writes[0][1].decode("utf-8").splitlines()[1])["message"]["content"]
+        self.assertIn('titled exactly "%s"' % NAME, ask)
+        self.assertIn(gui.START_TEXT, ask)
+        self.assertNotIn(gui.marker(self.request), ask)  # the wake-up itself never passes through another session
+        self.assertTrue(monitor.automatic(ask) and monitor.automatic(gui.START_TEXT))  # nobody typed these
+        frames = [json.loads(line) for line in self.writes[1][1].decode("utf-8").splitlines()]
+        self.assertEqual(frames, [{"type": "auth", "token": TOKEN},
+                                  {"type": "user", "message": {"role": "user", "content": gui.payload(self.request)}}])
+        self.assertGreaterEqual(clock[0], gui.RELAY_SETTLE)  # only once the start turn had ended
+        self.assertEqual(gui._read(self.folder / "relay.json")["via"], "lead")
+        self.assertEqual(gui._read(self.folder / "delivery.json")["outcome"], "sent")
+        with self.store.db() as db:
+            kinds = [row[0] for row in db.execute("SELECT kind FROM events WHERE member='claude-reviewer'")]
+        self.assertIn("member.desktop_relayed", kinds)
+
+    def test_who_starts_it_the_secretary_generals_session_first_never_a_chat_without_a_seat(self):
+        cabinet_id = self.store.create("cab", "秘书处", "cabinet", "relic-head")["id"]
+        self.store.set_cabinet(cabinet_id)
+        self.store.add_seat(cabinet_id, "study-head")
+        self.store.join("dept", cabinet_id, "study-head")  # a department head's own session, in the cabinet too
+        phd_id = self.store.create("phd", "27Fall", "list", "claude")["id"]  # its leader sits in the cabinet ex officio
+        self.store.add_seat(phd_id, "worker")
+        self.store.join("member", phd_id, "worker")  # a member's session outside the cabinet
+        self.store.create("pbz", "Mod", "mod", "claude")
+
+        def record(pid, sid, updated, **extra):
+            return dict({"pid": pid, "sessionId": sid, "name": sid, "messagingSocketPath": PIPE,
+                         "entrypoint": "claude-desktop", "status": "idle", "updatedAt": updated}, **extra)
+        chat = record(1, "chat", 9)                   # holds no seat: one of the person's own chats
+        head = record(3, "cab", 1)                    # the secretary-general's session
+        dept = record(8, "dept", 5)
+        phd = record(2, "phd", 8)
+        member = record(9, "member", 9)
+        pbz = record(6, "pbz", 3)
+        cli = record(4, "lead", 7, entrypoint="cli")  # a CLI session cannot start a Desktop one
+        own = record(5, SID, 10)                      # the seat's own session never starts itself
+
+        def pick(*records):
+            return gui.relay_session(self.store, self.request, list(records))
+
+        def waits(*records):
+            with self.assertRaises(gui.TransportError) as caught:
+                pick(*records)
+            self.assertTrue(wake.no_turn(caught.exception))  # it waits quietly, as for a busy seat
+
+        with mock.patch.object(gui, "peer_token", side_effect=lambda r: None if r["sessionId"] == "pbz" else TOKEN):
+            self.assertIs(pick(chat, member, phd, dept, head, cli, own), head)
+            self.assertIs(pick(chat, member, phd, dept, cli, own), phd)  # else the cabinet's most recently active
+            self.assertIs(pick(member, dict(phd, updatedAt=1), dept), dept)
+            self.assertIs(pick(chat, member, cli, own), member)  # no cabinet session is live: any member's
+            self.assertIsNone(pick(chat, cli, own, pbz))  # pbz published no inbox key: it cannot be asked
+            waits(member, phd, dept, dict(head, status="busy"))  # the secretary-general's is in a turn: wait for it
+            with mock.patch.object(gui, "hold", side_effect=lambda store, sid, now=None: 60 if sid == "cab" else 0):
+                waits(dept, head)  # it owes a Relic request its Stop: wait for that, too
+            waits(chat, dict(member, status="busy"))
+        self.assertEqual(self.writes, [])
+
+    def test_only_a_seat_with_no_process_is_started_and_the_cli_router_stays_the_last_resort(self):
+        relay = mock.Mock(return_value="sent")
+        route = mock.Mock(side_effect=gui.TransportError("unavailable", "the CLI is not signed in"))
+        with mock.patch.object(gui, "relay_route", relay), mock.patch.object(gui, "route", route):
+            self.assertEqual(gui.deliver(self.request, self.config, self.folder, self.store), "sent")
+            relay.assert_called_once_with(self.store, self.request, self.config, self.folder)
+            route.assert_not_called()
+
+            relay.side_effect = gui.TransportError("unavailable", "no live Claude Desktop session of a member")
+            with self.assertRaises(gui.TransportError) as caught:
+                gui.deliver(self.request, self.config, self.folder, self.store)
+            for reason in ("no live Claude Code session", "no live Claude Desktop session of a member",
+                           "the CLI is not signed in"):
+                self.assertIn(reason, str(caught.exception))
+
+            busy = gui.TransportError("unavailable", "the Desktop session that would start it %s" % gui.gui_receipt.DESKTOP_BUSY)
+            busy.busy = True
+            relay.side_effect = busy
+            route.reset_mock()
+            with self.assertRaises(gui.TransportError) as caught:
+                gui.deliver(self.request, self.config, self.folder, self.store)
+            self.assertTrue(wake.no_turn(caught.exception))
+            route.assert_not_called()
+
+            relay.reset_mock()
+            self.register(key=False)  # a live process without an inbox key: nothing to start
+            with self.assertRaises(gui.TransportError):
+                gui.deliver(self.request, self.config, self.folder, self.store)
+            relay.assert_not_called()
+            route.assert_called_once()
+
+    def test_after_the_start_one_that_never_comes_up_fails_and_one_still_in_its_turn_waits(self):
+        self.relay()
+        clock = [0.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        def attempt():
+            with self.assertRaises(gui.TransportError) as caught:
+                gui.relay_route(self.store, self.request, self.config, self.folder, writer=self.writer,
+                                sleep=sleep, clock=lambda: clock[0])
+            return caught.exception
+
+        failed = attempt()
+        self.assertEqual(failed.outcome, "unavailable")
+        self.assertFalse(wake.no_turn(failed))  # a failure: the wake-up backs off and tries again later
+        self.assertIn("did not come up", str(failed))
+        self.assertGreaterEqual(clock[0], gui.RELAY_WAIT)
+        self.assertEqual([path for path, _ in self.writes], [RELAY_PIPE])  # the wake-up itself was not sent
+
+        self.writes.clear()
+        clock[0] = 0.0
+        self.register(entrypoint="claude-desktop", status="busy")
+        waiting = attempt()
+        self.assertTrue(wake.no_turn(waiting))  # up, but still in the turn that started it: wait quietly
+        self.assertEqual([path for path, _ in self.writes], [RELAY_PIPE])
+
+    def test_a_wake_of_a_seat_with_no_process_can_be_relayed(self):
+        relay = mock.Mock(return_value="sent")
+        with mock.patch.object(gui, "relay_route", relay), self.assertRaises(gui.TransportError) as caught:
+            gui.run_turn(self.store, self.org, "claude-reviewer", self.config, "do exact task", False,
+                         self.tmp.name, timeout=0)
+        self.assertEqual(caught.exception.outcome, "sent")  # delivered; complete only with the seat's own Stop
+        self.assertIs(relay.call_args[0][0], self.store)
 
 
 if __name__ == "__main__":
