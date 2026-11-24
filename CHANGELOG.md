@@ -2,6 +2,15 @@
 
 ## Unreleased / 未发布
 
+- A pause that waits for the Codex weekly limit to reset (`until: quota:codex`) now also ends once the newest usage
+  reading's own reset time has been past for 30 minutes (2026-11-23: the limit reset at 15:34Z, but the newest
+  reading was from 11-19, because the Codex sessions that would have written a newer one were the paused ones; the
+  Learning and OrgBench pauses went on until the person said to start again). A newer reading that shows the reset
+  still ends it at once, as before.
+  - 等 Codex 周额度重置的暂停（`until: quota:codex`），现在只要最新一条用量记录自己的重置时间已过 30 分钟，也会结束
+    （2026-11-23：额度 15:34Z 就重置了，但最新记录还是 11-19 的，能写新记录的 Codex 会话正是被暂停的那些，Learning
+    和 OrgBench 的暂停一直没解除，直到人说开工）。有更新的记录显示已重置时，照旧立刻结束。
+
 - When a Codex desktop chat cannot be woken because its turn waits for the person in the app (an approval, an
   answer), the person is told once: which member's chat, since when and what it waits for (2026-11-18: chief's chat
   waited on an approval for 16 hours while its wake-up was retried every two minutes as "busy" and nobody heard of

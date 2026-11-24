@@ -142,6 +142,22 @@ class MemberPauses(Base):
         self.assertTrue(drive["on"])
         self.assertEqual(drive["goal"], "keep the study going")
 
+    def test_a_reading_whose_own_window_is_over_ends_the_pause(self):
+        """2026-11-23: the weekly limit reset at 15:34Z, but the newest reading was from 11-19. The sessions that would
+        report a newer one were the paused ones, so the pauses went on until the person said to start again."""
+        resets = time.time() + 3600
+        self.codex_limits(79, resets)  # the last reading before every Codex session involved was paused
+        self.store.set_seat_auto_wake(self.team, "dev", False, reason="Codex 周额度不足", until="quota:codex",
+                                      by=self.chief)
+        key = "%s/dev" % self.team
+        self.assertEqual(self.due("seat", key), resets)
+        done = self.store.fire_timers(resets)
+        self.assertEqual([d["outcome"] for d in done if d["kind"] == "seat"], ["quota not reset yet"])
+        self.assertFalse(self.store.get(self.team)["members"]["dev"]["auto_wake"])
+        done = self.store.fire_timers(resets + store_module.QUOTA_GRACE)  # still no newer reading
+        self.assertEqual([d["outcome"] for d in done if d["kind"] == "seat"], ["ended"])
+        self.assertTrue(self.store.get(self.team)["members"]["dev"]["auto_wake"])
+
     def test_the_fresher_of_the_apps_copy_and_codexs_own_session_file_decides(self):
         stale_reset = time.time() - 5 * 86400
         path = Path(os.environ["RELIC_HOME"]) / "usage.sqlite3"  # the App's usage reader stopped five days ago

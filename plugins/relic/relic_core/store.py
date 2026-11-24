@@ -130,6 +130,11 @@ def epoch(text):
 # until when gets this; the person's own switches (the Relic App, Stop, Stop all) end with the person's next message.
 PAUSE_DEFAULT = 2 * 3600
 PAUSE_MAX = 7 * 24 * 3600
+# A quota:codex pause ends once the usage data shows the reset. Only Codex sessions that run write newer data, and the
+# ones a quota pause stops are those very sessions, so when the newest reading's own window has been over this long,
+# its limit is over too (2026-11-23: the weekly limit reset at 15:34Z, but the newest reading was from 11-19 and the
+# Learning and OrgBench pauses went on until the person said to start again, at 11-24 04:57Z).
+QUOTA_GRACE = 1800
 # A question to the person waits this long at most; then the asker goes ahead with its recommendation (the person,
 # 2026-11-12: "如果我一个小时没反应你的继续，你就直接开干").
 ASK_DEFAULT = 3600
@@ -2832,9 +2837,11 @@ class Store:
                                                     at=pause.get("at")))
                 return {"kind": kind, "key": key, "outcome": "review"}
             if wait_for == "quota:codex":
-                later_reset = (limits.get("resets_at") or 0) > (epoch(pause.get("until")) or 0) + 60
+                resets = float(limits.get("resets_at") or 0)
+                later_reset = resets > (epoch(pause.get("until")) or 0) + 60
                 low_use = limits.get("used_percent") is not None and float(limits["used_percent"]) < 50
-                if not (later_reset or low_use):
+                window_over = bool(resets) and now_ts >= resets + QUOTA_GRACE  # no newer reading: see QUOTA_GRACE
+                if not (later_reset or low_use or window_over):
                     self._rearm_in(db, kind, key, ref, now_ts + 1800)
                     return {"kind": kind, "key": key, "outcome": "quota not reset yet"}
             if wait_for == "idle" and not away:
