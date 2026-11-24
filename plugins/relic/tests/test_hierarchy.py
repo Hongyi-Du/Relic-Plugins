@@ -119,6 +119,35 @@ class Hierarchy(unittest.TestCase):
         with self.assertRaises(OrgError):
             s.send(CHIEF, ["helper", self.team + "/dev"], "mixed")
 
+    def test_answering_a_message_from_another_organization_both_ways_keeps_its_thread(self):
+        # 2026-11-24: benchlead answered research-head's #8542 both ways the message tool describes; both were refused,
+        # because the message is kept in benchlead's organization under its own number, not in 科研部.
+        s = self.store
+        down = s.send(CHIEF, ["dev"], "Ship the landing page first.", org="Team")["message_id"]
+        s.unread(CHIEF, limit=None)  # whatever reached chief before
+        ways = ({"to": [self.sec + "/chief"]}, {"to": ["chief"], "org": self.sec}, {"to": ["chief"], "org": "秘书处"},
+                {"org": self.sec})
+        for n, way in enumerate(ways):
+            with self.subTest(way):
+                sent = s.send(DEV, way.get("to"), "answer %d" % n, reply_to=down, org=way.get("org"))
+                self.assertEqual((sent["reply_to"], sent["delivered_orgs"]), (down, [self.sec]))
+                self.assertNotIn("org_id", sent)  # kept in Team, in the thread it answers
+                got = s.unread(CHIEF)
+                self.assertEqual([(m["body"], m["from"]) for m in got], [("answer %d" % n, self.team + "/dev")])
+        with s.db() as db:
+            replies = [r[0] for r in db.execute("SELECT body FROM messages WHERE org_id=? AND reply_to=? ORDER BY id",
+                                                (self.team, down))]
+        self.assertEqual(replies, ["answer %d" % n for n in range(len(ways))])
+        # a message kept in the organization written to is answered there, as before
+        report = s.send(LEAD, ["chief"], "Weekly report.", org=self.sec)["message_id"]
+        sent = s.send(DEV, ["chief"], "One more point.", reply_to=report, org=self.sec)
+        self.assertEqual((sent["org_id"], sent["reply_to"]), (self.sec, report))
+        # and a message kept where the session holds no seat still cannot be answered from elsewhere
+        s.add_seat(self.other, "o2")
+        other = s.send(OTHER, ["o2"], "kept in Other")["message_id"]
+        with self.assertRaises(OrgError):
+            s.send(DEV, ["chief"], "x", reply_to=other, org=self.sec)
+
     def test_a_receipt_goes_back_to_the_organization_that_woke_the_member(self):
         s = self.store
         s.send(CHIEF, ["dev"], "Please check the build.", org=self.team)

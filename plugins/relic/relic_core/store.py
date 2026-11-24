@@ -2020,6 +2020,31 @@ class Store:
             raise OrgError("There is no message #%d in this organization to reply to." % parent)
         return row[1] or parent
 
+    def _reply_seat(self, actor, reply_to, org, names):
+        """("<actor>#<org id>", the id of the organization written to) when a reply addressed to another organization
+        (org=<id or name>, or every recipient named "<org id>/<member>") answers a message kept in an organization the
+        session sits in, not in that one; else (None, None).
+        A message that reaches a seat from another organization is kept where it arrived, under a number of its own
+        there (the copy of a thread reply, or the only record of a message written down to it), so the reply belongs
+        in that thread, and its addressee gets a copy (send). 2026-11-24: benchlead answered research-head's #8542
+        both ways the message tool describes, and both were refused: #8542 is kept in OrgBench 搭建组, not in 科研部."""
+        target = org
+        if not target:
+            places = {n.split("/", 1)[0] for n in names}
+            if not names or len(places) != 1 or not all("/" in n for n in names):
+                return None, None
+            target = places.pop()
+        text = str(reply_to).strip().lstrip("#")
+        if not text.isdigit():
+            return None, None
+        target = next((o["id"] for o in self.list_orgs() if target in (o["id"], o["name"])), target)
+        with self.db() as db:
+            row = db.execute("SELECT org_id FROM messages WHERE id=?", (int(text),)).fetchone()
+        if not row or row[0] == target:
+            return None, None
+        home = self.scoped(actor, row[0])
+        return (home, target) if home else (None, None)
+
     def _thread_people(self, db, org_id, root):
         """Everyone in a thread so far: the senders and recipients of its root and of each reply, in order of appearance
         ("human" too when the person took part)."""
@@ -2060,9 +2085,15 @@ class Store:
         if seated:  # explicit held seat wins before interpreting qualified recipients
             self.set_focus(actor, self.split_actor(seated)[1])
             actor, org = seated, None
+        names = [str(n) for n in (to if isinstance(to, list) else ([to] if to else []))]
+        home, target = self._reply_seat(actor, reply_to, org, names) if reply_to else (None, None)
+        if home:  # it answers a message kept in one of the session's own organizations: answer in that thread there
+            if org:
+                names = to = [n if "/" in n else qualified(target, n) for n in names]
+            self.set_focus(actor, self.split_actor(home)[1])
+            actor, org = home, None
         explicit_seat = self.split_actor(actor)[1] is not None
         seat_reply = bool(explicit_seat and reply_to and not org)
-        names = [str(n) for n in (to if isinstance(to, list) else ([to] if to else []))]
         if not seat_reply and not org and names and all("/" in n for n in names):
             places = {n.split("/", 1)[0] for n in names}
             if len(places) != 1:

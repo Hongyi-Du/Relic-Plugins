@@ -2,6 +2,17 @@
 
 ## Unreleased / 未发布
 
+- Answering a message that came from another organization works both ways the message tool describes
+  (`to=["<org id>/<member>"]`, or `org=<org id>` with `to=[member]`) together with `reply_to`. Such a message is kept
+  where it arrived, under a number of its own there, so looking the number up in the sender's organization refused
+  the reply (2026-11-24: benchlead could not answer research-head's #8542 either way and wrote a new message
+  instead). The reply now goes into that thread where the message is kept, and the sender gets a copy, as a reply to
+  a thread with members from elsewhere already did.
+  - 回复从别的组织发来的消息时，工具说明里的两种写法（`to=["<组织 id>/<成员>"]`，或 `org=<组织 id>` 加
+    `to=[成员]`）现在都能和 `reply_to` 一起用。这种消息存在收到它的组织里，编号是那边的，以前拿这个编号去发件方的
+    组织里找，回复就被拒（2026-11-24：benchlead 两种写法都回不了 research-head 的 #8542，只好另发一条）。现在回复
+    放进消息所在组织的那条线程，再给发件人送一份副本，和线程里有外部成员时的回复一样。
+
 - A Claude Desktop seat whose session is not running can be woken again. The desktop app runs a session's process
   only while the session is open or at work, so after the app restarts a seat has no inbox until something starts
   it, and only a Desktop session can start another one (2026-11-24: after the app restarted on 11-23, OrgBench's
