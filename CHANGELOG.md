@@ -16,6 +16,14 @@
     短话把席位的会话拉起来：秘书长的会话在运行就用它，否则用秘书处的其他会话，再否则用任一成员的，从不用人自己的
     聊天。等它起来闲下来，叫醒消息照旧原样写进它自己的收件箱。要请的会话都在忙时，叫醒安静等着，和席位自己忙时一样。
 
+- A Claude Desktop session in the middle of a turn no longer counts as a failed wake-up; Relic waits and tries again,
+  as it does for a busy Codex chat. Before, each such retry counted toward the five failures after which Relic gives
+  up, and a seat whose earlier wake-ups had already failed that often gave up at the first busy one (2026-11-24:
+  benchlead, with 15 failures on record, gave up the moment the session that would start it was in a turn).
+  - Claude 桌面会话正在回合中，不再算一次叫醒失败：Relic 会等一会儿再试，和 Codex 聊天正忙时一样。以前每次这样的
+    重试都计入「失败 5 次就放弃」，之前已经失败够多次的席位，碰上第一次忙就直接放弃（2026-11-24：benchlead 记着 15
+    次失败，要拉起它的会话正在回合中，它当场就被放弃了）。
+
 - A pause that waits for the Codex weekly limit to reset (`until: quota:codex`) now also ends once the newest usage
   reading's own reset time has been past for 30 minutes (2026-11-23: the limit reset at 15:34Z, but the newest
   reading was from 11-19, because the Codex sessions that would have written a newer one were the paused ones; the

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "hooks"))
 
-from relic_core import claude_desktop, desktop, runner, wake  # noqa: E402
+from relic_core import claude_desktop, desktop, gui_receipt, runner, wake  # noqa: E402
 from relic_core.store import Store, now  # noqa: E402
 import relic_hook  # noqa: E402
 import server  # noqa: E402
@@ -226,6 +226,23 @@ class Wake(unittest.TestCase):
         self.assertNotIn("failures", mine)
         self.assertNotIn("in_use", mine)
         self.assertEqual(self.dispatch(self.t + wake.GAP + 1), ["cody"])
+
+    def test_turn_running_in_the_claude_desktop_app_waits_a_gap_even_after_failures(self):
+        self.store.send(LEAD, ["cody"], "hello")
+        with self.store.change(self.oid) as (org, _):  # earlier wake-ups of this seat failed, up to the limit
+            org.setdefault("wake", {}).setdefault("members", {}).setdefault("cody", {})["failures"] = wake.MAX_FAILURES
+        self.dispatch()
+        for busy in ("Claude Desktop unavailable: OrgBench · lead %s (a turn is running); nothing was sent",
+                     "Claude Desktop unavailable: the Desktop session that would start OrgBench · lead %s; "
+                     "nothing was sent"):
+            busy %= gui_receipt.DESKTOP_BUSY
+            self.assertTrue(wake.no_turn(busy))
+            self.assertEqual(self.finish("cody", busy), wake.GAP)
+            mine = self.store.get(self.oid)["wake"]["members"]["cody"]
+            self.assertEqual(mine["failures"], wake.MAX_FAILURES)  # waiting counts as no failure
+            self.assertNotIn("gave_up_at", mine)
+            self.t += wake.GAP + 1
+            self.assertEqual(self.dispatch(self.t), ["cody"])
 
     def test_chat_held_out_of_reach_is_rechecked_a_limited_number_of_times(self):
         self.store.send(LEAD, ["cody"], "hello")
