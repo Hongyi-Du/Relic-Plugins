@@ -10,6 +10,8 @@ its running language server:
                            (LanguageServerService/SendAgentMessage, what `agentapi send-message` sends: over HTTP the
                            text stays UTF-8, while that command line garbles non-ASCII text on Windows)
   * run_state()            RUN_STATE_IDLE, RUN_STATE_RUNNING or RUN_STATE_CANCELLING (ConversationService)
+  * models()               the models the app offers its agents, and the one a new conversation gets there
+                           (LanguageServerService/GetAvailableModels)
   * run_turn()             a Relic wake-up: send the prompt, wait until the turn it starts has ended, return the reply
 The message arrives in the conversation as a system message, not as the person's input.
 """
@@ -103,8 +105,28 @@ def call(method, body, timeout=30, opener=None):
     return json.loads(text or "{}")
 
 
+def models():
+    """The models the app offers its agents (LanguageServerService/GetAvailableModels): {"default": the model a new
+    agent conversation gets in the app, "choices": [{"id", "name"}] in the app's recommended order}; None when the app
+    cannot say."""
+    try:
+        data = call(LANGUAGE_SERVER + "GetAvailableModels", {})
+    except (RuntimeError, ValueError):
+        return None
+    response = data.get("response") or {}
+    known = response.get("models") or {}
+    ordered = [model_id for sort in (response.get("agentModelSorts") or [])[:1] for group in sort.get("groups") or []
+               for model_id in group.get("modelIds") or []]
+    choices = [{"id": model_id, "name": (known.get(model_id) or {}).get("displayName") or model_id}
+               for model_id in dict.fromkeys(ordered) if model_id in known]
+    return {"default": str(response.get("defaultAgentModelId") or ""), "choices": choices}
+
+
 def create_conversation(title, prompt, model=None):
-    """A new conversation, titled, that starts its first turn on prompt; its id."""
+    """A new conversation, titled, that starts its first turn on prompt; its id. Without a model of its own it gets
+    the app's default agent model: CreateConversation alone would run it on the lightest tier the app has ("flash")."""
+    if not model:
+        model = (models() or {}).get("default")
     body = {"title": title, "prompt": [{"text": prompt}]}
     if model:
         body["model"] = model

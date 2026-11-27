@@ -213,8 +213,39 @@ class Antigravity(unittest.TestCase):
                 return {}
             if method.endswith("CreateConversation"):
                 return {"conversation": {"id": "fresh-conv"}}
+            if method.endswith("GetAvailableModels"):  # what Antigravity 2.35 answers, cut down
+                return {"response": {
+                    "defaultAgentModelId": "gemini-4-neon-high",
+                    "models": {"gemini-4-neon-high": {"displayName": "Gemini 4 Neon (High)"},
+                               "gemini-4-neon-xhigh": {"displayName": "Gemini 4 Neon (XHigh)"},
+                               "claude-opus-5-5-high": {"displayName": "Claude Opus 5.5 (High)"}},
+                    "agentModelSorts": [{"displayName": "Recommended", "groups": [
+                        {"modelIds": ["gemini-4-neon-high", "gemini-4-neon-xhigh", "gone-model"]},
+                        {"modelIds": ["claude-opus-5-5-high", "gemini-4-neon-high"]}]}],
+                    "tieredModelIds": {"flash": ["gemini-4-hydrogen-tiered-high"]}}}
             raise AssertionError(method)
         return calls, call
+
+    def test_a_new_conversation_gets_the_apps_default_model_not_its_lightest_tier(self):
+        calls, call = self.server(["RUN_STATE_IDLE"])
+        with mock.patch.object(antigravity, "call", call):
+            self.assertEqual(antigravity.create_conversation("Team · hajimi", "hello"), "fresh-conv")
+            antigravity.create_conversation("Team · hajimi", "hello", "pro")  # a model the seat chose is kept
+            self.assertEqual(antigravity.models(), {"default": "gemini-4-neon-high", "choices": [
+                {"id": "gemini-4-neon-high", "name": "Gemini 4 Neon (High)"},
+                {"id": "gemini-4-neon-xhigh", "name": "Gemini 4 Neon (XHigh)"},
+                {"id": "claude-opus-5-5-high", "name": "Claude Opus 5.5 (High)"}]})
+        created = [body.get("model") for name, body in calls if name == "CreateConversation"]
+        self.assertEqual(created, ["gemini-4-neon-high", "pro"])
+
+        def refusing(method, body, timeout=30, opener=None):
+            if method.endswith("GetAvailableModels"):
+                raise RuntimeError("Antigravity refused GetAvailableModels: unimplemented")
+            return call(method, body)
+        with mock.patch.object(antigravity, "call", refusing):
+            antigravity.create_conversation("Team · hajimi", "hello")
+            self.assertIsNone(antigravity.models())
+        self.assertNotIn("model", [body for name, body in calls if name == "CreateConversation"][-1])
 
     def test_a_wake_up_goes_into_the_seats_conversation_and_waits_for_its_turn(self):
         calls, call = self.server(["RUN_STATE_IDLE", "RUN_STATE_RUNNING", "RUN_STATE_IDLE"])

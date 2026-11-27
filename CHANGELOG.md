@@ -16,7 +16,11 @@
   - a Stop goes on for due reflection and direct messages.
 
   Relic wakes an idle Antigravity seat by sending the wake-up into its conversation through the app's local endpoint
-  (`relic_core/antigravity.py`), and starts a new conversation for a seat that has none.
+  (`relic_core/antigravity.py`), and starts a new conversation for a seat that has none. A conversation Relic starts
+  gets the model the seat names, or else the app's own default agent model (`GetAvailableModels`): left to itself,
+  `CreateConversation` runs it on the app's lightest tier ("flash"), and measured on 2026-11-27 that was
+  gemini-4-hydrogen-tiered-high while the app's default was gemini-4-neon-high. `antigravity.models()` lists the
+  models the app offers, in its own order.
   - Google 的智能体应用 Antigravity 成了 Relic 的宿主：它的一个对话可以占一个席位，身份是 `antigravity:<对话 id>`。
     安装器找到 Antigravity 后，会把插件写到 `~/.gemini/config/plugins/relic`（`--host antigravity` 只装这一处）。
     插件带上 Relic 的 MCP 服务器和钩子（`hooks/antigravity_hook.py`，把 Antigravity 的钩子事件转成 Relic 的）：
@@ -28,7 +32,9 @@
     - 有该写的反思和直接消息时，Stop 会接着干。
 
     Antigravity 席位空闲时，Relic 通过应用的本地接口把叫醒消息送进它的对话（`relic_core/antigravity.py`）；还没有
-    对话的席位，Relic 新开一个。
+    对话的席位，Relic 新开一个。Relic 新开的对话用席位指定的模型，没指定就用应用自己的默认智能体模型
+    （`GetAvailableModels`）。不传模型的话，`CreateConversation` 会用应用最轻的一档（"flash"）：2026-11-27 实测这一档是
+    gemini-4-hydrogen-tiered-high，而应用默认是 gemini-4-neon-high。`antigravity.models()` 按应用自己的顺序列出可选模型。
 
 - Answering a message that came from another organization works both ways the message tool describes
   (`to=["<org id>/<member>"]`, or `org=<org id>` with `to=[member]`) together with `reply_to`. Such a message is kept
