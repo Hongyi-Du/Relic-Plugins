@@ -108,7 +108,7 @@ class InstallerTests(unittest.TestCase):
             (Path(temp) / '.gemini' / 'antigravity').mkdir(parents=True)
             self.assertEqual(installer.main(['--no-shortcut']), 0)  # auto finds it
             hooks = json.loads((plugin / 'hooks.json').read_text(encoding='utf-8'))
-            self.assertEqual(hooks['relic']['PreToolUse'][0]['matcher'], 'call_mcp_tool')
+            self.assertEqual(hooks['relic']['PreToolUse'][0]['matcher'], '*')
             server = json.loads((plugin / 'mcp_config.json').read_text(encoding='utf-8'))['mcpServers']['relic_org']
             self.assertEqual(Path(server['args'][-1]), ROOT / 'plugins' / 'relic' / 'server.py')
 

@@ -58,7 +58,7 @@ class Antigravity(unittest.TestCase):
     def test_the_plugin_brings_the_relic_server_and_hooks_and_asks_nothing_of_other_tools(self):
         files = antigravity.plugin_files(ROOT, "1.2.3")
         hooks = json.loads(files["hooks.json"])["relic"]
-        self.assertEqual([g["matcher"] for g in hooks["PreToolUse"]], ["call_mcp_tool"])
+        self.assertEqual([g["matcher"] for g in hooks["PreToolUse"]], ["*"])
         self.assertEqual(set(hooks), {"SessionStart", "PreInvocation", "PreToolUse", "PostToolUse", "Stop"})
         self.assertIn("antigravity_hook.py", hooks["SessionStart"][0]["command"])
         server = json.loads(files["mcp_config.json"])["mcpServers"]["relic_org"]
@@ -95,9 +95,45 @@ class Antigravity(unittest.TestCase):
         out = self.hook("PreToolUse", conversationId="new-conv", toolCall=relic)
         self.assertEqual(out["overwrite"]["Arguments"]["actor"], "antigravity:new-conv")
 
+    def test_strong_protocols_block_antigravity_calls_and_leave_the_rest_to_the_app(self):
+        ep = self.store.episode("lead-s", "open", {"title": "release"})
+        self.store.episode("lead-s", "close", {"episode_id": ep["id"], "outcome": "partial", "summary": "a push"})
+        self.store.episode("lead-s", "reflect", {"episode_id": ep["id"], "body": "hajimi pushed without review"})
+        p = self.store.protocol("lead-s", "propose", {
+            "title": "no push", "rationale": "r", "strength": "strong", "episode_id": ep["id"],
+            "rules": [{"effect": "deny", "tools": ["Bash"], "input_contains": ["git push"], "reason": "the lead pushes"},
+                      {"effect": "deny", "tools": ["Edit", "Write"], "path_glob": "src/api/*", "reason": "API files"}]})
+        self.assertEqual(self.store.protocol(ACTOR, "vote", {"protocol_id": p["id"], "vote": "approve",
+                                                             "reason": "y"})["status"], "active")
+        push = self.hook("PreToolUse", toolCall={"name": "run_command", "args": {"CommandLine": "git push origin main"}})
+        self.assertEqual(push["decision"], "deny")
+        self.assertIn("the lead pushes", push["reason"])
+        edit = self.hook("PreToolUse", toolCall={"name": "edit_file", "args": {"Path": "src/api/routes.py",
+                                                                               "Target": "a", "Replacement": "b"}})
+        self.assertEqual(edit["decision"], "deny")
+        # what no protocol blocks is the app's to decide, as on Claude Code and Codex: "ask" keeps its own rules
+        self.assertEqual(self.hook("PreToolUse", toolCall={"name": "run_command", "args": {"CommandLine": "git status"}}),
+                         {"decision": "ask"})
+        self.assertEqual(self.hook("PreToolUse", toolCall={"name": "write_file", "args": {"Path": "src/ui/app.py"}}),
+                         {"decision": "ask"})
+        # a conversation without a seat is bound by nobody's protocols
+        self.assertEqual(self.hook("PreToolUse", conversationId="other",
+                                   toolCall={"name": "run_command", "args": {"CommandLine": "git push"}}),
+                         {"decision": "ask"})
+
+    def test_asking_the_person_while_they_are_away_is_refused(self):
+        with mock.patch.object(hook.relic_hook, "away_member", lambda store, actor: {"minutes": 30, "locked": False}):
+            out = self.hook("PreToolUse", toolCall={"name": "ask_question", "args": {"question": "继续吗"}})
+        self.assertEqual(out["decision"], "deny")
+
     def test_tools_reach_relics_vocabulary(self):
         self.assertEqual(hook.relic_tool({"name": "run_command", "args": {"CommandLine": "git push", "Cwd": "x"}}),
                          ("Bash", {"command": "git push", "Cwd": "x"}))
+        self.assertEqual(hook.relic_tool({"name": "edit_file", "args": {"Path": "a.py", "Target": "x"}}),
+                         ("Edit", {"file_path": "a.py", "Target": "x"}))
+        self.assertEqual(hook.relic_tool({"name": "write_file", "args": {"Path": "b.py"}})[0], "Write")
+        self.assertEqual(hook.relic_tool({"name": "read_file", "args": {"Path": "c.py"}}), ("Read", {"file_path": "c.py"}))
+        self.assertEqual(hook.relic_tool({"name": "ask_question", "args": {"q": 1}}), ("AskUserQuestion", {"q": 1}))
         self.assertEqual(hook.relic_tool({"name": "call_mcp_tool", "args": {"ServerName": "relic_relic_org",
                                                                             "ToolName": "inbox", "Arguments": {}}}),
                          ("mcp__relic_org__inbox", {}))

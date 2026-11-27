@@ -9,14 +9,20 @@ This adapter turns each event into the one relic_hook.py handles for Claude Code
                               started the turn (the transcript's step before the first model call): what the person
                               typed (USER_INPUT), or a message from outside (a Relic wake-up, SYSTEM_MESSAGE)
   PreInvocation, later calls  new peer messages only, between the model calls of one turn
-  PreToolUse call_mcp_tool    a Relic tool: allowed, the conversation's actor stamped into its Arguments (as on
-                              Claude Code); another server's tool: "ask", Antigravity's own default for MCP tools
+  PreToolUse, every tool      the organization's strong protocols, in Relic's vocabulary (run_command as Bash,
+                              edit_file as Edit, write_file as Write, read_file as Read): a call they block is denied.
+                              A Relic tool (call_mcp_tool on Relic's server) is allowed, the conversation's actor
+                              stamped into its Arguments, as on Claude Code. Anything else gets "ask": Antigravity's
+                              own rules decide (its preset, monitors and the person's always-allow), as the host's
+                              rules decide on Claude Code and Codex
   PostToolUse                 the activity record (Antigravity takes no context here; messages wait for the next
                               PreInvocation, so none is taken from the inbox here)
   Stop                        Stop: due reflection, direct messages, the rules on Reply; "block" becomes "continue"
 
-The conversation's Relic actor is "antigravity:<conversationId>". Antigravity takes a PreToolUse answer without a
-decision as a denial, so the plugin registers PreToolUse for call_mcp_tool only (relic_core/antigravity.plugin_files).
+The conversation's Relic actor is "antigravity:<conversationId>". Measured on Antigravity 2.35.2 (2026-11-26): a
+PreToolUse answer without a valid decision ({}, "", null) denies the call and an unknown one errors, while "ask" goes
+through the app's own permission flow (a tool its rules allow ran without a prompt, and TURBO commands ran), so that is
+the answer for every call Relic has no objection to.
 """
 import json
 import os
@@ -30,11 +36,16 @@ import relic_hook  # noqa: E402
 from relic_core import antigravity, wake  # noqa: E402
 from relic_core.store import OrgError, Store  # noqa: E402
 
-# Antigravity's tools in the one vocabulary Relic's rules and activity use (Bash, Edit, Write, Read).
-TOOLS = {"run_command": ("Bash", "CommandLine", "command"), "write_to_file": ("Write", "TargetFile", "file_path"),
+# Antigravity's tools in the one vocabulary Relic's rules and activity use (Bash, Edit, Write, Read), with the
+# argument that names the command or the file. Antigravity 2.35 calls them run_command, edit_file, write_file and
+# read_file; the other names are the ones its documentation and earlier versions use.
+TOOLS = {"run_command": ("Bash", "CommandLine", "command"), "edit_file": ("Edit", "Path", "file_path"),
+         "write_file": ("Write", "Path", "file_path"), "read_file": ("Read", "Path", "file_path"),
+         "write_to_file": ("Write", "TargetFile", "file_path"),
          "replace_file_content": ("Edit", "TargetFile", "file_path"),
          "multi_replace_file_content": ("Edit", "TargetFile", "file_path"),
-         "view_file": ("Read", "AbsolutePath", "file_path"), "read_file": ("Read", "Path", "file_path")}
+         "view_file": ("Read", "AbsolutePath", "file_path"),
+         "ask_question": ("AskUserQuestion", None, None)}  # asking the person: refused while the person is away
 
 
 def relic_tool(call):
@@ -48,6 +59,8 @@ def relic_tool(call):
         return prefix + tool, dict(arguments)
     if name in TOOLS:
         relic, field, key = TOOLS[name]
+        if field is None:
+            return relic, dict(args)
         return relic, {key: args.get(field, ""), **{k: v for k, v in args.items() if k != field}}
     return name, dict(args)
 
@@ -135,11 +148,15 @@ def answer(event, relic, store):
     if name == "PreToolUse":
         call = relic["tool_call"]
         args = call.get("args") if isinstance(call.get("args"), dict) else {}
-        if call.get("name") != "call_mcp_tool" or not antigravity.is_server(args.get("ServerName")):
-            return {"decision": "ask"}  # not Relic's: the app's own rule for MCP tools (it asks the person)
+        relic_call = call.get("name") == "call_mcp_tool" and antigravity.is_server(args.get("ServerName"))
         output = relic_hook.handle(relic, store).get("hookSpecificOutput") or {}
-        if output.get("permissionDecision") == "deny":
+        if output.get("permissionDecision") == "deny":  # a strong protocol, the person's Stop, or asking while away
             return {"decision": "deny", "reason": output.get("permissionDecisionReason") or "Relic"}
+        if not relic_call:
+            # Everything else is the app's to decide, as on Claude Code and Codex: "ask" leaves it to Antigravity's
+            # own rules (its preset, its monitors, what the person always allows), measured 2026-11-26; an answer
+            # without a decision would deny it.
+            return {"decision": "ask"}
         stamped = output.get("updatedInput") if isinstance(output.get("updatedInput"), dict) else relic["tool_input"]
         return {"decision": "allow", "reason": "Relic organization tool",
                 "overwrite": {"Arguments": dict(stamped, actor=stamped.get("actor") or actor)}}

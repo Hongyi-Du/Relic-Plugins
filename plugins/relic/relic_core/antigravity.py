@@ -228,9 +228,9 @@ def plugin_files(plugin_dir, version=""):
     command = hook_command(plugin_dir)
     flat = [{"type": "command", "command": command, "timeout": 30}]
     grouped = lambda matcher: [{"matcher": matcher, "hooks": flat}]  # noqa: E731
-    # PreToolUse sees call_mcp_tool only: Antigravity takes a PreToolUse answer without a decision as a denial, and
-    # every other tool keeps the app's own permission rules.
-    hooks = {PLUGIN: {"SessionStart": flat, "PreInvocation": flat, "PreToolUse": grouped("call_mcp_tool"),
+    # PreToolUse sees every tool: strong protocols deny a call they block; any call Relic has no objection to gets
+    # "ask", which leaves it to the app's own permission rules (antigravity_hook.py).
+    hooks = {PLUGIN: {"SessionStart": flat, "PreInvocation": flat, "PreToolUse": grouped("*"),
                       "PostToolUse": grouped("*"), "Stop": flat}}
     python = Path(sys.executable)
     if python.name.lower() == "pythonw.exe":
