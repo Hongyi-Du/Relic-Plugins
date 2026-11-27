@@ -2065,7 +2065,7 @@
       const acts = [
         own && (c.embedded || (hosted && canStart)) ? seatBtn(t('card.new_session'), () => seatAction('fresh', name, c.session ? t('card.new_session_confirm', { name: c.display || name }) : ''), t('card.new_session_hint')) : null,
         hosted && c.session ? seatBtn(t('card.open_session'), () => seatAction('open_session', name), t('card.open_session_hint')) : null,
-        hosted ? seatBtn(t('card.edit_setup'), () => { closeCard(); memberDialog({ edit: name }); }, t('card.edit_setup_hint')) : null,
+        hosted && c.harness !== 'antigravity' ? seatBtn(t('card.edit_setup'), () => { closeCard(); memberDialog({ edit: name }); }, t('card.edit_setup_hint')) : null,
         c.harness === 'chatgpt' ? seatBtn(c.waiting_replies ? t('card.forward_reply_waiting', { n: c.waiting_replies }) : t('card.forward_reply'), () => { closeCard(); forwardDialog(name); }, t('card.forward_reply_hint')) : null,
         c.session ? seatBtn(t('card.leave_seat'), () => seatAction('unbind', name, t('card.leave_seat_confirm', { name: c.display || name })), t('card.leave_seat_hint')) : null,
       ].filter(Boolean);
@@ -2101,7 +2101,7 @@
   }
   function hostKinds() { return hostSurfaces(PLATFORM).map(([harness, surface]) => [harness, surface,
     surface === 'gui' ? t('member.harness_gui', { harness: HARNESS_TITLE[harness] }) : t('member.harness_cli', { harness: HARNESS_TITLE[harness] })]); }
-  const HARNESS_TITLE = { 'claude-code': 'Claude Code', codex: 'Codex', chatgpt: 'ChatGPT', 'claude-chat': 'Claude' };
+  const HARNESS_TITLE = { 'claude-code': 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', chatgpt: 'ChatGPT', 'claude-chat': 'Claude' };
   async function seatOptions() {
     if (!S.seatOptions) S.seatOptions = await get('/api/seat-options');
     return S.seatOptions;
@@ -2582,10 +2582,10 @@
       row('Node.js', x.node || t('settings.not_found'));
       row(t('settings.default_mode'), x.mode || (x.note ? t('settings.adapter_default_note', { note: x.note }) : t('settings.adapter_default')));
       if (x.models && x.models.length) row(t('settings.models'), x.models.join(t('settings.models_sep')));
-      const install = h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+      const install = x.install ? h('button', { class: 'btn sm', type: 'button', onclick: async () => {
         installLogs[x.id] = ['$ ' + x.install]; log.hidden = false; log.textContent = installLogs[x.id].join('\n');
         try { await post('/api/harnesses/' + x.id + '/install', {}); } catch (e) { toast(e.message); }
-      } }, x.adapter_installed ? t('settings.reinstall_adapter') : t('settings.install_adapter'));
+      } }, x.adapter_installed ? t('settings.reinstall_adapter') : t('settings.install_adapter')) : null;
       pane.append(h('div', { class: 'harness', 'data-id': x.id }, h('div', { class: 'h' }, h('b', null, x.title), h('span', { class: 'dim' }, x.vendor), h('div', { style: 'flex:1' }), install), kv, log));
     }
     pane.append(h('h4', { style: 'margin-top:12px;font-size:15px' }, t('settings.later')));
