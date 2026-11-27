@@ -2092,9 +2092,9 @@
   // A member runs one of three ways, all from here: in the App (an ACP session the App hosts), in Claude Code or Codex
   // itself (command line or desktop app, started and woken by Relic), or as a session that already exists on this computer.
   function runModes() { return [['app', t('member.run_app')], ['host', hostSurfaces(PLATFORM).some(([, surface]) => surface === 'gui') ? t('member.run_host') : t('member.run_host_mac')], ['existing', t('member.run_existing')]]; }
-  function runNotes() {
+  function runNotes(harness) {
     return {
-      app: t('member.note_app'),
+      app: harness === 'antigravity' ? t('member.note_app_antigravity') : t('member.note_app'),
       host: !PLATFORM.codex_desktop_wake || !PLATFORM.claude_desktop_wake ? t('member.note_host_mac') : t('member.note_host'),
       existing: isMac() ? t('member.note_existing_mac') : t('member.note_existing'),
     };
@@ -2124,7 +2124,7 @@
     const choices = h('div', { class: 'choices' }, list.filter((x) => !x.later).map((x) => {
       const radio = h('input', { type: 'radio', name: 'harness', value: x.id, disabled: !x.available });
       radio.checked = x.id === picked;
-      radio.addEventListener('change', () => { picked = x.id; });
+      radio.addEventListener('change', () => { picked = x.id; note.textContent = edit ? t('member.edit_note') : runNotes(picked)[run]; });
       return h('label', { class: 'choice' + (x.available ? '' : ' off') }, radio, h('div', null, h('b', null, x.title), ' ', h('span', { class: 'dim' }, x.vendor),
         h('div', { class: 'dim', style: 'font-size:12px' }, x.available ? t('member.connected', { program: x.program ? clip(x.program, 48) : '' }) : x.problem)));
     }));
@@ -2185,7 +2185,7 @@
     const form = h('div', { class: 'form' });
     const tabs = h('div');
     const draw = () => {
-      note.textContent = edit ? t('member.edit_note') : runNotes()[run];
+      note.textContent = edit ? t('member.edit_note') : runNotes(picked)[run];
       form.textContent = '';
       tabs.textContent = '';
       if (!edit && !secretary) tabs.append(segControl(runModes(), run, (k) => { run = k; draw(); }));

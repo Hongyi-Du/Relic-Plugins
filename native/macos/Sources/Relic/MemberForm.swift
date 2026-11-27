@@ -32,6 +32,12 @@ struct MemberForm: View {
         if mode == "app" { return m.newSecretary ? "member.create_secretary" : "member.create_member" }
         return start ? "member.create_start" : "member.create_seat_only"
     }
+    private var noteKey: String {
+        if !m.editMember.isEmpty { return "member.edit_note" }
+        if mode == "host" { return "member.note_host_mac" }
+        if mode == "existing" { return "member.note_existing_mac" }
+        return harness == "antigravity" ? "member.note_app_antigravity" : "member.note_app"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             heading
@@ -80,7 +86,7 @@ struct MemberForm: View {
         if m.editMember.isEmpty && !m.newSecretary {
             SettingsSegments(options: [("app", m.t("member.run_app")), ("host", m.t(Capabilities.hostKinds(m.platform).contains(where: { $0.hasSuffix("/gui") }) ? "member.run_host" : "member.run_host_mac")), ("existing", m.t("member.run_existing"))], selection: $mode)
         } else { Color.clear.frame(height: 0).accessibilityHidden(true) }
-        ReferenceLabel(m.t(!m.editMember.isEmpty ? "member.edit_note" : mode == "host" ? "member.note_host_mac" : mode == "existing" ? "member.note_existing_mac" : "member.note_app"), size: 12.5, color: RelicStyle.muted, lines: 0)
+        ReferenceLabel(m.t(noteKey), size: 12.5, color: RelicStyle.muted, lines: 0)
     }
     private func field(_ key: String, placeholder: String, text: Binding<String>) -> some View {
         NativeFormField(title: m.t(key)) {
