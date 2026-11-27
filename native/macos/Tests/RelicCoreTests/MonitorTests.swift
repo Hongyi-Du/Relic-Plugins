@@ -199,4 +199,15 @@ final class MonitorTests: XCTestCase {
         XCTAssertEqual(layout.width, 900); XCTAssertNil(layout.height)
         XCTAssertEqual(DialogGeometry(kind: "monitor", window: CGSize(width: 700, height: 500)).width, 668)
     }
+
+    func testHarnessBadgeLabelsIncludeAntigravity() throws {
+        let cases: [(String, String)] = [
+            ("claude-code", "Claude"), ("claude-chat", "Claude"), ("", "Claude"),
+            ("codex", "Codex"), ("antigravity", "Antigravity"), ("chatgpt", "ChatGPT"), ("custom", "custom"),
+        ]
+        for (harness, expected) in cases {
+            let agent = MonitorAgent(try node("{\"key\": \"k\", \"harness\": \"\(harness)\", \"title\": \"t\"}"))
+            XCTAssertEqual(agent.harnessLabel, expected, harness)
+        }
+    }
 }

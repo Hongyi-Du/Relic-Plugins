@@ -172,10 +172,32 @@ class AntigravityAcpServer:
     def update(self, sid, body):
         self.send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": body}})
 
-    def _session_payload(self, sid, model=""):
+    def _available_models(self):
+        """Query relic_core.antigravity.models() -> (default_model_id, availableModels); fall back to MODELS."""
+        getter = getattr(self.backend, "models", None)
+        info = None
+        if callable(getter):
+            try:
+                info = getter()
+            except Exception:
+                info = None
+        if isinstance(info, dict):
+            choices = [
+                {"modelId": str(item["id"]), "name": str(item.get("name") or item["id"])}
+                for item in (info.get("choices") or [])
+                if isinstance(item, dict) and item.get("id")
+            ]
+            default = str(info.get("default") or "")
+            if choices:
+                return default, choices
+            if default:
+                return default, list(MODELS)
+        return "", list(MODELS)
+
+    def _session_payload(self, sid, model="", available=None):
         return {
             "sessionId": sid,
-            "models": {"currentModelId": model or "", "availableModels": list(MODELS)},
+            "models": {"currentModelId": model or "", "availableModels": list(MODELS if available is None else available)},
             "modes": {"currentModeId": "default", "availableModes": list(MODES)},
         }
 
@@ -323,24 +345,27 @@ class AntigravityAcpServer:
                 }
             elif method == "session/new":
                 title, model = _seat_defaults()
+                default_model, available = self._available_models()
+                effective_model = model or default_model
                 cwd = str(params.get("cwd") or "")
-                sid = self._create_conversation(title=title, model=model, cwd=cwd)
+                sid = self._create_conversation(title=title, model=effective_model, cwd=cwd)
                 with self._state_lock:
-                    self._sessions[sid] = {"cwd": cwd, "model": model,
+                    self._sessions[sid] = {"cwd": cwd, "model": effective_model,
                                            "title": title, "cancel": threading.Event()}
-                result = self._session_payload(sid, model)
+                result = self._session_payload(sid, effective_model, available)
             elif method in ("session/resume", "session/load"):
                 sid = str(params.get("sessionId") or "")
                 if not sid:
                     raise RuntimeError("%s requires sessionId" % method)
                 # Verify Antigravity is reachable and knows the conversation.
                 self.backend.run_state(sid)
+                default_model, available = self._available_models()
                 with self._state_lock:
                     session = self._sessions.setdefault(sid, {"cwd": "", "model": "", "title": "",
                                                               "cancel": threading.Event()})
                     session["cwd"] = str(params.get("cwd") or session["cwd"])
-                    model = session["model"]
-                result = self._session_payload(sid, model)
+                    model = session["model"] or default_model
+                result = self._session_payload(sid, model, available)
             elif method == "session/prompt":
                 result = self._prompt(params)
             elif method == "session/cancel":

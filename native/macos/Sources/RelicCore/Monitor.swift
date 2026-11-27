@@ -87,6 +87,15 @@ public struct MonitorAgent: Equatable, Sendable, Identifiable {
     public var busy: Bool { working && !(stopped && !released) }
     public var wakeOff: Bool { seats.contains { !$0.autoWake || !$0.organizationAutoWake } }
     public var codex: Bool { harness == "codex" }
+    public var harnessLabel: String {
+        switch harness {
+        case "codex": return "Codex"
+        case "claude-code", "claude-chat", "": return "Claude"
+        case "antigravity": return "Antigravity"
+        case "chatgpt": return "ChatGPT"
+        default: return harness
+        }
+    }
 }
 
 public struct MonitorTotals: Equatable, Sendable {

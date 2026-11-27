@@ -374,6 +374,30 @@ CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 CODEX_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"]
 CODEX_MODELS = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra",
                 "gpt-5.6-luna"]
+ANTIGRAVITY_MODELS = ["flash", "pro", "flash_lite"]
+_AG_MODELS = {}  # gemini_dir -> (timestamp, [model ids])
+
+
+def _antigravity_models():
+    """Model ids offered by the running Antigravity app (relic_core.antigravity.models), cached briefly."""
+    try:
+        from relic_core import antigravity
+    except ImportError:
+        return []
+    getter = getattr(antigravity, "models", None)
+    if not callable(getter):
+        return []
+    key = str(antigravity.gemini_dir() or "")
+    hit = _AG_MODELS.get(key)
+    if hit and time.time() - hit[0] < (60 if hit[1] else 15):
+        return list(hit[1])
+    try:
+        info = getter()
+    except Exception:
+        info = None
+    ids = [str(c["id"]) for c in (info or {}).get("choices") or [] if isinstance(c, dict) and c.get("id")]
+    _AG_MODELS[key] = (time.time(), ids)
+    return list(ids)
 
 
 def model_info(harness, surface, config, live, agent, lang=None):
@@ -385,7 +409,7 @@ def model_info(harness, surface, config, live, agent, lang=None):
     elif harness == "codex":
         models, efforts = known.get("models") or CODEX_MODELS, known.get("efforts") or CODEX_EFFORTS
     elif harness == "antigravity":
-        models, efforts = known.get("models") or ["flash", "pro", "flash_lite"], []
+        models, efforts = _antigravity_models() or known.get("models") or list(ANTIGRAVITY_MODELS), []
     else:
         models, efforts = [], []
     if live and live.get("models"):

@@ -51,10 +51,14 @@ class FakeAntigravityBackend:
         self.sent = []
         self.renamed = []
         self.listed = []
+        self.model_catalog = None
         self.states = {}       # sid -> list of states to pop (last sticks)
         self.transcripts = {}  # sid -> list of step dicts
         self.on_send = None
         self._seq = 0
+
+    def models(self):
+        return self.model_catalog
 
     def gemini_dir(self):
         return self.root
@@ -169,6 +173,26 @@ class AntigravityAcpProtocolTests(unittest.TestCase):
                             "params": {"sessionId": sid, "cwd": self.tmp.name}})
         self.assertEqual(self.reply_for(4)["result"]["models"]["currentModelId"], "pro")
 
+    def test_session_new_uses_antigravity_models_default_and_choices(self):
+        self.backend.model_catalog = {
+            "default": "gemini-4-neon-high",
+            "choices": [
+                {"id": "gemini-4-neon-xhigh", "name": "Gemini 4 Pro (xHigh)"},
+                {"id": "gemini-4-neon-high", "name": "Gemini 4 Pro (High)"},
+            ],
+        }
+        self.server.handle({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"cwd": self.tmp.name}})
+        created = self.reply_for(1)["result"]
+        self.assertEqual(created["models"]["currentModelId"], "gemini-4-neon-high")
+        self.assertEqual(
+            created["models"]["availableModels"],
+            [
+                {"modelId": "gemini-4-neon-xhigh", "name": "Gemini 4 Pro (xHigh)"},
+                {"modelId": "gemini-4-neon-high", "name": "Gemini 4 Pro (High)"},
+            ],
+        )
+        self.assertEqual(self.backend.created[0][1]["model"], "gemini-4-neon-high")
+
     def test_prompt_streams_tools_relic_mcp_and_assistant_reply(self):
         self.server.handle({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"cwd": self.tmp.name}})
         sid = self.reply_for(1)["result"]["sessionId"]
@@ -267,6 +291,7 @@ class AppIntegrationTests(unittest.TestCase):
         views._LOCATE.clear()
         views._META.clear()
         views._STEPS.clear()
+        views._AG_MODELS.clear()
 
     def tearDown(self):
         os.environ.clear()
@@ -378,6 +403,24 @@ class AppIntegrationTests(unittest.TestCase):
             app_inst.open_session(oid, {"member": "hajimi"})
         self.assertIn("Antigravity", str(caught.exception))
 
+    def test_model_info_prefers_antigravity_models_and_falls_back(self):
+        catalog = {
+            "default": "gemini-4-neon-high",
+            "choices": [
+                {"id": "gemini-4-neon-xhigh", "name": "Gemini 4 Pro (xHigh)"},
+                {"id": "gemini-4-neon-high", "name": "Gemini 4 Pro (High)"},
+            ],
+        }
+        with mock.patch.object(antigravity, "models", return_value=catalog, create=True):
+            views._AG_MODELS.clear()
+            info = views.model_info("antigravity", "acp", {}, None, "", "en-US")
+            self.assertEqual(info["models"], ["gemini-4-neon-xhigh", "gemini-4-neon-high"])
+            self.assertTrue(info["editable"])
+        with mock.patch.object(antigravity, "models", return_value=None, create=True):
+            views._AG_MODELS.clear()
+            fallback = views.model_info("antigravity", "acp", {}, None, "", "en-US")
+            self.assertEqual(fallback["models"], ["flash", "pro", "flash_lite"])
+
 
 class _MockAntigravityServer:
     """Real loopback Connect-HTTP mock server matching Antigravity's ConversationService & SendAgentMessage."""
@@ -435,6 +478,17 @@ class _MockAntigravityServer:
 
     def _dispatch(self, path, body):
         with self.lock:
+            if path == "/" + antigravity.LANGUAGE_SERVER + "GetAvailableModels":
+                return {
+                    "response": {
+                        "defaultAgentModelId": "gemini-4-neon-high",
+                        "models": {
+                            "gemini-4-neon-xhigh": {"displayName": "Gemini 4 Pro (xHigh)"},
+                            "gemini-4-neon-high": {"displayName": "Gemini 4 Pro (High)"},
+                        },
+                        "agentModelSorts": [{"groups": [{"modelIds": ["gemini-4-neon-xhigh", "gemini-4-neon-high"]}]}],
+                    }
+                }
             if path == "/" + antigravity.CONVERSATIONS + "CreateConversation":
                 self.seq += 1
                 sid = "mock-ag-%d" % self.seq

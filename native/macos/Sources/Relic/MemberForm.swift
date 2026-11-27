@@ -127,7 +127,8 @@ struct MemberForm: View {
     }
     private func sessionHarnessLabel(_ session: Node) -> String {
         let id = session["harness"].text
-        let title = harnesses.first { $0["id"].text == id }?["title"].text ?? id
+        let fallback = ["claude-code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity", "chatgpt": "ChatGPT", "claude-chat": "Claude"][id]
+        let title = harnesses.first { $0["id"].text == id }?["title"].text ?? fallback ?? id
         return ["gui", "cli"].contains(session["surface"].text) ? m.t(session["surface"].text == "gui" ? "member.harness_gui" : "member.harness_cli", ["harness": title]) : title
     }
 
@@ -211,7 +212,7 @@ struct MemberForm: View {
         try await m.select(org, seat)
     }
     private func sessionLabel(_ session: Node) -> String {
-        var parts = [session["title"].text.isEmpty ? session["id"].text : session["title"].text, session["harness"].text, session["cwd"].text, m.ago(session["updated"])]
+        var parts = [session["title"].text.isEmpty ? session["id"].text : session["title"].text, sessionHarnessLabel(session), session["cwd"].text, m.ago(session["updated"])]
         if !Capabilities.automatic(m.platform, harness: session["harness"].text, surface: session["surface"].text) { parts.append(m.t("member.manual_delivery")) }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }

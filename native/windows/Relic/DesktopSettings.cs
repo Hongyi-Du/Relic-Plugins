@@ -443,13 +443,17 @@ public sealed partial class MainWindow
             var log = OverviewText(string.Join("\n", installLines.GetValueOrDefault(id, [])), 11.5, lineHeight: 17.25); log.FontFamily = new FontFamily("Cascadia Code"); installViews[id] = log;
             var logSurface = Scroll(log); logSurface.Background = Paint("F6F5F2", "232321"); logSurface.Padding = new Thickness(8); logSurface.CornerRadius = new CornerRadius(8); logSurface.MaxHeight = 160;
             logSurface.Visibility = log.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible; installLogSurfaces[id] = logSurface;
-            var install = OverviewAction(harness.Flag("adapter_installed") ? T("settings.reinstall_adapter") : T("settings.install_adapter"), async () =>
-            {
-                installLines[id] = ["$ " + harness.Text("install")]; log.Text = installLines[id][0]; logSurface.Visibility = Visibility.Visible;
-                await api.Post("/api/harnesses/" + Client.Segment(id) + "/install", new { });
-            });
             var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center }; title.Children.Add(OverviewText(harness.Text("title"), 14, weight: 700)); title.Children.Add(OverviewText(harness.Text("vendor"), 14, true));
-            var header = TwoColumns(title, install); header.ColumnSpacing = 10; card.Children.Add(header);
+            if (harness.Text("install").Length > 0)
+            {
+                var install = OverviewAction(harness.Flag("adapter_installed") ? T("settings.reinstall_adapter") : T("settings.install_adapter"), async () =>
+                {
+                    installLines[id] = ["$ " + harness.Text("install")]; log.Text = installLines[id][0]; logSurface.Visibility = Visibility.Visible;
+                    await api.Post("/api/harnesses/" + Client.Segment(id) + "/install", new { });
+                });
+                var header = TwoColumns(title, install); header.ColumnSpacing = 10; card.Children.Add(header);
+            }
+            else card.Children.Add(title);
             var kv = new Grid { ColumnSpacing = 12, RowSpacing = 7, Margin = new Thickness(0, 12.5, 0, 12.5) };
             kv.ColumnDefinitions.Add(new() { Width = new GridLength(76) }); kv.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
             void Row(string label, UIElement value)
