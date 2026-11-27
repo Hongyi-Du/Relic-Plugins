@@ -555,7 +555,7 @@ RELIC_TOOLS = {"create", "join", "status", "message", "inbox", "work", "episode"
 # Chat members (relic_core/chat.py) discuss but have no files or commands: a ChatGPT chat ("chatgpt:<chat id>") and a
 # Claude chat of the Claude desktop app ("claude-chat:<name>").
 CHAT_HARNESSES = ("chatgpt", "claude-chat")
-HARNESSES = ("claude-code", "codex") + CHAT_HARNESSES
+HARNESSES = ("claude-code", "codex", "antigravity") + CHAT_HARNESSES
 
 
 def is_relic_tool(tool):

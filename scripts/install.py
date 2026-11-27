@@ -116,9 +116,9 @@ def shortcut(python):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', choices=('auto', 'claude', 'codex', 'both', 'none'), default='auto',
-                        help='Which hosts get the plugin: every installed one (auto, the default), one, both, or none '
-                             '(the Relic App alone).')
+    parser.add_argument('--host', choices=('auto', 'claude', 'codex', 'both', 'antigravity', 'none'), default='auto',
+                        help='Which hosts get the plugin: every installed one (auto, the default), one, both (Claude '
+                             'Code and Codex), antigravity (the Antigravity app), or none (the Relic App alone).')
     parser.add_argument('--configure-only', action='store_true',
                         help='Prepare this extracted folder without changing any host or making a shortcut.')
     parser.add_argument('--no-shortcut', action='store_true', help='Do not make the Relic shortcut on the desktop.')
@@ -142,12 +142,21 @@ def main(argv=None):
             print('Configuration only. No plugin was installed and no host settings were changed.')
             return 0
         record_installed(plugin)
+        from relic_core import antigravity
         wanted = {'auto': ('claude', 'codex'), 'both': ('claude', 'codex'), 'none': ()}.get(args.host, (args.host,))
+        installed = []
+        # Antigravity has no plugin CLI: the plugin is a folder it loads by itself (relic_core/antigravity.py).
+        if args.host == 'antigravity' or (args.host == 'auto' and antigravity.installed()):
+            if not antigravity.installed():
+                raise RuntimeError('Antigravity not found: install it and open it once, so ~/.gemini/antigravity exists.')
+            folder = antigravity.install_plugin(plugin, read_json(plugin / '.claude-plugin/plugin.json')['version'])
+            print(f'Antigravity plugin: {folder}')
+            installed.append('Antigravity')
+        wanted = tuple(name for name in wanted if name != 'antigravity')
         found = {name: cli(name) for name in wanted}
         missing = [name for name, path in found.items() if not path]
         if missing and args.host not in ('auto',):
             raise RuntimeError(f'{" and ".join(missing)} CLI not found. Install it, sign in, and ensure it is on PATH.')
-        installed = []
         for host, exe in found.items():
             if not exe:
                 continue

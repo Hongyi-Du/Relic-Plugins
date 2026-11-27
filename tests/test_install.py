@@ -95,6 +95,23 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(any('codex' in c[0] for c in commands))
             self.assertEqual(installer.main(['--host', 'codex']), 1)  # asked for a host that is not there
 
+    def test_antigravity_gets_its_plugin_folder_when_it_is_installed(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.dict(os.environ, {'RELIC_HOME': temp, 'RELIC_GEMINI_DIR': str(Path(temp) / '.gemini')}), \
+                mock.patch.object(installer, 'configure', lambda root: ROOT / 'plugins' / 'relic'), \
+                mock.patch.object(installer, 'cli', lambda name: None), \
+                mock.patch.object(installer, 'shortcut', lambda python: None):
+            self.assertEqual(installer.main(['--host', 'antigravity', '--no-shortcut']), 1)  # not installed
+            self.assertEqual(installer.main(['--no-shortcut']), 0)  # auto: nothing to add it to, nothing written
+            plugin = Path(temp) / '.gemini' / 'config' / 'plugins' / 'relic'
+            self.assertFalse(plugin.exists())
+            (Path(temp) / '.gemini' / 'antigravity').mkdir(parents=True)
+            self.assertEqual(installer.main(['--no-shortcut']), 0)  # auto finds it
+            hooks = json.loads((plugin / 'hooks.json').read_text(encoding='utf-8'))
+            self.assertEqual(hooks['relic']['PreToolUse'][0]['matcher'], 'call_mcp_tool')
+            server = json.loads((plugin / 'mcp_config.json').read_text(encoding='utf-8'))['mcpServers']['relic_org']
+            self.assertEqual(Path(server['args'][-1]), ROOT / 'plugins' / 'relic' / 'server.py')
+
     def test_records_the_installed_folder_for_every_relic_process(self):
         with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ, {'RELIC_HOME': temp}),                 mock.patch.object(installer, 'configure', lambda root: ROOT / 'plugins' / 'relic'),                 mock.patch.object(installer, 'shortcut', lambda python: None):
             self.assertEqual(installer.main(['--host', 'none', '--no-shortcut']), 0)
