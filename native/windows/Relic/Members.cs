@@ -320,6 +320,8 @@ public sealed partial class MainWindow
         var nameField = FormLabel("member.name_label", SettingsVoiceField(name, double.NaN), name); var roleField = FormLabel("common.role", SettingsVoiceField(role, double.NaN), role);
         var appFields = new StackPanel { Spacing = 12 };
         var picked = harnesses.Rows().FirstOrDefault(h => h.Flag("available") && !h.Flag("later")).Text("id");
+        var note = OverviewText("", 12.5, true);
+        void UpdateNote() => note.Text = edit != null ? T("member.edit_note") : run switch { "app" => T(picked == "antigravity" ? "member.note_app_antigravity" : "member.note_app"), "host" => platform.Flag("codex_desktop_wake") && platform.Flag("claude_desktop_wake") ? T("member.note_host") : T("member.note_host_mac"), _ => T("member.note_existing") };
         var harnessChoice = new StackPanel { Spacing = 6 }; var harnessTitle = OverviewText(T("member.harness_label"), 12.5, true); harnessChoice.Children.Add(harnessTitle);
         var appRadios = new StackPanel { Spacing = 6 }; var appGroup = "member-app-" + Guid.NewGuid().ToString("N");
         foreach (var harness in harnesses.Rows().Where(h => !h.Flag("later")))
@@ -328,7 +330,7 @@ public sealed partial class MainWindow
             heading.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = harness.Text("title"), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
             heading.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " " + harness.Text("vendor"), Foreground = Muted }); labels.Children.Add(heading);
             var description = OverviewText(harness.Flag("available") ? T("member.connected", ("program", OverviewClip(harness.Text("program"), 48))) : harness.Text("problem"), 12, true, lineHeight: 19.2); description.IsTextSelectionEnabled = false; labels.Children.Add(description);
-            appRadios.Children.Add(FormRadio(appGroup, harness.Text("title"), labels, harness.Text("id") == picked, harness.Flag("available"), () => picked = harness.Text("id")));
+            appRadios.Children.Add(FormRadio(appGroup, harness.Text("title"), labels, harness.Text("id") == picked, harness.Flag("available"), () => { picked = harness.Text("id"); UpdateNote(); }));
         }
         harnessChoice.Children.Add(appRadios);
         if (harnesses.Rows().Any(h => h.Flag("later")))
@@ -412,7 +414,7 @@ public sealed partial class MainWindow
         }
         find.TextChanged += (_, _) => DrawSessions(); DrawSessions();
         var dialog = new NativeContentDialog { XamlRoot = root.XamlRoot }; var body = new StackPanel(); body.Children.Add(OverviewText(edit != null ? T("member.edit_title", ("name", card.Text("display").Length > 0 ? card.Text("display") : edit)) : secretary ? T("secretary.new_embedded") : T("common.add_member"), 17, weight: 650));
-        var tabs = new Border(); body.Children.Add(tabs); var note = OverviewText("", 12.5, true); body.Children.Add(note); var fields = new StackPanel { Spacing = 12 }; body.Children.Add(fields);
+        var tabs = new Border(); body.Children.Add(tabs); body.Children.Add(note); var fields = new StackPanel { Spacing = 12 }; body.Children.Add(fields);
         var errorLabel = OverviewText("", 12.5); errorLabel.Foreground = Paint("C2412D", "EE8A78"); var errorBox = new Border { Child = errorLabel, Height = 0 }; body.Children.Add(errorBox);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right }; body.Children.Add(footer);
         footer.Children.Add(FormAction(T("common.cancel"), () => { dialog.Hide(); return Task.CompletedTask; }));
@@ -445,7 +447,7 @@ public sealed partial class MainWindow
         async Task DrawMode(string value)
         {
             run = value; fields.Children.Clear();
-            note.Text = edit != null ? T("member.edit_note") : value switch { "app" => T("member.note_app"), "host" => platform.Flag("codex_desktop_wake") && platform.Flag("claude_desktop_wake") ? T("member.note_host") : T("member.note_host_mac"), _ => T("member.note_existing") };
+            UpdateNote();
             ((TextBlock)roleField.Children[0]).Text = T(value == "existing" ? "member.role_new" : "common.role");
             if (value == "existing") { fields.Children.Add(searchField); fields.Children.Add(sessionList); fields.Children.Add(seatField); fields.Children.Add(roleField); await LoadSessions(); }
             else { fields.Children.Add(nameField); fields.Children.Add(roleField); fields.Children.Add(value == "app" ? appFields : hostFields); }
