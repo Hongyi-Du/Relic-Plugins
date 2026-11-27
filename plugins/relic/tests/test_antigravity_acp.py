@@ -193,6 +193,42 @@ class AntigravityAcpProtocolTests(unittest.TestCase):
         )
         self.assertEqual(self.backend.created[0][1]["model"], "gemini-4-neon-high")
 
+    def test_resume_in_fresh_server_prefers_seat_model_then_transcript_then_default(self):
+        self.backend.model_catalog = {
+            "default": "gemini-4-neon-high",
+            "choices": [
+                {"id": "gemini-4-neon-xhigh", "name": "Gemini 4 Pro (xHigh)"},
+                {"id": "gemini-4-neon-high", "name": "Gemini 4 Pro (High)"},
+                {"id": "pro", "name": "Pro"},
+            ],
+        }
+        sid = "ag-resumed-1"
+        self.backend.states[sid] = [self.backend.IDLE]
+        self.backend.transcripts[sid] = [
+            {"step_index": 0, "type": "USER_INPUT", "content": "hi"},
+            {"step_index": 1, "type": "PLANNER_RESPONSE", "model": "gemini-4-neon-xhigh", "content": "ok"},
+        ]
+
+        def resume_in_fresh_server():
+            out = []
+            fresh = antigravity_acp.AntigravityAcpServer(backend=self.backend, send=out.append, poll=0.01)
+            fresh.handle({"jsonrpc": "2.0", "id": 1, "method": "session/resume",
+                          "params": {"sessionId": sid, "cwd": self.tmp.name}})
+            return out[0]["result"]["models"]["currentModelId"]
+
+        # 1. Seat config model wins in a fresh adapter process.
+        with mock.patch.object(antigravity_acp, "_seat_defaults", return_value=("Team · hajimi", "pro")):
+            self.assertEqual(resume_in_fresh_server(), "pro")
+
+        # 2. Without a seat config model, latest PLANNER_RESPONSE model in transcript wins over app default.
+        with mock.patch.object(antigravity_acp, "_seat_defaults", return_value=("Team · hajimi", "")):
+            self.assertEqual(resume_in_fresh_server(), "gemini-4-neon-xhigh")
+
+        # 3. Without either seat config or transcript model, fall back to app default.
+        self.backend.transcripts[sid] = [{"step_index": 0, "type": "USER_INPUT", "content": "hi"}]
+        with mock.patch.object(antigravity_acp, "_seat_defaults", return_value=("Team · hajimi", "")):
+            self.assertEqual(resume_in_fresh_server(), "gemini-4-neon-high")
+
     def test_prompt_streams_tools_relic_mcp_and_assistant_reply(self):
         self.server.handle({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"cwd": self.tmp.name}})
         sid = self.reply_for(1)["result"]["sessionId"]
@@ -590,6 +626,9 @@ class SubprocessHubEndToEndTests(unittest.TestCase):
         wait_for(lambda: any("请汇报进度" in text for _, text in self.mock_ag.sent), timeout=30)
         wait_for(lambda: (self.hub.status(self.oid, "hajimi") or {}).get("state") == "idle", timeout=30)
         self.assertEqual(len(self.mock_ag.created), 1)
+        resumed_status = self.hub.status(self.oid, "hajimi")
+        self.assertEqual(resumed_status["model"], "flash")
+        self.assertEqual(resumed_status["models"], ["gemini-4-neon-xhigh", "gemini-4-neon-high"])
         receipts = wait_for(lambda: self.messages("hajimi", ["lead"]), timeout=30)
         self.assertTrue(receipts[0]["body"].startswith(views.RECEIPT))
 

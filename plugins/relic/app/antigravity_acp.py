@@ -194,6 +194,17 @@ class AntigravityAcpServer:
                 return default, list(MODELS)
         return "", list(MODELS)
 
+    def _transcript_model(self, sid):
+        """Return the model recorded on the conversation's latest PLANNER_RESPONSE step, or ''."""
+        try:
+            steps = self.backend.transcript(self.backend.transcript_path(sid))
+        except Exception:
+            return ""
+        for step in reversed(steps):
+            if step.get("type") == "PLANNER_RESPONSE" and step.get("model"):
+                return str(step["model"]).strip()
+        return ""
+
     def _session_payload(self, sid, model="", available=None):
         return {
             "sessionId": sid,
@@ -360,11 +371,13 @@ class AntigravityAcpServer:
                 # Verify Antigravity is reachable and knows the conversation.
                 self.backend.run_state(sid)
                 default_model, available = self._available_models()
+                _, seat_model = _seat_defaults()
                 with self._state_lock:
                     session = self._sessions.setdefault(sid, {"cwd": "", "model": "", "title": "",
                                                               "cancel": threading.Event()})
                     session["cwd"] = str(params.get("cwd") or session["cwd"])
-                    model = session["model"] or default_model
+                    model = session["model"] or seat_model or self._transcript_model(sid) or default_model
+                    session["model"] = model
                 result = self._session_payload(sid, model, available)
             elif method == "session/prompt":
                 result = self._prompt(params)
