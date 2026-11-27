@@ -464,7 +464,7 @@ public sealed partial class MainWindow
         heading.Children.Add(title);
         if (display != name) heading.Children.Add(Quiet(name, 12));
         var harness = m.Text("harness");
-        if (harness.Length > 0) heading.Children.Add(Badge(harness == "codex" ? "Codex" : harness == "claude-code" ? "Claude" : harness));
+        if (harness.Length > 0) heading.Children.Add(Badge(HarnessBadge(harness)));
         if (m.Flag("leader")) heading.Children.Add(Badge(T("common.leader")));
         if (m.Flag("secretary")) heading.Children.Add(Badge(T("common.secretary")));
         heading.Children.Add(Quiet(state switch

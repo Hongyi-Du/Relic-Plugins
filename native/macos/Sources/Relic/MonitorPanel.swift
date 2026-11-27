@@ -263,7 +263,7 @@ private struct MonitorRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     PlainLabel(agent.title, size: 13.5, weight: 600).lineLimit(1).truncationMode(.tail).help(agent.title)
-                    PlainLabel(agent.codex ? "Codex" : "Claude", size: 11, color: RelicStyle.secondary, lineHeight: 15).lineLimit(1).fixedSize()
+                    PlainLabel(agent.harnessLabel, size: 11, color: RelicStyle.secondary, lineHeight: 15).lineLimit(1).fixedSize()
                         .padding(.horizontal, 6).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 5).fill(RelicStyle.bubble))
                     PlainLabel(stateText, size: 12, color: RelicStyle.muted).lineLimit(1).fixedSize()
                 }

@@ -195,7 +195,7 @@ public sealed partial class MainWindow
         var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var title = Heading(agent.Text("title"), 13.5); title.TextWrapping = TextWrapping.NoWrap; title.TextTrimming = TextTrimming.CharacterEllipsis;
         heading.Children.Add(title);
-        heading.Children.Add(Badge(agent.Text("harness") == "codex" ? "Codex" : "Claude"));
+        heading.Children.Add(Badge(HarnessBadge(agent.Text("harness"))));
         heading.Children.Add(Quiet(state switch
         {
             "working" => T("mon.state_working"), "stopped" => T("mon.state_stopped"),

@@ -165,7 +165,9 @@ struct HarnessSettings: View {
                         ReferenceLabel(harness["title"].text, size: 14, weight: 700)
                         ReferenceLabel(harness["vendor"].text, size: 14, color: RelicStyle.muted)
                         Spacer(minLength: 0)
-                        TextButton(m.t(harness["adapter_installed"].flag ? "settings.reinstall_adapter" : "settings.install_adapter")) { m.run { m.installLogs[harness["id"].text] = ["$ " + harness["install"].text]; try await m.post("/api/harnesses/" + Client.segment(harness["id"].text) + "/install", [:]) } }.buttonStyle(ReferenceButtonStyle(small: true))
+                        if !harness["install"].text.isEmpty {
+                            TextButton(m.t(harness["adapter_installed"].flag ? "settings.reinstall_adapter" : "settings.install_adapter")) { m.run { m.installLogs[harness["id"].text] = ["$ " + harness["install"].text]; try await m.post("/api/harnesses/" + Client.segment(harness["id"].text) + "/install", [:]) } }.buttonStyle(ReferenceButtonStyle(small: true))
+                        }
                     }
                     VStack(alignment: .leading, spacing: 7) {
                         row(m.t("common.status")) { OverviewChip(text: harness["available"].flag ? m.t("settings.connected") : harness["problem"].text.isEmpty ? m.t("settings.not_connected") : harness["problem"].text, tone: harness["available"].flag ? "ok" : "bad") }
