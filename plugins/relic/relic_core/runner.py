@@ -53,6 +53,8 @@ def introduction(org, member):
 def default_config(harness="codex"):
     if harness in ("chatgpt", "claude-chat"):  # chat members (chat.py): no folder, model or permission to choose
         return {"harness": harness, "surface": "chat"}
+    if harness == "antigravity":  # a conversation in the Antigravity app (antigravity.py): the app keeps the rest
+        return {"harness": harness, "surface": "app", "model": ""}
     return {"harness": harness, "surface": "cli", "model": "", "effort": "", "folder": str(Path.home()),
             "environment": "local", "permission": "auto" if harness == "claude-code" else "workspace-write", "env": {}}
 

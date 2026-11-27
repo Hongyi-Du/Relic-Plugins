@@ -159,6 +159,8 @@ Relic 的 Claude Chat 接入需要在 Claude Desktop 单独配置本地 MCP，�
 
 在 Windows 上，ChatGPT 聊天可以占一个席位：在 ChatGPT 桌面应用运行时，用「添加成员 → 已有会话」把它放进席位。Relic 把发给它的每条消息的全文放进这个聊天。应用不把 ChatGPT 回复的文字交给插件，所以需要本人在 ChatGPT 窗口复制每条回复，再用成员卡片上的「转发回复」转进组织；它以这个聊天成员的消息送到各成员。这不是 ChatGPT 网页版的全自动集成，macOS 上还需要[指南](macos.zh-CN.md)所述的已验证宿主接口；移植版 smoke test 尚未验收真实桌面投递。
 
+Google Antigravity 应用里的对话也能占一个席位。安装器找到 Antigravity（`~/.gemini/antigravity`）后，会把一个插件写到 `~/.gemini/config/plugins/relic`，应用会自己加载它，此后新开的对话都带上 Relic 的 MCP 服务器和钩子，对话的身份是 `antigravity:<对话 id>`。Antigravity 通过 `call_mcp_tool` 调用 MCP 工具：钩子放行对 Relic 自己服务器（`relic_relic_org`）的调用并补上对话的身份，和 Claude Code 上一样。其他每次调用都要过组织的强协议，按 Relic 的工具名算（`run_command` 算 Bash，`edit_file` 算 Edit，`write_file` 算 Write，`read_file` 算 Read）：被拦的直接拒绝，其余交给 Antigravity 自己的权限规则（它的预设、监督器和你设的总是允许），和 Claude Code、Codex 上由宿主自己的规则决定一样。新消息在模型下一次调用前送到；Antigravity 席位空闲时，Relic 通过应用的本地接口把叫醒消息送进它的对话（应用要开着）。
+
 成员请求另一位成员的轨迹时必须说明理由，并得到对方批准。读取自己席位前任的轨迹由人类决定。导出可能包含完整对话、工具记录和可归属该会话的记忆；默认脱敏不能保证去掉所有私人细节。不需要记忆时传 `memory:false`，共享前检查文件，并阅读 [隐私与数据](privacy.zh-CN.md)。
 
 ## 9. 数据、升级与卸载

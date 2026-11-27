@@ -26,7 +26,7 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from relic_core import chat, claude_desktop, desktop, platform_support, runner, wake  # noqa: E402
+from relic_core import antigravity, chat, claude_desktop, desktop, platform_support, runner, wake  # noqa: E402
 from relic_core.store import Store, codex_parent  # noqa: E402
 
 
@@ -239,6 +239,9 @@ def main():
         if harness == "chatgpt":
             cwd, approvals = None, None
             session, reply, failed = chat.run_chatgpt(store, org, a.member, prompt, hop=state.get("wake_hop", 0))
+        elif harness == "antigravity":  # a conversation in the Antigravity app: the app runs the turn
+            cwd = None
+            session, reply, failed, approvals = antigravity.run_turn(store, org, a.member, config, prompt, a.new)
         else:
             cwd = runner.workspace(config, a.member)
             run = (run_codex if harness == "codex" else
@@ -247,7 +250,7 @@ def main():
         state.update(status="failed" if failed else "done", session=session, reply=reply[-4000:], cwd=cwd, error=None,
                      approvals=approvals)
         if (a.open and not a.wake_from and not state.get("wake_hop") and not state.get("wake_from")
-                and not failed and harness != "chatgpt" and config.get("surface") != "gui"):
+                and not failed and harness not in ("chatgpt", "antigravity") and config.get("surface") != "gui"):
             harness = "codex" if session.startswith("codex:") else "claude-code"
             try:
                 runner.open_session(config, session.split(":", 1)[1] if harness == "codex" else session, harness, cwd)

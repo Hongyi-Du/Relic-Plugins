@@ -32,7 +32,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import desktop, gui_receipt, i18n, runner
+from . import antigravity, desktop, gui_receipt, i18n, runner
 from .store import HUMAN, SYSTEM, away_note, central, codex_parent, codex_thread, epoch, iso, leaders
 
 SETTLE = 10  # seconds after the newest unread message before waking: messages sent in a row make one wake-up
@@ -55,7 +55,7 @@ def no_turn(error):
     (a Claude Desktop session that still owes an earlier request its Stop counts as busy)."""
     text = str(error or "")
     return bool(text) and (IN_USE in text or desktop.BUSY in text or gui_receipt.WAITING in text or
-                           gui_receipt.DESKTOP_BUSY in text or SUBAGENT_INPUT in text)
+                           gui_receipt.DESKTOP_BUSY in text or SUBAGENT_INPUT in text or antigravity.BUSY in text)
 
 
 def desktop_hold(store, seat, config):
@@ -368,7 +368,7 @@ def _settle(store, org_id, member, claimed_at, error=None, busy=False):
         # A Claude Desktop session in a turn (its own, or the one that would start it) waits like a busy Codex chat:
         # counted as a failure, a seat whose earlier wake-ups failed gave up at once (2026-11-24, benchlead).
         busy = (busy or desktop.BUSY in str(error) or gui_receipt.WAITING in str(error) or
-                gui_receipt.DESKTOP_BUSY in str(error))
+                gui_receipt.DESKTOP_BUSY in str(error) or antigravity.BUSY in str(error))
         waits = desktop.WAITS.search(str(error))
         if waits and mine.get("person_told") != waits.group(2):  # once for each wait, however often it is retried
             mine["person_told"] = waits.group(2)

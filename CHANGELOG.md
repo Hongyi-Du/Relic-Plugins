@@ -2,6 +2,34 @@
 
 ## Unreleased / 未发布
 
+- Antigravity, Google's agent app, joins Relic as a harness: a conversation in it holds a seat as
+  `antigravity:<conversation id>`. The installer writes a plugin to `~/.gemini/config/plugins/relic` when it finds
+  Antigravity (`--host antigravity` asks for it alone). The plugin brings the Relic MCP server and hooks
+  (`hooks/antigravity_hook.py`, which turns Antigravity's hook events into Relic's):
+  - calls to Relic's own server through `call_mcp_tool` are allowed and carry the conversation's identity, as on
+    Claude Code;
+  - every other call goes through the organization's strong protocols (`run_command` counts as Bash, `edit_file` as
+    Edit, `write_file` as Write, `read_file` as Read): a call they block is denied, and anything else gets `ask`,
+    which leaves it to Antigravity's own permission rules, as the host decides on Claude Code and Codex (measured:
+    an answer without a decision denies the call, while `ask` keeps the app's preset and monitors);
+  - the organization's context and new messages come before the model's calls;
+  - a Stop goes on for due reflection and direct messages.
+
+  Relic wakes an idle Antigravity seat by sending the wake-up into its conversation through the app's local endpoint
+  (`relic_core/antigravity.py`), and starts a new conversation for a seat that has none.
+  - Google 的智能体应用 Antigravity 成了 Relic 的宿主：它的一个对话可以占一个席位，身份是 `antigravity:<对话 id>`。
+    安装器找到 Antigravity 后，会把插件写到 `~/.gemini/config/plugins/relic`（`--host antigravity` 只装这一处）。
+    插件带上 Relic 的 MCP 服务器和钩子（`hooks/antigravity_hook.py`，把 Antigravity 的钩子事件转成 Relic 的）：
+    - 通过 `call_mcp_tool` 调用 Relic 自己服务器的请求会被放行，并带上对话的身份，和 Claude Code 上一样；
+    - 其他每次调用都要过组织的强协议（`run_command` 算 Bash，`edit_file` 算 Edit，`write_file` 算 Write，`read_file`
+      算 Read）：被拦的拒绝，其余答 `ask`，交给 Antigravity 自己的权限规则，和 Claude Code、Codex 上由宿主决定一样
+      （实测：不给结论的回答会直接拒绝调用，`ask` 则保留应用的预设和监督器）；
+    - 组织上下文和新消息在模型调用前送到；
+    - 有该写的反思和直接消息时，Stop 会接着干。
+
+    Antigravity 席位空闲时，Relic 通过应用的本地接口把叫醒消息送进它的对话（`relic_core/antigravity.py`）；还没有
+    对话的席位，Relic 新开一个。
+
 - Answering a message that came from another organization works both ways the message tool describes
   (`to=["<org id>/<member>"]`, or `org=<org id>` with `to=[member]`) together with `reply_to`. Such a message is kept
   where it arrived, under a number of its own there, so looking the number up in the sender's organization refused

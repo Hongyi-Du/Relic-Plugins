@@ -55,6 +55,8 @@ def harness():
 
 
 def tool_prefix():
+    if harness() == "antigravity":  # Antigravity calls them through call_mcp_tool (antigravity_hook.py)
+        return "relic_relic_org/"
     return "mcp__relic_org__" if harness() == "codex" else "mcp__plugin_relic_org__"
 
 
