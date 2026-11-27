@@ -104,6 +104,34 @@ def _plain(path):
     return Path(text[4:]) if text.startswith("\\\\?\\") else Path(text)
 
 
+def _antigravity_transcript(session):
+    """Locate an Antigravity conversation's JSONL transcript when present."""
+    try:
+        from relic_core import antigravity
+        path = antigravity.transcript_path(session)
+        if path and path.is_file():
+            return path
+        compact = path.with_name("transcript.jsonl") if path else None
+        if compact and compact.is_file():
+            return compact
+        return None
+    except ImportError:
+        pass
+    configured = os.getenv("RELIC_GEMINI_DIR")
+    if configured:
+        root = Path(configured)
+    elif runner.test_run() or os.getenv("RELIC_TEST"):
+        return None
+    else:
+        root = Path.home() / ".gemini"
+    logs = root / "antigravity" / "brain" / session / ".system_generated" / "logs"
+    for name in ("transcript_full.jsonl", "transcript.jsonl"):
+        candidate = logs / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def locate(actor):
     """(harness, session, transcript path or None). Unlike trajectory.locate, a Claude Code subagent whose own
     transcript is not found gets None, not its parent session's transcript, and long Windows paths are searched."""
@@ -111,9 +139,12 @@ def locate(actor):
     if hit and time.time() - hit[0] < 120 and (hit[1][2] is None or long_path(hit[1][2]).exists()):
         return hit[1]
     head = actor.split("/", 1)[0]
-    if ":" in head:  # codex:<thread>, or a chat member (no transcript on this computer)
+    if ":" in head:  # codex:<thread>, antigravity:<conversation>, or a chat member (no transcript on this computer)
         if actor.startswith("codex:") and "/" in actor:  # a Codex subagent is a thread of its own: codex:<parent>/<child>
             found = trajectory.locate("codex:" + actor.rsplit("/", 1)[1])
+        elif actor.startswith("antigravity:"):
+            session = actor.split(":", 1)[1].split("/", 1)[0]
+            found = ("antigravity", session, _antigravity_transcript(session))
         else:
             found = trajectory.locate(actor) if actor.startswith("codex:") else (head.split(":", 1)[0], actor, None)
     else:
@@ -171,6 +202,9 @@ def session_meta(actor):
                 meta["model"] = p.get("model")
                 meta["effort"] = p.get("effort") or meta.get("effort")
                 meta["cwd"] = p.get("cwd") or meta.get("cwd")
+        elif harness == "antigravity":
+            if e.get("type") == "PLANNER_RESPONSE" and e.get("model"):
+                meta["model"] = e["model"]
         else:
             if e.get("entrypoint"):
                 meta["entrypoint"] = e["entrypoint"]
@@ -206,7 +240,8 @@ def surface_of(seat, meta):
         return "subagent"
     entry = (meta.get("entrypoint") or "").lower()
     origin = ("%s %s" % (meta.get("originator") or "", meta.get("source") or "")).lower()
-    if "desktop" in entry or "desktop" in origin or config.get("surface") == "gui":
+    if ("desktop" in entry or "desktop" in origin or config.get("surface") in ("gui", "app")
+            or seat.get("harness") == "antigravity" or carrier.startswith("antigravity:")):
         return "desktop"
     if entry in ("cli", "claude-vscode") or "cli" in origin or "exec" in origin or config.get("surface") == "cli":
         return "cli"
@@ -218,7 +253,7 @@ def surface_of(seat, meta):
 SURFACE_KEYS = {"desktop": "view.surface.desktop", "cli": "view.surface.cli", "acp": "view.surface.acp",
                 "chat": "view.surface.chat"}
 SURFACE_NAMES = {"subagent": "subagent", "sdk": "SDK", "unknown": ""}
-HARNESS_LABEL = {"claude-code": "Claude Code", "codex": "Codex", "chatgpt": "ChatGPT"}
+HARNESS_LABEL = {"claude-code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity", "chatgpt": "ChatGPT"}
 
 
 def surface_label(surface, lang=None):
@@ -349,6 +384,8 @@ def model_info(harness, surface, config, live, agent, lang=None):
         efforts = known.get("efforts") or CLAUDE_EFFORTS
     elif harness == "codex":
         models, efforts = known.get("models") or CODEX_MODELS, known.get("efforts") or CODEX_EFFORTS
+    elif harness == "antigravity":
+        models, efforts = known.get("models") or ["flash", "pro", "flash_lite"], []
     else:
         models, efforts = [], []
     if live and live.get("models"):
@@ -366,6 +403,8 @@ def model_info(harness, surface, config, live, agent, lang=None):
         info["note"] = i18n.t("view.model.claude", lang)
     elif harness == "codex":
         info["note"] = i18n.t("view.model.codex", lang)
+    elif harness == "antigravity":
+        info["note"] = i18n.t("view.model.antigravity", lang)
     return info
 
 
@@ -1068,14 +1107,59 @@ _STEPS = {}  # (path, full) -> (mtime, size, steps): a transcript is parsed agai
 STEP_CLIP = 20000
 
 
+def _antigravity_steps(path, clip=STEP_CLIP, full=False):
+    """Parse Antigravity transcript_full.jsonl into Relic's shared step format."""
+    def clipped(text):
+        text = str(text or "")
+        return text if not clip or len(text) <= clip else text[:clip] + " …[%d more chars]" % (len(text) - clip)
+
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(e, dict):
+                continue
+            at = e.get("created_at") or ""
+            kind = e.get("type")
+            if kind == "USER_INPUT":
+                content = str(e.get("content") or "")
+                match = re.search(r"<USER_REQUEST>\s*([\s\S]*?)\s*</USER_REQUEST>", content)
+                text = match.group(1) if match else content
+                if text.strip():
+                    yield {"at": at, "role": "user", "text": clipped(text)}
+            elif kind == "SYSTEM_MESSAGE" and full and e.get("content"):
+                yield {"at": at, "role": "context", "text": clipped(e["content"])}
+            elif kind == "PLANNER_RESPONSE":
+                if full and e.get("thinking"):
+                    yield {"at": at, "role": "thinking", "text": clipped(e["thinking"])}
+                for tc in e.get("tool_calls") or []:
+                    if isinstance(tc, dict):
+                        yield {"at": at, "role": "tool_call", "tool": tc.get("name", ""),
+                               "text": clipped(json.dumps(tc.get("args") or {}, ensure_ascii=False,
+                                                          indent=1 if full else None))}
+                if e.get("content"):
+                    yield {"at": at, "role": "assistant", "text": clipped(e["content"])}
+            elif kind == "GENERIC":
+                body = e.get("error") or e.get("content") or ""
+                yield {"at": at, "role": "tool_result", "error": e.get("status") == "ERROR" or bool(e.get("error")),
+                       "text": clipped(body)}
+
+
 def _steps(harness, actor, path, full=False):
     key = (str(path), bool(full))
     stat = long_path(path).stat()
     hit = _STEPS.get(key)
     if hit and hit[0] == stat.st_mtime and hit[1] == stat.st_size:
         return hit[2]
-    reader = trajectory.codex_steps if harness == "codex" else trajectory.claude_steps
-    subagent = harness != "codex" and "/" in actor
+    if harness == "antigravity":
+        reader = _antigravity_steps
+    elif harness == "codex":
+        reader = trajectory.codex_steps
+    else:
+        reader = trajectory.claude_steps
+    subagent = harness not in ("codex", "antigravity") and "/" in actor
     # a Claude Code subagent's own file marks every entry as a side chain, which the reader skips unless full
     steps = list(reader(long_path(path), STEP_CLIP, full or subagent))
     if subagent and not full:

@@ -15,6 +15,7 @@
  "native.protocol_guidance": "指引",
  "@name": "简体中文",
  "api.acp_one_seat": "这个会话在 Relic App 里作为「{org}」的 {member} 运行；这类会话暂时只能坐一个席位。",
+ "api.antigravity_member": "{member} 在 Antigravity 应用里运行：去 Antigravity 里打开它的对话。",
  "api.cc_missing": "没有这条抄送。",
  "api.cc_not_active": "{id} 已经不再生效，不用再废除。",
  "api.chat_member_chatgpt": "{member} 是聊天成员：在ChatGPT 桌面版里打开它的聊天。",
@@ -1089,5 +1090,9 @@
  "slack.read_count": {
   "other": "{n} 条"
  },
- "slack.read_error": "出错：{error}"
+ "slack.read_error": "出错：{error}",
+ "harness.antigravity_missing": "这台电脑上没有运行中的 Antigravity。请先打开 Antigravity 应用。",
+ "naming.antigravity_renamed": "Antigravity 对话的标题也改了。",
+ "naming.no_antigravity": "Antigravity 没在运行，名字只在 Relic 里改。",
+ "view.model.antigravity": "这个会话在 Antigravity 里运行：在 Antigravity 应用里切换模型。"
 }

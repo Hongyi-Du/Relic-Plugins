@@ -155,6 +155,39 @@ class Bus:
                 pass
 
 
+def _iso_epoch(value):
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp() if value else 0
+    except (ValueError, TypeError):
+        return 0
+
+
+def _antigravity_sessions():
+    """Conversations the running Antigravity app lists; empty when Antigravity is not running."""
+    try:
+        from relic_core import antigravity
+    except ImportError:
+        return []
+    if antigravity.hub() is None:
+        return []
+    data = antigravity.call(antigravity.CONVERSATIONS + "ListConversations",
+                            {"pageSize": 50, "includeArchived": False})
+    out = []
+    for conv in data.get("conversations") or []:
+        cid = conv.get("id")
+        if not cid:
+            continue
+        ann = conv.get("annotations") or {}
+        state = conv.get("state") or {}
+        meta = conv.get("metadata") or {}
+        title = " ".join(str(ann.get("title") or state.get("summary") or cid).split())[:120]
+        updated = _iso_epoch(state.get("updateTime") or meta.get("createTime"))
+        out.append({"harness": "antigravity", "id": str(cid), "title": title, "surface": "app",
+                    "cwd": "", "updated": updated})
+    return out
+
+
 class App:
     def __init__(self, port=DEFAULT_PORT, store=None):
         self.store = store or Store()
@@ -335,8 +368,14 @@ class App:
 
     @staticmethod
     def sessions():
-        """Sessions on this computer that can take a seat: Claude Code sessions, Codex threads, ChatGPT chats."""
+        """Sessions on this computer that can take a seat: Claude Code sessions, Codex threads, Antigravity
+        conversations, ChatGPT chats."""
         found, problems = all_sessions()
+        try:
+            found = list(found) + _antigravity_sessions()
+        except (OSError, RuntimeError) as error:
+            problems = list(problems) + ["Antigravity: %s" % error]
+        found.sort(key=lambda s: s.get("updated") or 0, reverse=True)
         return {"sessions": found[:300], "problems": problems}
 
     def bind(self, org_id, a):
@@ -344,13 +383,13 @@ class App:
         session, member = a.get("session") or {}, (a.get("member") or "").strip()
         if not member or not session.get("id") or not session.get("harness"):
             raise OrgError(i18n.t("api.pick_session", self.lang()))
-        actor = actor_for(session)
+        actor = ("antigravity:" + session["id"]) if session["harness"] == "antigravity" else actor_for(session)
         for other, name, _ in self.store.seats_of(actor):  # it keeps its other seats; one run in the App cannot
             if other["id"] != org_id and ((other["members"].get(name) or {}).get("config") or {}).get("surface") == "acp":
                 raise OrgError(i18n.t("api.acp_one_seat", self.lang(), member=name, org=other["name"]))
         self.store.join(actor, org_id, member, (a.get("role") or "").strip())
-        if session["harness"] == "chatgpt":  # a ChatGPT chat takes part only through Relic: make it wakeable
-            self.store.set_config(org_id, member, runner.default_config("chatgpt"))
+        if session["harness"] in ("chatgpt", "antigravity"):
+            self.store.set_config(org_id, member, runner.default_config(session["harness"]))
         self.bus.publish({"type": "org", "org": org_id})
         return {"member": member}
 
@@ -381,6 +420,8 @@ class App:
                                   self.lang(), member=member))
         if (seat.get("config") or {}).get("surface") == "acp":
             raise OrgError(i18n.t("api.in_app", self.lang(), member=member))
+        if harness == "antigravity":
+            raise OrgError(i18n.t("api.antigravity_member", self.lang(), member=member))
         config = seat.get("config") if (seat.get("config") or {}).get("harness") == harness else {}
         session = carrier.split(":", 1)[1] if carrier.startswith("codex:") else carrier.split("/", 1)[0]
         state = runner.run_state(org_id, member) or {}

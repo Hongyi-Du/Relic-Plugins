@@ -38,10 +38,11 @@ import sys
 import threading
 from pathlib import Path
 
-from relic_core import i18n, runner, platform_support
+from relic_core import __version__, i18n, runner, platform_support
 from relic_core.store import data_home
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # the Relic plugin folder this App runs from
+ANTIGRAVITY_ACP = Path(__file__).resolve().parent / "antigravity_acp.py"
 # Never passed on to a session the App runs: they would make it look like the session that started the App (a Codex
 # thread, a Claude Code session, a plugin hook) or like another seat.
 INHERITED = platform_support.SESSION_IDENTITY_ENV
@@ -215,6 +216,68 @@ def _codex_mode():
     return CODEX_MODES.get(config.get("sandbox_mode"))
 
 
+def _antigravity_module():
+    try:
+        from relic_core import antigravity
+        return antigravity
+    except ImportError:
+        return None
+
+
+def antigravity_program():
+    """Path to the local Antigravity app executable (or chosen path in Settings), or '' when not found."""
+    chosen = chosen_path("antigravity")
+    if chosen:
+        return chosen
+    if os.name == "nt":
+        local = os.getenv("LOCALAPPDATA")
+        if local:
+            exe = Path(local) / "Programs" / "antigravity" / "Antigravity.exe"
+            if exe.is_file():
+                return str(exe)
+    elif sys.platform == "darwin":
+        for root in (Path("/Applications"), Path.home() / "Applications"):
+            app = root / "Antigravity.app" / "Contents" / "MacOS" / "Antigravity"
+            if app.is_file():
+                return str(app)
+    mod = _antigravity_module()
+    if mod and mod.installed():
+        return str((mod.gemini_dir() / "antigravity") if mod.gemini_dir() else "")
+    return ""
+
+
+def antigravity_command():
+    """Built-in Python ACP adapter driving the local Antigravity app through relic_core.antigravity."""
+    return python_program() if ANTIGRAVITY_ACP.is_file() else ""
+
+
+def _antigravity_env():
+    mod = _antigravity_module()
+    if mod is None or mod.hub() is None:
+        raise RuntimeError(i18n.t("harness.antigravity_missing"))
+    return {}
+
+
+def antigravity_relic_plugin():
+    """Whether the Relic plugin for Antigravity is installed (~/.gemini/config/plugins/relic): (enabled, has_hooks)."""
+    mod = _antigravity_module()
+    root = mod.gemini_dir() if mod is not None else None
+    if root is None:
+        return False, False
+    plugin_dir = root / "config" / "plugins" / getattr(mod, "PLUGIN", "relic")
+    if not (plugin_dir / "plugin.json").is_file():
+        return False, False
+    try:
+        cfg = json.loads((root / "config" / "config.json").read_text(encoding="utf-8"))
+        entry = (cfg.get("plugins") or {}).get(plugin_dir.name)
+        if isinstance(entry, dict) and entry.get("enabled") is False:
+            return False, False
+    except (OSError, ValueError, AttributeError):
+        pass
+    has_hooks_file = (plugin_dir / "hooks.json").is_file()
+    return True, has_hooks_file
+
+
 HARNESSES = {
     "claude-code": {
         "title": "Claude Code", "vendor": "Anthropic", "package": "@agentclientprotocol/claude-agent-acp@0.97.0",
@@ -226,6 +289,14 @@ HARNESSES = {
         "program": codex_program, "env": _codex_env, "actor": lambda sid: "codex:" + sid, "relic": "mcp",
         "host_plugin": codex_relic_plugin, "default_mode": _codex_mode,
         "modes_note": "follows sandbox_mode in your Codex config",
+    },
+    "antigravity": {
+        "title": "Antigravity", "vendor": "Google",
+        "command": antigravity_command, "args": ["-X", "utf8", str(ANTIGRAVITY_ACP)],
+        "program": antigravity_program, "env": _antigravity_env,
+        "actor": lambda sid: "antigravity:" + sid, "relic": "mcp",
+        "host_plugin": antigravity_relic_plugin, "default_mode": "",
+        "modes_note": "runs in your local Antigravity app",
     },
 }
 
@@ -378,7 +449,7 @@ def program(harness):
 
 def adapter_version(harness):
     if not HARNESSES[harness].get("package"):
-        return ""
+        return __version__ if installed(harness) else ""
     package = HARNESSES[harness]["package"].rsplit("@", 1)[0]
     try:
         manifest = _package_entry(package).parents[1] / "package.json"
@@ -388,6 +459,8 @@ def adapter_version(harness):
 
 
 def install_command(harness):
+    if not HARNESSES[harness].get("package"):
+        return []
     if HARNESSES[harness]["package"].rsplit("@", 1)[0] in LOCKED_PACKAGES:
         return ["npm", "ci", "--prefix", str(locked_home()), "--ignore-scripts", "--omit=optional", "--no-audit", "--no-fund"]
     return ["npm", "install", "--prefix", str(acp_home()), "--omit=optional", "--no-audit", "--no-fund",
@@ -397,6 +470,9 @@ def install_command(harness):
 def install(harness, log, processes=None):
     """Install a harness's ACP adapter with npm; `log` gets each output line. Returns npm's exit code."""
     with _INSTALL_LOCK:
+        if not HARNESSES[harness].get("package"):
+            log("Built-in ACP adapter; no external package installation is needed.")
+            return 0 if installed(harness) else 1
         return _install(harness, log, processes)
 
 
@@ -461,7 +537,7 @@ def catalog():
             problem = i18n.t("harness.need_node") if not runtime["path"] else runtime["problem"]
         known = remembered(key)
         out.append({"id": key, "title": spec["title"], "vendor": spec["vendor"], "available": not problem,
-                    "problem": problem, "adapter": spec.get("package") or "", "adapter_installed": adapter,
+                    "problem": problem, "adapter": spec.get("package") or "built-in", "adapter_installed": adapter,
                     "adapter_version": adapter_version(key) if adapter else "", "program": found,
                     "program_chosen": bool(chosen_path(key)), "node": runtime["path"] or "",
                     "node_version": runtime["version"], "node_architecture": runtime["architecture"], "mode": default_mode(key),

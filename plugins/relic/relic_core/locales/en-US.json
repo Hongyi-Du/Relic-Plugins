@@ -15,6 +15,7 @@
  "native.protocol_guidance": "Guidance",
  "@name": "English",
  "api.acp_one_seat": "This session runs inside the Relic App as {member} of “{org}”; such a session holds one seat only for now.",
+ "api.antigravity_member": "{member} runs in the Antigravity app: open its conversation there.",
  "api.cc_missing": "There is no such copy.",
  "api.cc_not_active": "{id} is no longer in effect, so there is nothing to retire.",
  "api.chat_member_chatgpt": "{member} is a chat member: open its chat in the ChatGPT desktop app.",
@@ -1184,5 +1185,9 @@
   "one": "{n} message",
   "other": "{n} messages"
  },
- "slack.read_error": "error: {error}"
+ "slack.read_error": "error: {error}",
+ "harness.antigravity_missing": "Antigravity is not running on this computer. Open the Antigravity app first.",
+ "naming.antigravity_renamed": "The Antigravity conversation was renamed too.",
+ "naming.no_antigravity": "Antigravity is not running, so the name changed in Relic only.",
+ "view.model.antigravity": "This session runs in Antigravity: change its model in the Antigravity app."
 }

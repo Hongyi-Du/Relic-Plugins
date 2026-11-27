@@ -158,6 +158,9 @@ def rename_session(seat, name, locate, lang=None):
     if carrier.startswith("codex:"):
         thread = carrier.split(":", 1)[1].split("/")[-1]
         return rename_codex(thread, name, lang)
+    if carrier.startswith("antigravity:"):
+        conv = carrier.split(":", 1)[1].split("/", 1)[0]
+        return rename_antigravity(conv, name, lang)
     session, _, agent = carrier.partition("/")
     if agent:
         return False, i18n.t("naming.subagent", lang)
@@ -203,3 +206,14 @@ def rename_codex(thread, name, lang=None):
     with open(index, "a", encoding="utf-8", newline="\n") as handle:
         handle.write(json.dumps({"id": thread, "thread_name": name, "updated_at": at}, ensure_ascii=False) + "\n")
     return True, i18n.t("naming.codex_renamed", lang)
+
+
+def rename_antigravity(conversation_id, name, lang=None):
+    """Sync a seat rename to its Antigravity conversation title via ConversationService/UpdateConversation."""
+    try:
+        from relic_core import antigravity
+        antigravity.call(antigravity.CONVERSATIONS + "UpdateConversation",
+                         {"conversationId": conversation_id, "annotations": {"title": name}})
+        return True, i18n.t("naming.antigravity_renamed", lang)
+    except Exception:
+        return False, i18n.t("naming.no_antigravity", lang)
