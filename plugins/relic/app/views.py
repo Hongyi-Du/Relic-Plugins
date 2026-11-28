@@ -253,7 +253,8 @@ def surface_of(seat, meta):
 SURFACE_KEYS = {"desktop": "view.surface.desktop", "cli": "view.surface.cli", "acp": "view.surface.acp",
                 "chat": "view.surface.chat"}
 SURFACE_NAMES = {"subagent": "subagent", "sdk": "SDK", "unknown": ""}
-HARNESS_LABEL = {"claude-code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity", "chatgpt": "ChatGPT"}
+HARNESS_LABEL = {"claude-code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity", "chatgpt": "ChatGPT",
+                 "kimi-code": "Kimi Code", "deepseek-harness": "DeepSeek Harness"}
 
 
 def surface_label(surface, lang=None):
@@ -411,9 +412,11 @@ def model_info(harness, surface, config, live, agent, lang=None):
     elif harness == "antigravity":
         models, efforts = _antigravity_models() or known.get("models") or list(ANTIGRAVITY_MODELS), []
     else:
-        models, efforts = [], []
+        models, efforts = known.get("models") or [], known.get("efforts") or []
     if live and live.get("models"):
         models = live["models"]
+    if live and "efforts" in live:
+        efforts = live["efforts"]
     info = {"models": models, "efforts": efforts, "editable": False, "applies": "", "note": ""}
     if surface == "acp":
         info.update(editable=True, applies="now", note=i18n.t("view.model.embedded", lang))
@@ -452,7 +455,7 @@ def member_view(store, org, name, seat, hub=None, act=None, unread=0, secretary=
         "avatar": prefs.avatar_url(org["id"], name),
         "role": seat.get("role", ""), "harness": harness, "harness_label": harness_label(harness, lang),
         "surface": surface, "surface_label": surface_label(surface, lang), "model": model,
-        "effort": (live or {}).get("effort") or config.get("effort") or meta.get("effort") or "",
+        "effort": live.get("effort", "") if live is not None else config.get("effort") or meta.get("effort") or "",
         "model_editable": info["editable"], "model_applies": info["applies"], "model_note": info["note"],
         "models": info["models"], "efforts": info["efforts"],
         "state": state, "detail": detail, "doing": doing,

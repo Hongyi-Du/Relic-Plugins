@@ -172,8 +172,9 @@ struct HarnessSettings: View {
                     VStack(alignment: .leading, spacing: 7) {
                         row(m.t("common.status")) { OverviewChip(text: harness["available"].flag ? m.t("settings.connected") : harness["problem"].text.isEmpty ? m.t("settings.not_connected") : harness["problem"].text, tone: harness["available"].flag ? "ok" : "bad") }
                         row(m.t("settings.program")) { pathRow(harness["id"].text, placeholder: harness["program"].text.isEmpty ? m.t("settings.auto_find") : harness["program"].text, small: true) }
-                        row(m.t("settings.adapter")) { text(m.t(harness["adapter_installed"].flag ? "settings.adapter_version" : "settings.adapter_missing", ["adapter": harness["adapter"].text, "version": harness["adapter_version"].text])) }
-                        row("Node.js") { text(harness["node"].text.isEmpty ? m.t("settings.not_found") : harness["node"].text) }
+                        // A harness that speaks ACP itself (no adapter named) needs neither an adapter nor Node.js.
+                        row(m.t("settings.adapter")) { text(harness["adapter"].text.isEmpty ? m.t("harness.native_acp") : m.t(harness["adapter_installed"].flag ? "settings.adapter_version" : "settings.adapter_missing", ["adapter": harness["adapter"].text, "version": harness["adapter_version"].text])) }
+                        if !harness["adapter"].text.isEmpty { row("Node.js") { text(harness["node"].text.isEmpty ? m.t("settings.not_found") : harness["node"].text) } }
                         row(m.t("settings.default_mode")) { text(harness["mode"].text.isEmpty ? m.t(harness["note"].text.isEmpty ? "settings.adapter_default" : "settings.adapter_default_note", ["note": harness["note"].text]) : harness["mode"].text) }
                         if !harness["models"].rows.isEmpty { row(m.t("settings.models")) { text(harness["models"].rows.map(\.text).joined(separator: m.t("settings.models_sep"))) } }
                     }.padding(.vertical, 12.5)

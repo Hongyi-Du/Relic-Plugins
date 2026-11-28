@@ -2,6 +2,24 @@
 
 ## Unreleased / 未发布
 
+- Kimi Code (Moonshot AI) and DeepSeek Harness join the Relic App as harnesses that speak ACP themselves, contributed
+  by **Moonstring**. Add member → Run in the App offers them; a member uses the installation and login already on the
+  computer (`kimi acp`; `dsh --profile acp`, or DeepSeek Harness's Windows desktop app, with `RELIC_DSH_PROFILE` and
+  `RELIC_DSH_PATCH`), and settings say that it needs no adapter and no Node.js. The program is the path chosen in
+  settings, else `RELIC_KIMI_PATH` / `RELIC_DSH_PATH`, else `PATH`; a chosen path that is wrong is reported, never passed
+  over for another installation. Model and effort choices follow what the session offers: grouped choices (DSH's models
+  by provider), an effort setting under any id (Kimi's `thinking`), and what the session reports back after a change, so
+  a card never shows a choice the session did not take. A saved effort the session has no setting for is cleared when
+  it starts, and a saved choice the session refuses is shown on the member's card while the member starts on the
+  session's own. See [Kimi Code and DeepSeek Harness](docs/native-harnesses.en.md).
+  - Kimi Code（月之暗面）和 DeepSeek Harness 成了 Relic App 的宿主，它们自己就说 ACP，由 **Moonstring** 贡献。「添加成员 →
+    在 App 里运行」里可以选它们；成员用本机已有的安装和登录（`kimi acp`；`dsh --profile acp` 或 DeepSeek Harness 的
+    Windows 桌面版，可配 `RELIC_DSH_PROFILE`、`RELIC_DSH_PATCH`），设置页写明不需要适配器和 Node.js。程序先用设置里选的
+    路径，再看 `RELIC_KIMI_PATH` / `RELIC_DSH_PATH`，最后找 `PATH`；选的路径不对会直接报出来，不会悄悄换成另一套安装。
+    模型和推理强度的选项跟着会话给的来：支持分组的选项（DSH 按 provider 分组的模型）、任意 id 的推理强度设置（Kimi 的
+    `thinking`），改完以会话回报的为准，名片不会显示会话没接受的选择。会话没有推理强度设置时，启动时清掉保存的推理强度；
+    会话拒绝保存的选择时，名片上写明，成员照样用会话自己的值启动。见[Kimi Code 和 DeepSeek Harness](docs/native-harnesses.zh-CN.md)。
+
 - Antigravity, Google's agent app, joins Relic as a harness: a conversation in it holds a seat as
   `antigravity:<conversation id>`. The installer writes a plugin to `~/.gemini/config/plugins/relic` when it finds
   Antigravity (`--host antigravity` asks for it alone). The plugin brings the Relic MCP server and hooks

@@ -133,7 +133,7 @@ struct MemberForm: View {
     }
     private func sessionHarnessLabel(_ session: Node) -> String {
         let id = session["harness"].text
-        let fallback = ["claude-code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity", "chatgpt": "ChatGPT", "claude-chat": "Claude"][id]
+        let fallback = ["claude-code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity", "kimi-code": "Kimi Code", "deepseek-harness": "DeepSeek Harness", "chatgpt": "ChatGPT", "claude-chat": "Claude"][id]
         let title = harnesses.first { $0["id"].text == id }?["title"].text ?? fallback ?? id
         return ["gui", "cli"].contains(session["surface"].text) ? m.t(session["surface"].text == "gui" ? "member.harness_gui" : "member.harness_cli", ["harness": title]) : title
     }

@@ -10,8 +10,8 @@ public sealed partial class MainWindow
     private JsonNode platform = new JsonObject();
     private string Display(string name) => name == "human" ? (preferences.Text("name").Length > 0 ? preferences.Text("name") : T("common.you")) : snap.Rows("members").FirstOrDefault(m => m.Text("name") == name).Text("display") is { Length: > 0 } display ? display : name;
     private bool Delivery(string harness, string surface) => harness == "chatgpt" ? platform.Flag("chatgpt_delivery") : surface is "gui" or "desktop" ? harness switch { "codex" => platform.Flag("codex_desktop_wake"), "claude-code" => platform.Flag("claude_desktop_wake"), _ => true } : true;
-    private static string HarnessTitle(string harness) => harness switch { "claude-code" => "Claude Code", "codex" => "Codex", "antigravity" => "Antigravity", "chatgpt" => "ChatGPT", "claude-chat" => "Claude", _ => harness };
-    private static string HarnessBadge(string harness) => harness switch { "codex" => "Codex", "claude-code" or "claude-chat" or "" => "Claude", "antigravity" => "Antigravity", "chatgpt" => "ChatGPT", _ => harness };
+    private static string HarnessTitle(string harness) => harness switch { "claude-code" => "Claude Code", "codex" => "Codex", "antigravity" => "Antigravity", "kimi-code" => "Kimi Code", "deepseek-harness" => "DeepSeek Harness", "chatgpt" => "ChatGPT", "claude-chat" => "Claude", _ => harness };
+    private static string HarnessBadge(string harness) => harness switch { "codex" => "Codex", "claude-code" or "claude-chat" or "" => "Claude", "antigravity" => "Antigravity", "kimi-code" => "Kimi", "deepseek-harness" => "DeepSeek", "chatgpt" => "ChatGPT", _ => harness };
     private string Identity(JsonNode c) => c.Text("state") == "vacant" ? (c.Text("harness_label").Length > 0 ? T("card.identity_vacant_harness", ("harness", c.Text("harness_label"))) : T("card.identity_vacant")) : c.Text("surface") switch
     {
         "subagent" => c.Text("parent").Length > 0 ? T("card.identity_subagent_parent", ("harness", c.Text("harness_label")), ("parent", Display(c.Text("parent")))) : T("card.identity_subagent", ("harness", c.Text("harness_label"))),

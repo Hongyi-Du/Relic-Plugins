@@ -465,8 +465,10 @@ public sealed partial class MainWindow
             var status = OverviewChip(harness.Flag("available") ? T("settings.connected") : harness.Text("problem").Length > 0 ? harness.Text("problem") : T("settings.not_connected"), harness.Flag("available") ? "ok" : "bad"); status.HorizontalAlignment = HorizontalAlignment.Left; Row(T("common.status"), status);
             var program = SettingsInput(preferences["paths"].Text(id), harness.Text("program").Length > 0 ? harness.Text("program") : T("settings.auto_find"), mono: true, fontSize: 12);
             var save = OverviewAction(T("common.save"), () => SavePath(id, program.Text)); save.VerticalAlignment = VerticalAlignment.Top; var controls = TwoColumns(program, save); controls.ColumnSpacing = 6; Row(T("settings.program"), controls);
-            Row(T("settings.adapter"), OverviewText(harness.Flag("adapter_installed") ? T("settings.adapter_version", ("adapter", harness.Text("adapter")), ("version", harness.Text("adapter_version"))) : T("settings.adapter_missing", ("adapter", harness.Text("adapter")))));
-            Row("Node.js", OverviewText(harness.Text("node").Length > 0 ? harness.Text("node") : T("settings.not_found")));
+            // A harness that speaks ACP itself (no adapter named) needs neither an adapter nor Node.js.
+            var ownAcp = harness.Text("adapter").Length == 0;
+            Row(T("settings.adapter"), OverviewText(ownAcp ? T("harness.native_acp") : harness.Flag("adapter_installed") ? T("settings.adapter_version", ("adapter", harness.Text("adapter")), ("version", harness.Text("adapter_version"))) : T("settings.adapter_missing", ("adapter", harness.Text("adapter")))));
+            if (!ownAcp) Row("Node.js", OverviewText(harness.Text("node").Length > 0 ? harness.Text("node") : T("settings.not_found")));
             Row(T("settings.default_mode"), OverviewText(harness.Text("mode").Length > 0 ? harness.Text("mode") : harness.Text("note").Length > 0 ? T("settings.adapter_default_note", ("note", harness.Text("note"))) : T("settings.adapter_default")));
             if (harness.Rows("models").Count > 0) Row(T("settings.models"), OverviewText(string.Join(T("settings.models_sep"), harness.Rows("models").Select(x => x.Text()))));
             card.Children.Add(kv); card.Children.Add(logSurface);
