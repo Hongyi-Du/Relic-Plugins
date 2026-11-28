@@ -92,6 +92,8 @@ public struct MonitorAgent: Equatable, Sendable, Identifiable {
         case "codex": return "Codex"
         case "claude-code", "claude-chat", "": return "Claude"
         case "antigravity": return "Antigravity"
+        case "kimi-code": return "Kimi"
+        case "deepseek-harness": return "DeepSeek"
         case "chatgpt": return "ChatGPT"
         default: return harness
         }

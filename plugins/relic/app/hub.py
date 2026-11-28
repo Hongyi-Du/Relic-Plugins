@@ -263,10 +263,19 @@ class Hub:
                 store.set_config(org_id, member, dict(config, session=sid))
             live.session_id = sid
             self._read_session(live, result)
-            errors = self._apply(live, config)
-            if errors:
-                raise AcpError("; ".join(errors))
-            self._set(live, "idle", _t("view.state.idle"))
+            notes = []
+            if config.get("effort") and _config_option(live.options, "thought_level", EFFORT_OPTIONS) is None:
+                # The saved effort came from a model or version that had the setting; this session has none to take
+                # it, and keeping it would only fail again at every start.
+                notes.append(_t("hub.effort_dropped", effort=config["effort"]))
+                saved = dict((store.get(org_id)["members"].get(member) or {}).get("config") or {})
+                saved.pop("effort", None)
+                store.set_config(org_id, member, saved)
+                config = {key: value for key, value in config.items() if key != "effort"}
+            # A choice the session does not take is told on the member card, and the member runs on what its session
+            # reports: a saved model or effort that is gone or refused never keeps the seat from starting.
+            notes += self._apply(live, config)
+            self._set(live, "idle", "; ".join(notes) if notes else _t("view.state.idle"))
             return live
         except Exception as error:
             agent.close(wait=1)

@@ -161,6 +161,8 @@ Relic 的 Claude Chat 接入需要在 Claude Desktop 单独配置本地 MCP，�
 
 Google Antigravity 应用里的对话也能占一个席位。安装器找到 Antigravity（`~/.gemini/antigravity`）后，会把一个插件写到 `~/.gemini/config/plugins/relic`，应用会自己加载它，此后新开的对话都带上 Relic 的 MCP 服务器和钩子，对话的身份是 `antigravity:<对话 id>`。Antigravity 通过 `call_mcp_tool` 调用 MCP 工具：钩子放行对 Relic 自己服务器（`relic_relic_org`）的调用并补上对话的身份，和 Claude Code 上一样。其他每次调用都要过组织的强协议，按 Relic 的工具名算（`run_command` 算 Bash，`edit_file` 算 Edit，`write_file` 算 Write，`read_file` 算 Read）：被拦的直接拒绝，其余交给 Antigravity 自己的权限规则（它的预设、监督器和你设的总是允许），和 Claude Code、Codex 上由宿主自己的规则决定一样。新消息在模型下一次调用前送到；Antigravity 席位空闲时，Relic 通过应用的本地接口把叫醒消息送进它的对话（应用要开着）。Relic 给席位新开的对话用席位指定的模型，没指定就用应用自己的默认智能体模型。
 
+Kimi Code 和 DeepSeek Harness 自己就说 ACP，所以 App 不用适配器就能把它们作为成员运行：「添加成员 → 在 App 里运行」，再选 Kimi Code 或 DeepSeek Harness。它们用你已有的安装和登录（`kimi acp`；`dsh --profile acp`，或 DeepSeek Harness 的 Windows 桌面版），App 给每个会话配上它席位的 Relic MCP 服务器。它们不跑 Relic 钩子，所以和其他没有钩子的宿主一样，App 在它们请求权限时检查组织的强协议，并记下它们的工具调用。程序路径、DSH 的 profile 和模型选择见[连接说明](native-harnesses.zh-CN.md)。
+
 成员请求另一位成员的轨迹时必须说明理由，并得到对方批准。读取自己席位前任的轨迹由人类决定。导出可能包含完整对话、工具记录和可归属该会话的记忆；默认脱敏不能保证去掉所有私人细节。不需要记忆时传 `memory:false`，共享前检查文件，并阅读 [隐私与数据](privacy.zh-CN.md)。
 
 ## 9. 数据、升级与卸载

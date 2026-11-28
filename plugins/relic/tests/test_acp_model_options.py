@@ -197,7 +197,8 @@ class ModelOptions(unittest.TestCase):
             self.change(effort="max")
         self.assertEqual(self.store.config["effort"], "")
 
-    def assert_start_rejects_selection(self, config, options, existing=False):
+    def start(self, config, options, existing=False, reject=False):
+        """Start the seat on a fixture agent offering `options`; `reject` makes it refuse every selection."""
         self.store.config.update(config, harness="kimi-code", folder=str(Path.cwd()))
         if existing:
             self.store.config["session"] = "session-fixture"
@@ -207,38 +208,54 @@ class ModelOptions(unittest.TestCase):
         result = {"sessionId": "session-fixture", "configOptions": options}
         agent.new_session.return_value = result
         agent.load_session.return_value = result
-        agent.set_config_option.side_effect = hubs.AcpError("fixture selection rejected")
+        agent.set_config_option.return_value = {}  # a legacy acknowledgement: the selection took effect
+        if reject:
+            agent.set_config_option.side_effect = hubs.AcpError("fixture selection rejected")
         with mock.patch.object(hubs, "AcpAgent", return_value=agent), \
                 mock.patch.object(hubs.harnesses, "launch", return_value=(["fixture"], {})), \
                 mock.patch.object(hubs.harnesses, "relic_for", return_value=([], {})), \
                 mock.patch.object(Path, "mkdir"):
-            with self.assertRaisesRegex(hubs.AcpError, "fixture selection rejected"):
-                self.hub._start(self.live.org_id, self.live.member)
-        agent.close.assert_called_once_with(wait=1)
+            self.hub._start(self.live.org_id, self.live.member)
+        agent.close.assert_not_called()
         agent.prompt.assert_not_called()
-        failed = self.hub.status(self.live.org_id, self.live.member)
-        self.assertEqual(failed["state"], "error")
-        self.assertIn("fixture selection rejected", failed["detail"])
-        for key, value in config.items():
-            self.assertEqual(self.store.config[key], value)
         self.assertEqual(self.store.config["session"], "session-fixture")
-        return agent
+        return agent, self.hub.status(self.live.org_id, self.live.member)
 
-    def test_resumed_session_stops_when_requested_model_is_rejected(self):
-        agent = self.assert_start_rejects_selection(
-            {"model": "requested"}, [option("model", "model", "default", ["default", "requested"])],
-            existing=True)
+    def test_resumed_session_starts_on_its_own_model_when_the_saved_one_is_rejected(self):
+        agent, status = self.start({"model": "requested"},
+                                   [option("model", "model", "default", ["default", "requested"])],
+                                   existing=True, reject=True)
         agent.set_config_option.assert_called_once_with("session-fixture", "model", "requested")
-        self.assertEqual(self.hub.status(self.live.org_id, self.live.member)["model"], "default")
         agent.load_session.assert_called_once()
+        self.assertEqual((status["state"], status["model"]), ("idle", "default"))
+        self.assertIn("fixture selection rejected", status["detail"])
+        self.assertEqual(self.store.config["model"], "requested")  # the person's choice is tried again next start
 
-    def test_new_session_stops_when_requested_effort_is_rejected(self):
-        agent = self.assert_start_rejects_selection(
-            {"model": "old", "effort": "max"}, [option("model", "model", "old", ["old"]),
-                                                   option("thinking", "thought_level", "low", ["low", "max"])])
+    def test_new_session_starts_on_its_own_effort_when_the_saved_one_is_rejected(self):
+        agent, status = self.start({"model": "old", "effort": "max"},
+                                   [option("model", "model", "old", ["old"]),
+                                    option("thinking", "thought_level", "low", ["low", "max"])], reject=True)
         agent.set_config_option.assert_called_once_with("session-fixture", "thinking", "max")
-        self.assertEqual(self.hub.status(self.live.org_id, self.live.member)["effort"], "low")
         agent.new_session.assert_called_once()
+        self.assertEqual((status["state"], status["effort"]), ("idle", "low"))
+        self.assertIn("fixture selection rejected", status["detail"])
+        self.assertEqual(self.store.config["effort"], "max")
+
+    def test_saved_effort_without_an_effort_setting_is_cleared_and_the_seat_starts(self):
+        # 2026-11-03 review: an effort saved for a model that had the setting kept every later start failing.
+        agent, status = self.start({"model": "old", "effort": "max"}, [option("model", "model", "old", ["old"])],
+                                   existing=True)
+        agent.set_config_option.assert_not_called()
+        self.assertEqual((status["state"], status["effort"], status["efforts"]), ("idle", "", []))
+        self.assertIn("max", status["detail"])
+        self.assertNotIn("effort", self.store.config)
+        self.assertEqual(self.store.config["model"], "old")
+
+    def test_accepted_choices_leave_the_idle_state_plain(self):
+        agent, status = self.start({"model": "new"}, [option("model", "model", "old", ["old", "new"])])
+        agent.set_config_option.assert_called_once_with("session-fixture", "model", "new")
+        self.assertEqual((status["state"], status["model"]), ("idle", "new"))
+        self.assertEqual(status["detail"], hubs.i18n.t("view.state.idle"))
 
     def test_offline_selection_is_saved_for_next_session(self):
         self.live.agent.alive = False
