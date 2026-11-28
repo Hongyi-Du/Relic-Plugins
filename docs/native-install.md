@@ -1,11 +1,11 @@
-# Native Relic App candidate / 原生 Relic App 候选版
+# Native Relic App / 原生 Relic App
 
-These review builds use SwiftUI on macOS and WinUI 3 on Windows. They do not use
+These builds use SwiftUI on macOS and WinUI 3 on Windows. They do not use
 a browser or a web view. Both contain the same `plugins/relic` Python engine.
 Build and unit-test evidence does not replace trying the actual native windows.
 
-这些审阅构建分别使用 SwiftUI 和 WinUI 3，两端携带同一份 Python 核心。CI 构建及单元测试
-与真机界面验收是不同的步骤。当前候选版的合并和安装由 Claude 在本人试用后安排。
+这些构建分别使用 SwiftUI 和 WinUI 3，两端携带同一份 Python 核心。CI 构建及单元测试
+与真机界面验收是不同的步骤；macOS 版还没在真实 Mac 上试过。
 
 The app's own 40 px toolbar is its title bar. Drag an empty area to move the
 window, or double-click it to maximize/restore. Windows retains its system
@@ -22,7 +22,7 @@ Windows 系统窗口按钮和 macOS 红黄绿按钮都在这一行。**Native wi
 - Windows 10 version 1809+ x64, or macOS 14+ Apple silicon.
 - Python 3.11+ available as `python` on Windows or `python3` on macOS.
   `RELIC_PYTHON` may name the absolute interpreter path. The Python interpreter
-  is not bundled in these unsigned candidates.
+  is not bundled in these unsigned builds.
 - Windows dictation uses the installed Windows desktop speech engine for en-US or zh-CN.
   Add the selected language's Speech component in Windows Settings and allow desktop
   microphone access. macOS dictation uses Apple Speech and asks for speech/microphone permission on the first click.
@@ -31,33 +31,37 @@ Windows 系统窗口按钮和 macOS 红黄绿按钮都在这一行。**Native wi
   plugin installation. The native UI does not sign in to model providers.
 
 需要 Python 3.11+。成员仍使用已安装、已登录的 Claude Code / Codex；App 内运行成员另需
-Node.js 22+ 及相应 ACP adapter。原生候选版沿用现有插件和账号配置。
+Node.js 22+ 及相应 ACP adapter。原生 App 沿用现有插件和账号配置。
 
 ## Windows
 
-Download `Relic-Windows-<version>-Setup.exe` from the PR's **Native apps** workflow
-artifact. Run it when ready to try the candidate. It installs per user under
+Download `Relic-Windows-<version>-Setup.exe` from the
+[GitHub Release](https://github.com/Hongyi-Du/Relic-Plugins/releases) (each change's **Native apps**
+workflow artifact has the same file). Run it. It installs per user under
 `%LOCALAPPDATA%\Programs\Relic`, without administrator rights, and adds Start menu
 and desktop shortcuts. Open **Relic** from that shortcut. The installer does not
 automatically open it. Uninstall through Windows Settings; organization data in
 the Relic data directory is not an installer-owned file and is retained.
+The release's `relic-native-windows-<version>.zip` is the same App without an installer: extract it
+to a permanent folder and run `Relic.exe`.
 
-下载 CI artifact 中的 `Relic-Windows-<version>-Setup.exe`，准备试用时再安装。
-从开始菜单或桌面的 **Relic** 打开；安装器不会自动启动应用。候选版未签名。
-同一 artifact 的 ZIP 可解压后直接运行 `Relic.exe`，需保留整个目录。
+从 [GitHub Release](https://github.com/Hongyi-Du/Relic-Plugins/releases) 下载 `Relic-Windows-<版本>-Setup.exe`
+并运行（每次改动的 **Native apps** CI artifact 里也有同一个文件）。
+从开始菜单或桌面的 **Relic** 打开；安装器不会自动启动应用。安装器未签名，SmartScreen 可能先拦一下（「更多信息 → 仍要运行」）。
+Release 里的 `relic-native-windows-v<版本>.zip` 可解压后直接运行 `Relic.exe`，需保留整个目录。
 
 ## macOS
 
-Download the native macOS ZIP from the PR workflow artifact, extract it, and copy
-`Relic.app` to `~/Applications` for testing. Open **Relic.app** in Finder. This
+Download the native macOS ZIP from the GitHub Release (a preview, not yet tried on a real Mac), extract it, and copy
+`Relic.app` to `~/Applications`. Open **Relic.app** in Finder. This
 contains a Mach-O SwiftUI executable, not the old shell launcher. It needs no
-browser. This candidate has no Developer ID signature or notarization; use the
-normal per-app macOS approval flow after the person decides to test it. Do not
+browser. This build has no Developer ID signature or notarization; use the
+normal per-app macOS approval flow the first time you open it. Do not
 disable Gatekeeper globally. A `.dmg` and distribution signing come later.
 
 解压 macOS ZIP，将 `Relic.app` 复制到 `~/Applications` 后在 Finder 打开。
 这是 SwiftUI 可执行应用，不是旧版启动器。当前没有 Developer ID 签名或公证；
-首次打开的系统确认留到本人试用时处理。`.dmg`、签名及公证尚未发布。
+第一次打开时按 macOS 的提示单独批准这个应用，不要整体关闭 Gatekeeper。`.dmg`、签名及公证尚未发布。
 
 Opening via scripts/open_app.py or plugins/relic/scripts/relic_app.py now finds the native application. It never falls back to Edge/Chrome. RELIC_NATIVE_APP can select an explicit compiled executable or .app bundle. Plugin-only packages require the native App to be installed separately; --no-window, --serve, and lifecycle commands remain available for headless engine use.
 

@@ -1,9 +1,9 @@
 # Windows 安装说明
 
-本指南也适用于统一的 v0.7.1-beta.1 候选版（插件 0.18.1-beta.1）。可运行
-`python -X utf8 scripts/package.py --platform windows --output dist` 构建。升级前备份数据：
-打开旧库会不可逆地添加 `activity.paths` 列，没有自动降级；回退需恢复升级前备份。
-v0.7.0 尚未发布 GitHub Release。
+本指南适用于 v0.8.0-beta.1（插件 0.19.0-beta.1）。Release 里的 `Relic-Windows-0.8.0-beta.1-Setup.exe`
+把原生 App 和引擎装到 `%LOCALAPPDATA%\Programs\Relic`；该目录里的 `scripts/install.py` 给各宿主加装插件，
+用法和下文解压包相同。升级前备份数据：v0.7 以前的库打开时会不可逆地添加 `activity.paths` 列，没有自动降级；
+回退需恢复升级前备份。
 
 [English](windows.en.md) · [完整使用指南](guide.zh-CN.md)
 

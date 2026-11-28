@@ -1,6 +1,6 @@
 # Relic 完整使用指南
 
-**v0.7.1-beta.1 候选版：Windows 与 Apple silicon macOS 共享功能源码，插件为 0.18.1-beta.1。**已发布的 v0.6.0 仍仅面向 Windows；合并版已登录 Mac 验收尚待完成，见[验证记录](validation.md)。
+**v0.8.0-beta.1，插件 0.19.0-beta.1：原生 Relic App（Windows 用 WinUI 3，Apple silicon macOS 用 SwiftUI），两端共用一个引擎。**Windows 是实测过的平台；macOS App 是预览版，还没在真实 Mac 上试过，见[验证记录](validation.md)。
 
 [English](guide.en.md) · [Windows](windows.zh-CN.md) · [macOS](macos.zh-CN.md) · [工具参考](reference.zh-CN.md)
 

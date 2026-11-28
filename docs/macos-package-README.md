@@ -1,12 +1,12 @@
 # Relic for macOS · Apple silicon
 
-v0.7.1-beta.1（插件 0.18.1-beta.1）将 HaochenGu 的 Apple silicon 移植与 v0.6.0 合并。
-v0.7.1-beta.1 (plugin 0.18.1-beta.1) merges HaochenGu's Apple silicon port with v0.6.0.
-Windows 和 macOS 共享检查、Reply、人下发协议、抄送、侧栏折叠及组织关系图。
-Both systems share check/Reply rules, person-issued protocols, Copies, sidebar folding and the organization chart.
-合并前真机观察与合并后自动测试分别记录于 [验证记录](docs/validation.md)。合并版的已登录 Mac 验收仍待完成。
-See [validation](docs/validation.md) for pre-merge Mac observations and merged automated results;
-signed-in Mac acceptance of the merged version remains pending.
+v0.8.0-beta.1（插件 0.19.0-beta.1）：这个源码包只装插件与引擎；原生 SwiftUI 的 `Relic.app` 在
+`relic-native-macos-v0.8.0-beta.1.zip` 里，是预览版，还没在真实 Mac 上试过。
+v0.8.0-beta.1 (plugin 0.19.0-beta.1): this source package installs the plugin and engine; the native SwiftUI
+`Relic.app` is in `relic-native-macos-v0.8.0-beta.1.zip`, a preview not yet tried on a real Mac.
+Windows 和 macOS 共用一个引擎和同一套功能。Both systems share one engine and feature set.
+macOS 移植由 HaochenGu 贡献。The macOS port was contributed by HaochenGu.
+见 [验证记录](docs/validation.md) / See [validation](docs/validation.md).
 Requires native arm64 Python 3.11+, Node.js 22+ with npm, and a signed-in Claude Code and/or Codex CLI.
 
 ## 安装 / Install

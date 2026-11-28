@@ -1,7 +1,7 @@
 # 工具与配置参考
 
-v0.7.1-beta.1（插件 0.18.1-beta.1）在 Windows 与 Apple silicon macOS 共享检查/Reply 规则、抄送及人下发协议。
-打开旧库会增加 `activity.paths`，这是不可逆的自动迁移，没有自动降级。升级前备份数据，回退时恢复该备份。
+v0.8.0-beta.1（插件 0.19.0-beta.1）：Windows 与 Apple silicon macOS 共用一个引擎和同一套工具。v0.7 以前的库打开时
+会增加 `activity.paths`，这是不可逆的自动迁移，没有自动降级。升级前备份数据，回退时恢复该备份。
 
 [English](reference.en.md) · [完整指南](guide.zh-CN.md)
 

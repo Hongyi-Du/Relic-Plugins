@@ -1,9 +1,10 @@
-# macOS Apple silicon 使用指南 — v0.7.1-beta.1
+# macOS Apple silicon 使用指南 — v0.8.0-beta.1
 
-**v0.7.1-beta.1（插件 0.18.1-beta.1）合并 HaochenGu 的 macOS 移植与 v0.6.0。** Windows 与 macOS
-共用功能源码和版本号。这个未签名的源码候选包包含 Relic App 与 Claude Code/Codex 插件，Python、Node.js
-和已登录宿主需要另行准备。HaochenGu 的真机观察针对合并前的 v0.4.1 基础移植；合并版自动测试及尚待完成的
-真机验收见[验证记录](validation.md)。旧 v0.4.1-macos 是历史发布，v0.7.0 起使用统一发布线。
+**v0.8.0-beta.1（插件 0.19.0-beta.1）以预览版发布 Apple silicon 上的原生 SwiftUI Relic App。** Windows 与 macOS
+共用引擎和版本号。`relic-native-macos-v0.8.0-beta.1.zip` 里是未签名、未公证的 `Relic.app`，引擎在
+`Contents/Resources/engine` 里；Python、Node.js 和已登录宿主需要另行准备。CI 构建并跑过 App 的单元测试，但还没在
+真实 Mac 上试过；HaochenGu 的真机观察针对 v0.4.1 基础移植。见[验证记录](validation.md)。下文的源码包和
+`install.command` 仍可单独安装插件与引擎。
 
 [English](macos.en.md) · [完整使用指南](guide.zh-CN.md)
 

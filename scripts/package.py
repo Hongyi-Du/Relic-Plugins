@@ -18,8 +18,9 @@ SCRIPTS = ('install.py','doctor.py','open_app.py')
 SKIP = {'__pycache__','.git','.DS_Store','.native-fixtures','.pytest_cache','.native-tmp'}
 README = '''# Relic · Public Beta
 
-Relic v0.7.1-beta.1 (plugin 0.18.1-beta.1): one source and feature set for Windows and macOS Apple silicon.
-Includes check/Reply rules, Copies, person-issued protocols, sidebar folding and the organization chart.
+Relic v0.8.0-beta.1 (plugin 0.19.0-beta.1): one engine and feature set for Windows and macOS Apple silicon.
+The native Relic App is released separately: Relic-Windows-<version>-Setup.exe, relic-native-windows-v<version>.zip
+and relic-native-macos-v<version>.zip (preview).
 
 [English user guide](docs/guide.en.md) · [中文完整指南](docs/guide.zh-CN.md)
 

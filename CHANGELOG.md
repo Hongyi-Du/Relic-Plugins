@@ -1,6 +1,49 @@
 # Changelog / 更新记录
 
-## Unreleased / 未发布
+## v0.8.0-beta.1 — 2026-11-27
+
+Plugin **0.19.0-beta.1**. The first release of the native Relic App: WinUI 3 on Windows (an installer and a portable
+ZIP) and SwiftUI on macOS Apple silicon (a preview: built and unit-tested in CI, not yet tried on a real Mac), with no
+browser or web view, around the one Python engine. The highlights; every change is listed after them.
+
+- **More harnesses.** Antigravity conversations hold seats through a plugin in the Antigravity app; Kimi Code and
+  DeepSeek Harness run in the App through their own ACP, contributed by **Moonstring**.
+- **Work goes on without the person.** Keep-going hands an organization's unfinished work to its driver once it goes
+  quiet; members run on their own while the person is away from the computer; a task can wait on a background job,
+  whose end wakes its owner; pauses end at their condition, and a question to the person goes ahead with its
+  recommendation after an hour.
+- **Seeing and stopping.** The Overview shows the whole organization tree with its auto-wake switches and the
+  automations that start members; the Monitor shows who is working and the tokens it costs, and stops it.
+- **Slack as background.** Members can read the person's Slack, read-only, within what the person allows each
+  organization.
+- **Waking members.** Claude Desktop seats are woken through their session's own inbox, also after the desktop app
+  restarts; busy sessions, replies across organizations, hooks Codex skips and Codex chats waiting on the person are
+  handled and said.
+
+**Upgrading.** Quit the App and back up `~/.relic`, then run the new installer over the old one (or extract the new
+ZIP to a new folder). Relic upgrades the store in place the first time it opens it; keep the backup to roll back. Run
+`/reload-plugins` in open Claude Code sessions and restart Codex, which asks you to trust Relic's hooks again for the
+new version (`/hooks`).
+
+原生 Relic App 的第一个发布版，插件 **0.19.0-beta.1**：Windows 用 WinUI 3（安装器和便携 ZIP），Apple silicon macOS
+用 SwiftUI（预览版：CI 构建并跑过单元测试，还没在真实 Mac 上试过），不用浏览器也不用 WebView，两端共用一个 Python
+引擎。要点如下，全部改动列在后面。
+
+- **更多宿主。**Antigravity 对话通过 Antigravity 应用里的插件占席位；Kimi Code 和 DeepSeek Harness 通过它们自带的
+  ACP 在 App 里运行，由 **Moonstring** 贡献。
+- **人不在，工作照样往前走。**组织安静下来、工作还没做完时，持续推进把它交给推进人；人不在电脑前时成员自主运行；
+  任务可以挂后台作业，作业结束会叫醒任务负责人；暂停到条件就结束，问人的问题一小时没回就按推荐做。
+- **看得到，也停得下。**「总览」显示整棵组织树、自动唤醒开关和会启动成员的定时任务；「运行监控」显示谁在干活、
+  花了多少 token，并能停下它。
+- **Slack 当背景。**成员可以只读地看人的 Slack，范围由人按组织决定。
+- **唤醒成员。**Claude 桌面席位通过它会话自己的收件箱叫醒，桌面应用重启后也行；会话正忙、跨组织回复、Codex
+  跳过钩子、Codex 聊天在等人处理，都会妥善处理并说明。
+
+**升级：**先退出 App 并备份 `~/.relic`，再在旧版上运行新安装器（或把新 ZIP 解压到新目录）。Relic 第一次打开时会
+就地升级数据库，回退请用备份。已开着的 Claude Code 会话运行 `/reload-plugins`，并重启 Codex；Codex 会要求你为新版本
+重新信任 Relic 的钩子（`/hooks`）。
+
+### All changes / 全部改动
 
 - Kimi Code (Moonshot AI) and DeepSeek Harness join the Relic App as harnesses that speak ACP themselves, contributed
   by **Moonstring**. Add member → Run in the App offers them; a member uses the installation and login already on the
