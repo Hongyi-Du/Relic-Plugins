@@ -1,9 +1,10 @@
 # Windows installation
 
-This guide also applies to the unified v0.7.1-beta.1 candidate (plugin 0.18.1-beta.1). Build it with
-`python -X utf8 scripts/package.py --platform windows --output dist`. Before upgrading, back up the data:
-opening the old store adds `activity.paths` irreversibly; there is no automatic downgrade. Restore the
-pre-upgrade backup to roll back. No v0.7.0 GitHub Release has been published.
+This guide applies to v0.8.0-beta.1 (plugin 0.19.0-beta.1). The release's `Relic-Windows-0.8.0-beta.1-Setup.exe`
+installs the native App with its engine under `%LOCALAPPDATA%\Programs\Relic`; `scripts/install.py` in that folder
+adds the plugin to your hosts, as described below for an extracted package. Before upgrading, back up the data:
+a store from before v0.7 gains `activity.paths` irreversibly when opened; there is no automatic downgrade. Restore
+the pre-upgrade backup to roll back.
 
 [中文](windows.zh-CN.md) · [User guide](guide.en.md)
 

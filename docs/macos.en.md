@@ -1,10 +1,11 @@
-# macOS Apple silicon guide — v0.7.1-beta.1
+# macOS Apple silicon guide — v0.8.0-beta.1
 
-**v0.7.1-beta.1 (plugin 0.18.1-beta.1) merges HaochenGu's macOS port with v0.6.0.** Windows and macOS share one
-feature source and release version. This unsigned source candidate includes the Relic App and Claude Code/Codex
-plugin; Python, Node.js and signed-in hosts are external prerequisites. HaochenGu's real-Mac observations were made
-before this merge on the v0.4.1-based port. Merged automated results and remaining live acceptance are tracked in
-the [validation record](validation.md); the earlier v0.4.1-macos prerelease is historical; v0.7.0 uses one release line.
+**v0.8.0-beta.1 (plugin 0.19.0-beta.1) ships the native SwiftUI Relic App for Apple silicon as a preview.**
+Windows and macOS share one engine and release version. `relic-native-macos-v0.8.0-beta.1.zip` holds an unsigned,
+not notarized `Relic.app` with the engine inside (`Contents/Resources/engine`); Python, Node.js and signed-in hosts
+are external prerequisites. CI builds and unit-tests the App, but it has not been tried on a real Mac yet;
+HaochenGu's real-Mac observations were made on the v0.4.1-based port. See the [validation record](validation.md).
+The source package and `install.command` described below still install the plugin and engine on their own.
 
 [中文](macos.zh-CN.md) · [User guide](guide.en.md)
 

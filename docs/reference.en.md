@@ -1,8 +1,8 @@
 # Tools and configuration reference
 
-v0.7.1-beta.1 (plugin 0.18.1-beta.1) shares check/Reply rules, Copies and person-issued protocols across Windows
-and macOS Apple silicon. Opening an older store adds `activity.paths`: an irreversible automatic schema migration
-with no automatic downgrade. Back up before upgrading; restore that backup to roll back.
+v0.8.0-beta.1 (plugin 0.19.0-beta.1): one engine and tool set for Windows and macOS Apple silicon. Opening a store
+from before v0.7 adds `activity.paths`: an irreversible automatic schema migration with no automatic downgrade. Back
+up before upgrading; restore that backup to roll back.
 
 [中文](reference.zh-CN.md) · [User guide](guide.en.md)
 

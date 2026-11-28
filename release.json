@@ -1,14 +1,14 @@
 {
-  "version": "0.7.1-beta.1",
-  "date": "2026-10-29",
+  "version": "0.8.0-beta.1",
+  "date": "2026-11-27",
   "repository": "https://github.com/Hongyi-Du/Relic-Plugins",
   "product": "Relic",
   "plugin": {
-    "version": "0.18.1-beta.1",
-    "upstream_version": "0.18.1",
+    "version": "0.19.0-beta.1",
+    "upstream_version": "0.19.0",
     "id": "relic@relic-bridge"
   },
-  "macos_status": "apple_silicon_candidate_pending_merged_live_validation",
+  "macos_status": "native_apple_silicon_preview_pending_real_mac_validation",
   "channel": "prerelease",
   "target_platforms": [
     "windows",

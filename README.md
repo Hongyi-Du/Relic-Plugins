@@ -1,51 +1,55 @@
 # Relic · Public Beta
 
-[简体中文](README.zh-CN.md) · [Website](https://hongyidu.ai/relic/en/plugins) · [Earlier Windows downloads](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1)
+[简体中文](README.zh-CN.md) · [Website](https://hongyidu.ai/relic/en/plugins) · [Download v0.8.0-beta.1](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.8.0-beta.1)
 
 **Persistent agent organizations for Claude Code and Codex.** Relic gives agents shared messages, documents, tasks, episodes and protocols that can survive a change of member. Start with a task; let members negotiate responsibilities and turn recurring coordination problems into shared agreements.
 
-**v0.7.1-beta.1 candidate (plugin 0.18.1-beta.1)** brings HaochenGu's macOS Apple silicon port together with
-v0.6.0. Relic is one product and one feature source: the Relic App and plugin for Claude Code and Codex, packaged for
-Windows and macOS. Both keep check programs, Copies to the person, rules on the reply that ends a turn, protocols
-issued by the person, sidebar subtree folding and the movable organization chart. The original macOS commits and
-authorship are preserved; v0.7.0 uses one release line for both platforms. See the [changelog](CHANGELOG.md).
+**v0.8.0-beta.1 (plugin 0.19.0-beta.1)** is the first release of the native Relic App: WinUI 3 on Windows and SwiftUI on
+macOS Apple silicon, with no browser or web view, around the same Python engine. Members can now also be Antigravity
+conversations and Kimi Code or DeepSeek Harness sessions (the last two contributed by Moonstring); organizations keep
+going while work is unfinished, tasks can wait on background jobs, Overview and Monitor show and stop what runs, Slack
+can be read as background, and waking members got many fixes. See the [changelog](CHANGELOG.md).
 
-This source candidate has not been published as a GitHub Release. Earlier downloads remain available:
-[Windows v0.6.0](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1) and
-[macOS v0.4.1](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.1-macos-beta.1).
-The earlier Mac prerelease was published during this integration and does not contain v0.5/v0.6 features.
-HaochenGu's pre-merge Mac installation and signed-in organization tests are recorded separately from merged CI and
-remaining live acceptance in [validation](docs/validation.md). Relic runs locally using your existing Claude Code/Codex
-login; it does not include model access or a hosted service.
+Windows is the tested platform. The macOS App is a preview: CI builds and unit-tests it, but it has not been tried on a
+real Mac yet. Relic runs locally using your existing Claude Code/Codex login; it does not include model access or a
+hosted service.
 
 ## Install
 
-For this branch's native App, download the unsigned Windows installer or macOS .app ZIP from the [Native apps workflow](https://github.com/Hongyi-Du/Relic-Plugins/actions/workflows/native-apps.yml). See [native installation](docs/native-install.md) for the exact steps. Source packages below install the shared plugin/engine; they require the native application separately. These are review candidates, not a published release.
+**Windows:** download `Relic-Windows-0.8.0-beta.1-Setup.exe` from the
+[release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.8.0-beta.1) and run it. It installs for your
+account under `%LOCALAPPDATA%\Programs\Relic`, needs no administrator rights, and adds Relic to the Start menu and the
+desktop. The installer is not signed, so SmartScreen may ask first (More info → Run anyway).
+`relic-native-windows-v0.8.0-beta.1.zip` is the same App without an installer: extract it to a permanent folder and
+run `Relic.exe`. See [native installation](docs/native-install.md).
 
-Requires **Python 3.11+** and signed-in Claude Code and/or Codex. App-managed ACP members need **Node.js 22+**
-and npm. Build the candidate with `python -X utf8 scripts/package.py --output dist`, or use the published
-[v0.6.0 Windows release](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1) for that older version.
-Extract the Windows package to a permanent folder and run:
+Requires **Python 3.11+** (the App's engine runs on it; it is not bundled) and signed-in Claude Code and/or Codex.
+App-managed ACP members need **Node.js 22+** and npm for the Claude Code and Codex adapters; Antigravity, Kimi Code
+and DeepSeek Harness need only their own installation. To let your own Claude Code and Codex sessions join
+organizations too, add the plugin from the folder Relic was installed to:
 
 ```powershell
-# Windows, from the extracted folder
-python -X utf8 scripts/install.py
+# Windows, in %LOCALAPPDATA%\Programs\Relic (or the extracted folder)
+python -X utf8 scripts/install.py --no-shortcut
 ```
 
-The installer adds the Relic plugin to Claude Code and to Codex where their CLIs are found and makes a desktop shortcut named Relic that opens the App. `--host claude|codex|both|none` chooses the hosts (`none`: the App alone); the other options are in the [Windows guide](docs/windows.en.md). It downloads nothing, calls no model, trusts no hooks for you and does not change organization data.
+The installer adds the Relic plugin to Claude Code, Codex and Antigravity where it finds them (`--host claude|codex|both|antigravity|none` chooses; the other options are in the [Windows guide](docs/windows.en.md)); without `--no-shortcut` it also makes a desktop shortcut named Relic that opens the App. It downloads nothing, calls no model, trusts no hooks for you and does not change organization data.
 
 Restart the host or start a new session, then review and trust the plugin hooks. In Claude Code or Codex say “Use Relic to form an organization for this task”, or “Join Relic organization org_… as member reviewer”. You can also form organizations and add members in the Relic App.
 
-**Upgrading:** stop the existing App and back up its data directory before opening the new version. Opening an
-older store adds `activity.paths`; this automatic migration has no automatic downgrade. Restore a pre-upgrade backup
-to roll back. Then install from a permanent folder, run `/reload-plugins` in existing Claude Code sessions and restart
-Codex. See the [upgrade notes](docs/guide.en.md#9-storage-updates-and-removal).
+**Upgrading:** quit the App and back up its data directory (`~/.relic`) before opening the new version, then run the
+new installer over the old one. Opening a store from before v0.7 adds `activity.paths`; this automatic migration has
+no automatic downgrade, so restore a pre-upgrade backup to roll back. Run `/reload-plugins` in existing Claude Code
+sessions and restart Codex. See the [upgrade notes](docs/guide.en.md#9-storage-updates-and-removal).
 
-**macOS Apple silicon:** the same candidate builds as `relic-macos-v0.7.1-beta.1.tar.gz` (optional ZIP). Use native
-arm64 Python 3.11+ and Node.js 22+, extract it permanently, then run `bash install.command --host none --open`.
-Copy the native SwiftUI `Relic.app` from the CI artifact to `~/Applications` separately; the plugin installer no longer creates a shell launcher. Retain the extracted plugin folder. The source installer is unsigned and
-not notarized; Intel/Rosetta are unsupported. See the [macOS guide](docs/macos.en.md) for host registration, desktop
-capability checks and the distinction between pre-merge real-Mac observations and merged acceptance.
+**macOS Apple silicon (preview):** download `relic-native-macos-v0.8.0-beta.1.zip`, extract it and copy `Relic.app`
+to `~/Applications`. It is not signed or notarized, so macOS asks you to approve it the first time you open it. Use
+native arm64 Python 3.11+ (and Node.js 22+ for App-managed members); Intel/Rosetta are unsupported. The plugin
+installer is inside the app (`Relic.app/Contents/Resources/engine/scripts/install.py`). See the
+[macOS guide](docs/macos.en.md).
+
+Earlier downloads remain available, among them [Windows v0.6.0](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.6.0-beta.1)
+and [macOS v0.4.1](https://github.com/Hongyi-Du/Relic-Plugins/releases/tag/v0.4.1-macos-beta.1).
 
 ## Relic App
 
@@ -53,14 +57,14 @@ capability checks and the distinction between pre-merge real-Mac observations an
 
 The **Relic App** is a desktop chat for Relic organizations and the bridge between their members, in English or Chinese (Settings → Language and names → Language):
 
-- members that run in the App are Claude Code or Codex sessions inside it; the App brings Relic into each of these sessions itself, so they need only Claude Code or Codex, installed and signed in;
+- members that run in the App are Claude Code, Codex, Kimi Code or DeepSeek Harness sessions inside it, or Antigravity conversations it drives through the Antigravity app; the App brings Relic into each of these sessions itself (for Antigravity, install the plugin there with `install.py --host antigravity`), so they need only the harness, installed and signed in;
 - Add member runs a member in the App, in Claude Code or Codex itself (command line or desktop app), or seats a session already on this computer: a Claude Code session, a Codex chat or a ChatGPT chat;
 - the group chat with every message between members, a direct chat with each member, and the secretary; a member whose session transcript can be read shows that whole conversation, its actions folded;
 - **Plain words** rewrites what members tell each other so someone outside the work can follow it, and **Digest** sums up what the group has been doing;
 - organizations above and below one another (Overview → Hierarchy), subgroups, a secretariat whose leader, the secretary-general, approves changes to formal organizations, and sessions that sit in several organizations; View → Organization chart… draws them all;
 - threads and quotes, a member's workspace and file preview, task reports, voice input, and settings for profile, appearance, language, notifications and harness connections.
 
-Open it with the Relic shortcut on the desktop, by asking a Claude Code or Codex session that has the plugin to open the Relic App, or with:
+Open it from the Start menu or the Relic shortcut on the desktop, by asking a Claude Code or Codex session that has the plugin to open the Relic App, or with:
 
 ```powershell
 python -X utf8 scripts/open_app.py
@@ -91,10 +95,9 @@ The runtime uses Python's standard library. `python scripts/check.py` runs the t
 
 Source is under [MIT](LICENSE), matching the current public [Relic research repository](https://github.com/Hongyi-Du/Relic). This plugin release is separate from the paper's experiment code and from [Relic-Agent](https://github.com/Hongyi-Du/Relic-Agent). Please report reproducible issues at [GitHub Issues](https://github.com/Hongyi-Du/Relic-Plugins/issues) after removing private data.
 
-## Native app candidate
+## Native App builds
 
-The `native-apps` review branch adds actual SwiftUI (macOS 14+, Apple silicon) and
-WinUI 3 (.NET 8, Windows x64) clients, sharing the existing Python engine. Native
-installers and `.app` bundles are produced by the **Native apps** workflow; they
-are unsigned review candidates, separate from the existing released packages.
-See [native installation](docs/native-install.md) and the [screen/API contract](docs/native-apps.md).
+The Windows client is WinUI 3 (.NET 8, x64) and the macOS client is SwiftUI (macOS 14+, Apple silicon); both carry
+the same Python engine. The **Native apps** workflow builds the unsigned Windows installer, the portable Windows ZIP
+and the macOS `.app` ZIP for every change, and releases publish them. See
+[native installation](docs/native-install.md) and the [screen/API contract](docs/native-apps.md).

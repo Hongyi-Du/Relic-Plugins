@@ -1,5 +1,26 @@
 # Validation / 验证记录
 
+## v0.8.0-beta.1 — 2026-11-27
+
+`main` at `b0d05e0` (PR #2, Moonstring's Kimi Code and DeepSeek Harness merged with main `56ecd2b`) plus the release
+commit (versions, guides, changelog). Plugin 0.19.0-beta.1 from `plugins/relic`; the native clients are WinUI 3 on
+Windows and SwiftUI on macOS Apple silicon.
+
+| Check | Result |
+| --- | --- |
+| PR #2 Validate (push run 46087870873) | `scripts/check.py` on windows-2025 with Python 3.11 and 3.13, macos-15 with 3.11, macos-26 with 3.13: all passed |
+| PR #2 Native apps (runs 46087847420, 46087869789) | WinUI build, Core and Capture tests, unsigned installer; SwiftUI build and tests, app bundle; element contracts; reference parity (no missing keys, routes or flows on either platform): all passed |
+| Release PR | The same Validate and Native apps workflows on the release commit; the published assets are that Native apps run's artifacts |
+| Windows native App on this computer | Installed at `56ecd2b` on 2026-11-27 and clicked through at 150% scaling in a sandbox for the Antigravity flows (add member, existing sessions, settings card, member chat header) at `a3dfac6`. The Kimi Code and DeepSeek Harness changes after that were not clicked locally |
+| Kimi Code and DeepSeek Harness | Fixtures with fake agents cover discovery, launch, model and effort options, MCP seat identity, permissions, cancellation and resume. Moonstring's live acceptance on Windows preceded the merge; no live Kimi or DSH session was run after it |
+| macOS native App | Built and unit-tested in CI only; not yet run on a real Mac. Published as a preview |
+
+Not run for this release, at the person's word: local fixture runs and local UI checks of the release build.
+
+本版本发布前没有在本机跑测试，也没有在本机点检发布包（本人说不用）。依据是上表 CI 的结果：两个平台的 Python 测试、
+原生构建、元素契约和对等检查全部通过。Windows 原生 App 在 11-27 装过 `56ecd2b` 并在 150% 缩放下点过 Antigravity
+相关界面；Kimi Code、DeepSeek Harness 只有替身程序测试，合并后没跑过真实会话；macOS App 还没在真实 Mac 上运行过。
+
 ## v0.7.0-beta.1 merged candidate — 2026-10-28
 
 HaochenGu's `release/macos-v0.4.1-beta.1` at `2d790de` is the integration base. `origin/main` at `76f0517`
