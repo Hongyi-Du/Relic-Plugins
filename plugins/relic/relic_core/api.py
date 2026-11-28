@@ -7,15 +7,15 @@ subagent making the call. Agents never need to pass it themselves.
 import os
 import time
 
-from . import wake
-from .context import render, render_below, render_messages, render_seats
+from . import slack, wake
+from .context import render, render_above, render_below, render_messages, render_seats
 from .store import OrgError
 
 S = {"type": "string"}
 SL = {"type": "array", "items": {"type": "string"}}
 ORG = {"type": "string", "description": "Another organization, by id or exact name: one you hold a seat in (you act "
                                         "there as its member and follow its protocols), one below yours, where you "
-                                        "can act, or one above it, which you report to."}
+                                        "can act, or one above it, which you report to and can read."}
 SEAT = {"type": "string", "description": "An organization you hold a seat in, by id or exact name: act there as its "
                                          "member (default: your main seat)."}
 ACTOR = {"type": "string", "description": "Filled in automatically by the Relic hook. Leave it out."}
@@ -63,45 +63,103 @@ TOOLS = [
          "inherit its role, tasks and the organization's protocols, but not the previous carrier's private notes.",
          {"org_id": S, "member": S, "role": S}, ["org_id", "member"]),
     tool("status", "Your view of the organization: members and roles, active protocols, proposals to vote on, review "
-         "requests, tasks, documents, reflection due, unread messages. With org (an organization below yours): "
-         "that organization as seen from above.", {"org": ORG}),
+         "requests, tasks, documents, reflection due, unread messages. With org: an organization below yours as seen "
+         "from above, or one above yours, read-only.",
+         {"org": dict(ORG, description="Another organization, by id or exact name: one you hold a seat in (your view "
+                                       "there as its member), one below yours (that organization as seen from "
+                                       "above) or one above yours, at any depth (read-only: its purpose, members and "
+                                       "roles, the titles of its protocols, its open tasks and its documents' "
+                                       "index).")}),
     tool("message", "Send a message to members (list of names, or ['all']); write to ['human'] to reach the person, who "
          "reads and answers it in the Relic App. Messages persist and are delivered to "
          "recipients at their next tool call. With auto-wake on (the default), a recipient whose seat has a configured "
          "session gets a turn automatically to handle it (a Codex chat open in the Codex desktop app gets it there). "
+         "A message sent in the last automatically started turn of an exchange is kept but wakes nobody (its result "
+         "says wakes_nobody): the recipient reads it at its next turn, and keep-going, where it is on, hands it over "
+         "once the organization has been quiet. "
          "A ChatGPT chat member gets your message's full text in its chat; the ChatGPT app keeps the reply's text "
          "from plugins, so the person forwards it in the Relic App and it comes back to you as its message. "
          "When you need the answer in this turn, call inbox with wait afterwards. A message that reached one of your "
-         "other seats is answered with org=<that organization>.",
+         "other seats is answered with org=<that organization>. The person's words you relay get Relic's check under "
+         "them when Relic finds them in the person's own typing. While the person is away from the computer, a "
+         "message to human says so in its result: do not wait for an answer.",
          {"to": dict(SL, description="Member names, ['all'] or ['human']. Leave it out only with reply_to."), "body": S,
           "episode_id": S,
           "reply_to": {"type": "integer", "description": "Reply inside the thread of message #id, like a Slack thread; "
                                                          "without `to`, the thread's participants receive it."},
-          "org": dict(ORG, description="Write to members of another organization: one below yours, or one above "
-                                       "it to report. A sender named <org id>/<member> is answered with "
+          "recommend": dict(S, description="With to=['human']: a question to the person, once, with the answer you "
+                                           "recommend. The message says until when (an hour, or within); if the person "
+                                           "has not written to you by then, the executor gets one notice to go ahead "
+                                           "with it. While the person is away from the computer it does not wait: "
+                                           "the result tells you to go ahead now. Keep working on the rest "
+                                           "meanwhile."),
+          "within": {"type": "integer", "description": "With recommend: minutes until the recommendation goes ahead "
+                                                       "(at most 60, the default)."},
+          "executor": dict(S, description="With recommend: the member who goes ahead when the time is up (default: "
+                                          "you)."),
+          "ask_key": dict(S, description="With recommend: the decision's own name, the same for whoever asks it; a "
+                                         "question with the same key that is still open is not asked again and keeps "
+                                         "its first deadline (default: the question and the recommendation)."),
+          "org": dict(ORG, description="An organization you hold a seat in always selects that seat, even above "
+                                       "your main organization. Otherwise write to one below yours, or one above it "
+                                       "to report: the one right above yours first; past it only when it cannot wait "
+                                       "(the result says so). A sender named <org id>/<member> is answered with "
                                        "to=['<org id>/<member>'] or with org=<org id>, to=[member].")},
          ["body"]),
     tool("inbox", "Read your unread messages (marks them read), in every organization you hold a seat in; one that "
          "reached another seat than your main one names its organization. wait (seconds; the longest this client "
          "allows is applied): when nothing is unread yet, wait that long for the first message to arrive; use it after "
          "messaging a member whose answer you need in this turn, and call it again if the answer has not come yet. "
-         "org: only that seat's messages.",
-         {"wait": {"type": "integer"}, "org": SEAT}),
-    tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} | "
-         "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?} | "
-         "role {member?, role} | note {body} (private to you; not inherited by a replacement). "
+         "org: only that seat's messages. message_id: read one message addressed to your seats in full, even if "
+         "already read (ignores wait). When nothing is unread, lists your open assigned tasks; an empty inbox "
+         "is not an empty task list: check status.",
+         {"wait": {"type": "integer"}, "org": SEAT,
+          "message_id": {"type": "integer", "description": "Read or reread this message id, addressed to one of "
+                         "your seats (or only the seat selected by org). Returns its full text and marks it read."}}),
+    tool("work", "Shared work. op=doc_write {key, body, expected_revision} | doc_read {key?} (with org: also of an "
+         "organization above or below yours) | "
+         "task {task_id?, title?, owner?, status?: open|working|blocked|done|dropped, evidence?, report?, job?} | "
+         "role {member?, role} | note {body} (private to you; not inherited by a replacement) | "
+         "said {query?, limit?, hours?}: what the person typed lately into the sessions of seats in your "
+         "organization and the ones below it, with where and when: read it yourself instead of asking members for "
+         "the person's exact words | "
+         "drive {on, goal?, driver?, reason?, until?}: keep-going, switched by the leader or from an organization "
+         "above, on the person's word: while on, when this organization and the ones below it have had nobody working "
+         "for 10 minutes and work is unfinished, the driver (default: the leader) gets a notice with the goal to "
+         "decide the next step. goal: the person's standing instruction, in their words; switching it off needs a "
+         "reason, which the person is told. "
+         "purpose {purpose, reason}: bring the organization's purpose up to date (the whole new text), e.g. after the "
+         "person changed a rule it states; the leader, or from an organization above. The person is told, with the "
+         "text it replaces. "
          "The person reads the tasks: write task titles in the person's language, and mark a task done with evidence "
          "and a short report (at most 1000 characters, Markdown) of what it achieved and how it turned out, in the "
          "person's language too.",
-         {"op": {"enum": ["doc_write", "doc_read", "task", "role", "note"]}, "key": S, "body": S,
+         {"op": {"enum": ["doc_write", "doc_read", "task", "role", "note", "drive", "purpose", "said"]}, "key": S,
+          "body": S, "on": {"type": "boolean"}, "goal": S, "driver": S, "reason": S, "purpose": S,
+          "until": dict(S, description="drive off: when the pause ends by itself: a time (2026-11-16T15:13:00Z), 6h, "
+                                       "90m, quota:codex (once the Codex limit has really reset) or idle (once the "
+                                       "person has left the computer). Without it, Relic asks you every 2 hours "
+                                       "whether the reason is still there."),
+          "query": dict(S, description="said: only what contains this text."),
+          "limit": {"type": "integer", "description": "said: how many (default 10, at most 50)."},
+          "hours": {"type": "integer", "description": "said: how far back (default 72)."},
           "expected_revision": {"type": "integer"}, "task_id": S, "title": S, "owner": S, "status": S,
           "evidence": SL,
+          "job": {"type": "integer", "description": "task: the process id of a background job the task waits on (a "
+                  "controller, an experiment, a build) that runs on this computer; 0 detaches it. While it runs, "
+                  "keep-going counts the organization as working; when it exits, the task's owner gets a message "
+                  "saying so (it wakes them), keep-going looks again and its next notice says the job ended. Attach "
+                  "the job again when a new process takes over."},
           "report": dict(S, description="Required when a task becomes done; a done task's report can also be added "
                                         "or replaced later. A short report of what the task achieved and how it "
                                         "turned out, in the person's language: Markdown, at most 1000 characters."),
           "member": S, "role": S,
-          "org": dict(ORG, description="An organization below yours: read its documents (doc_read) and assign or "
-                                       "update its tasks (task; a new task needs an owner, one of its members).")},
+          "org": dict(ORG, description="An organization below yours: read its documents (doc_read), assign or "
+                                       "update its tasks (task; a new task needs an owner, one of its members), "
+                                       "switch its keep-going (drive) and bring its purpose up to date (purpose). "
+                                       "An organization above yours, at any depth: read its documents (doc_read; "
+                                       "with key one document, without key their index); the rest of its work "
+                                       "belongs to its members.")},
          ["op"]),
     tool("episode", "Episodes bound a piece of work so the organization can learn from it. op=open {title, participants?} | "
          "close {episode_id, outcome: success|failure|partial|cancelled, summary, evidence?} | reflect {episode_id, body}. "
@@ -158,7 +216,8 @@ TOOLS = [
          "parent) each get a seat in it with their own session and name, and leader (one of them) leads it. No "
          "approval needed. op=close {org} closes a subgroup (its leader). op=reparent {parent, org?, reason} | leader "
          "{member, org?, reason} | dissolve {org?, reason} change a formal organization (yours, or one below it): the "
-         "secretary-general (the cabinet's leader) or, without a cabinet, the person approves; you get a message when "
+         "secretary-general (the cabinet's leader, or co-leader) or, without a cabinet, the person approves; you get a "
+         "message when "
          "it is decided. op=approve | deny {request_id, note}: the secretary-general decides a request. op=list: "
          "requests waiting on you, your own requests and the subgroups of your organization.",
          {"op": {"enum": ["create", "close", "reparent", "leader", "dissolve", "approve", "deny", "list"]},
@@ -171,11 +230,25 @@ TOOLS = [
          "or worktree, permission and environment variables), seat existing sessions and chats, start or replace "
          "members' sessions, answer decisions and trajectory requests and message members. Call it when the person "
          "asks for the Relic App, window, panel or UI.", {}),
-    tool("review", "Peer review required by strong protocols. op=list shows pending requests; op=approve "
-         "{request_id, note} approves another member's exact action after you checked it.",
-         {"op": {"enum": ["list", "approve"]}, "request_id": S, "note": S, "org": SEAT}, ["op"]),
+    tool("review", "Calls strong protocols send to review: a rule stops one call, never the work. Relic asks the "
+         "members who can approve a new request at once (the leader, otherwise the others), and the blocked member "
+         "goes on with the rest meanwhile. op=list shows pending requests; op=approve {request_id, note} lets another "
+         "member's exact call through once after you checked it (note: what you checked). Nobody approves their own "
+         "call, and a call a rule denies has no request: it is done another way.",
+         {"op": {"enum": ["list", "approve"]}, "request_id": S, "note": S, "org": SEAT},
+         ["op"]),
+    tool("slack", "Read the person's Slack, read-only, once the person has connected it in the Relic App (Settings, "
+         "Slack): the background the person would otherwise have to explain. op=search {query, limit?, cursor?} finds "
+         "messages (a question in plain words, or key words; at most 20 a call, cursor pages on); op=history {channel, "
+         "limit?, oldest?, latest?} reads a conversation, oldest first (channel: an id like C0123ABCD, #name, or "
+         "@person for a direct message; oldest and latest: a Slack ts or a date like 2026-11-05); op=thread {channel, "
+         "ts} reads a thread; op=channels {query?} lists the conversations your organization may read. The person "
+         "decides what each organization may read, and every read is logged with your seat. You cannot post to Slack; "
+         "do not repeat what you read to anyone outside this work.",
+         {"op": {"enum": ["search", "history", "thread", "channels"]}, "query": S, "channel": S, "ts": S,
+          "limit": {"type": "integer"}, "cursor": S, "oldest": S, "latest": S, "org": SEAT}, ["op"]),
 ]
-SEATED_ONLY = {"inbox", "episode", "review", "trajectory"}  # org names a seat of the caller, nothing else
+SEATED_ONLY = {"inbox", "episode", "review", "trajectory", "slack"}  # org names a seat of the caller, nothing else
 KNOWN = {t["name"] for t in TOOLS}
 
 
@@ -223,6 +296,9 @@ def call(store, name, args, meta=None):
             wake.dispatch_for_actor(store, actor)  # recipients with an idle configured session get a turn now
             if isinstance(result, dict) and result.get("org_id"):  # written in another organization
                 wake.dispatch(store, result["org_id"])
+            if name == "message" and isinstance(result, dict):
+                for org_id in result.get("delivered_orgs", []):
+                    wake.dispatch(store, org_id)
             cab = store.cabinet() if name in ("group", "create") else None
             if cab:  # a request for the secretary-general
                 wake.dispatch(store, cab["id"])
@@ -231,14 +307,28 @@ def call(store, name, args, meta=None):
     return result
 
 
-def inbox(store, actor, wait=0, poll=2.0, sleep=time.sleep, clock=time.time):
+def inbox(store, actor, wait=0, poll=2.0, sleep=time.sleep, clock=time.time, message_id=None, *, mark=True):
     """Unread messages, marked read; with wait, first wait up to that many seconds for one to arrive."""
     store.require(actor)
+    if message_id is not None:
+        messages = store.unread(actor, message_id=message_id, mark=mark)
+        if not messages:
+            raise OrgError("No message #%s is addressed to your selected seats." % message_id)
+        return {"messages": messages, "text": render_messages(messages)}
     deadline = clock() + max(0, min(int(wait or 0), max_wait()))
     while not store.unread(actor, mark=False, limit=1) and clock() < deadline:
         sleep(min(poll, max(0.0, deadline - clock())))
-    messages = store.unread(actor)
-    return {"messages": messages, "text": render_messages(messages) if messages else "No unread messages."}
+    messages = store.unread(actor, mark=mark)
+    if messages:
+        return {"messages": messages, "text": render_messages(messages)}
+    tasks = [dict(id=t["id"], title=t["title"], status=t["status"], org_id=org["id"], org_name=org["name"],
+                  owner=member) for org, member, _ in store.seats_of(actor) for t in org["tasks"].values()
+             if t["owner"] == member and t["status"] not in ("done", "dropped")]
+    text = "No unread messages. An empty inbox is not an empty task list: check status."
+    if tasks:
+        text += "\nYour open assigned tasks:\n" + "\n".join(
+            "- %s: %s [%s] — %s (%s)" % (t["id"], t["title"], t["status"], t["org_name"], t["org_id"]) for t in tasks)
+    return {"messages": [], "tasks": tasks, "text": text}
 
 
 def seated(store, name, args, actor):
@@ -272,7 +362,9 @@ def handle_call(store, name, args, actor):
         return dict(info, context=render(store, org, args["member"]))
     if name == "status":
         if args.get("org"):
-            own, member, target, way = store.reach(actor, args["org"])
+            own, member, target, way = store.reach_to_read(actor, args["org"])
+            if way == "up":
+                return {"org_id": target["id"], "context": render_above(store, target, own, member)}
             if way:
                 return {"org_id": target["id"], "context": render_below(store, target, own, member)}
         org, member = store.require(actor)
@@ -284,9 +376,10 @@ def handle_call(store, name, args, actor):
         return group(store, actor, args.pop("op", None), args)
     if name == "message":
         return store.send(actor, args.get("to"), args.get("body", ""), args.get("episode_id"),
-                          reply_to=args.get("reply_to"), org=args.get("org"))
+                          reply_to=args.get("reply_to"), org=args.get("org"), recommend=args.get("recommend"),
+                          within=args.get("within"), executor=args.get("executor"), ask_key=args.get("ask_key"))
     if name == "inbox":
-        return inbox(store, actor, args.get("wait") or 0)
+        return inbox(store, actor, args.get("wait") or 0, message_id=args.get("message_id"))
     if name == "work":
         return store.work(actor, args.pop("op"), args)
     if name == "episode":
@@ -309,6 +402,8 @@ def handle_call(store, name, args, actor):
         if op == "list":
             return store.trajectory_requests(actor)
         raise OrgError("trajectory ops: request, answer, list.")
+    if name == "slack":
+        return slack.tool_call(store, actor, args)
     raise OrgError("Unknown tool " + name)
 
 

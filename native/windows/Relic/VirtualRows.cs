@@ -1,0 +1,895 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+
+namespace Relic;
+
+// The model stores factories, not XAML trees. Only viewport rows are built;
+// recycling detaches the old subtree so fonts, images and subscriptions unload.
+internal sealed class VirtualRows : Grid
+{
+    internal sealed record Row(Func<UIElement> Build, double Estimate, string? Key);
+    internal sealed class RowCollection(Action changed) : List<Row>
+    {
+        public void Add(UIElement element) => Add(() => element);
+        public void Add(Func<UIElement> build, double estimate = 40, string? key = null) { base.Add(new Row(build, estimate, key)); changed(); }
+        public new void Add(Row row) { base.Add(row); changed(); }
+        public new void Clear() { base.Clear(); changed(); }
+    }
+    internal new RowCollection Children { get; }
+    // Commit hands the repeater a live collection instead of a copy, so that
+    // Reconcile can change one run of rows and leave the others mounted.
+    internal bool InPlace { get; set; }
+    private System.Collections.ObjectModel.ObservableCollection<Row>? live;
+    // Observation only: the previous realized hosts and their Row keys still
+    // exist here. Consumers must not mutate rows or force layout from this event.
+    internal event Action? ItemsReplacing;
+    private readonly ItemsRepeater repeater = new() { Layout = new StackLayout(), VerticalCacheLength = .5 };
+    internal double Spacing
+    {
+        get => repeater.Layout is KnownStack known ? known.Spacing : ((StackLayout)repeater.Layout).Spacing;
+        set { if (repeater.Layout is KnownStack known) known.Spacing = value; else ((StackLayout)repeater.Layout).Spacing = value; }
+    }
+    // Viewports above and below the visible one that stay realized.
+    internal double CacheLength { get => repeater.VerticalCacheLength; set => repeater.VerticalCacheLength = value; }
+    // A row that comes back into view, or replaces a row with the same stable key (the part of its key before '|'),
+    // waits for its build at the height that row had when last built, not at its estimate. Recycled rows coming
+    // back at their estimate kept changing the list's height, so its end could not be reached, and a refresh
+    // shrank the rows it replaced until they were built, which moved a view at the bottom up. With it, Reconcile
+    // replaces only the rows whose key changed while the rows keep their stable keys, one row at a time, and
+    // leaves the realized rows around them (and the row the scroll position is anchored to) as they are.
+    // Set it before the list builds rows: only rows built from then on listen for their size.
+    internal bool RememberHeights { get => factory.Heights != null; set => factory.Heights = value ? new(StringComparer.Ordinal) : null; }
+    // Opt-in for a list whose end must stay put (with RememberHeights): rows are laid out at their known heights
+    // (KnownStack) instead of by StackLayout, which sizes the rows it has not realized from the average of those it
+    // has, so the list's height, and its end, moved whenever a row entered or left the realized range: a single jump
+    // to the end of the overview stopped 50-160 px short, and scrolling there again could not settle.
+    internal bool KnownHeights
+    {
+        get => repeater.Layout is KnownStack;
+        set
+        {
+            if (value == KnownHeights) return;
+            var spacing = Spacing;
+            repeater.Layout = value ? new KnownStack(this) { Spacing = spacing } : new StackLayout { Spacing = spacing };
+        }
+    }
+    private IReadOnlyList<Row> shown = Array.Empty<Row>();  // what the repeater shows (KnownStack reads its rows)
+    // From this list's measure or arrange until that layout pass ends: whatever changes a scroll view's position
+    // meanwhile is layout (anchoring, clamping to a new end), not a request.
+    internal bool InLayout { get; private set; }
+    // A row's known height: its height when last built (RememberHeights), else its estimate.
+    private double KnownHeight(int index)
+    {
+        if (index >= shown.Count) return 40;
+        var row = shown[index];
+        return factory.Heights is { } heights && StableKey(row.Key) is { } stable && heights.TryGetValue(stable, out var built) ? built : row.Estimate;
+    }
+    private static string? StableKey(string? key)
+    {
+        if (key == null) return null;
+        var bar = key.IndexOf('|');
+        return bar >= 0 ? key[..bar] : key;
+    }
+    internal int Realized => factory.Realized;
+    // Called with a built row just before it leaves the list.
+    internal Action<UIElement>? Recycling { get => factory.Recycling; set => factory.Recycling = value; }
+    internal static int PendingBuilds => RowFactory.PendingBuilds;
+    private readonly RowFactory factory = new();
+    private string traceName = "rows";
+    // CI memory checkpoints count each list's built rows apart (see BuildNow).
+    internal string TraceName { get => traceName; set { traceName = value; factory.TrackKind = "VirtualRow." + value; } }
+    private int revision, committed = -1;
+    private bool commitQueued;
+    private sealed record BringRequest(int Revision, int Index, FrameworkElement Element,
+        double Alignment, double Offset, Func<bool>? IsCurrent, long AfterArrange, Func<bool>? IsReady = null, bool Created = false);
+    private BringRequest? pendingBring;
+    private sealed class NativeBring(BringRequest request, ScrollViewer viewport)
+    {
+        internal readonly BringRequest Request = request;
+        internal readonly ScrollViewer Viewport = viewport;
+        internal bool Routed, Rendered;
+        internal long AfterRenderArrange;
+    }
+    private NativeBring? nativeBring;
+    private readonly Windows.Foundation.TypedEventHandler<UIElement, BringIntoViewRequestedEventArgs> bringRouted;
+    private bool bringRendering;
+    private bool hasSuggestedAnchor;
+    private long arrangeRevision;
+    private bool bringQueued;
+    private readonly record struct EndGeometry(int Index, FrameworkElement? Element, double Offset, double Extent,
+        double ViewportWidth, double ViewportHeight, double RowTop, double RowWidth, double RowHeight);
+    private readonly record struct PreparedEnd(int Index, double ViewportWidth, double ViewportHeight,
+        double RowWidth, double RowHeight, double ContentBottom);
+    private sealed class FollowRequest(int revision, ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+    {
+        internal readonly int Revision = revision;
+        internal readonly ScrollViewer Viewport = viewport;
+        internal readonly Func<bool> IsCurrent = isCurrent;
+        internal readonly Func<bool> IsContentReady = isContentReady;
+        internal PreparedEnd? LastCorrected;
+        internal PreparedEnd? SubmittedGeometry;
+        internal long SubmittedArrange;
+        internal double ViewportWidth = viewport.ViewportWidth, ViewportHeight = viewport.ViewportHeight;
+        internal UIElement? LastAnchor;
+        internal bool Settled, IsScrolling, RecoveryRequested;
+    }
+    private FollowRequest? followingLast;
+    internal sealed record ReadingAnchor(string Key, double ViewportTop);
+    private sealed class ReadingRestore(int revision, ReadingAnchor anchor, ScrollViewer viewport,
+        Func<bool> isCurrent, Func<bool> isContentReady, bool firstRow = false)
+    {
+        internal int Revision = revision;
+        internal readonly ReadingAnchor Anchor = anchor;
+        internal readonly ScrollViewer Viewport = viewport;
+        internal readonly Func<bool> IsCurrent = isCurrent, IsContentReady = isContentReady;
+        internal readonly bool FirstRow = firstRow;
+        internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+    private ReadingRestore? restoringReading;
+    private bool readingCheckQueued;
+    internal bool ReadingAnchorRestorePending => restoringReading != null;
+    private bool followQueued;
+    private int readinessQueued;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue dispatcher;
+    internal VirtualRows()
+    {
+        dispatcher = DispatcherQueue;
+        bringRouted = OnNativeBringRequested;
+        Children = new(() =>
+        {
+            revision++;
+            if (commitQueued) return;
+            commitQueued = true;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => { commitQueued = false; Commit(); });
+        });
+        repeater.ItemTemplate = factory;
+        base.Children.Add(repeater);
+        Unloaded += (_, _) => StopFollowingLast();
+        LayoutUpdated += (_, _) => InLayout = false;
+    }
+    internal void Commit()
+    {
+        if (committed == revision) return;
+        using var timing = PerformanceTrace.Measure("rows.commit");
+        CancelNativeBring();
+        var reading = restoringReading is { } candidate && candidate.IsCurrent()
+            && ReadingIndex(candidate) >= 0 ? candidate : null;
+        committed = revision;
+        if (reading == null) StopFollowingLast();
+        else
+        {
+            // A normal refresh can replace the model while the real reading
+            // row is still preparing. Keep its intent and completion task;
+            // only the old realization request belongs to the old revision.
+            pendingBring = null;
+            reading.Viewport.AnchorRequested -= ReadingAnchorRequested;
+            reading.Viewport.ViewChanged -= ReadingViewChanged;
+            reading.Revision = committed;
+        }
+        ItemsReplacing?.Invoke();
+        live = InPlace ? new System.Collections.ObjectModel.ObservableCollection<Row>(Children) : null;
+        IReadOnlyList<Row> items = live != null ? live : Children.ToArray();
+        shown = items;
+        repeater.ItemsSource = items;
+        hasSuggestedAnchor = false;
+        if (reading != null)
+        {
+            reading.Viewport.AnchorRequested += ReadingAnchorRequested;
+            reading.Viewport.ViewChanged += ReadingViewChanged;
+            var index = ReadingIndex(reading);
+            PerformanceTrace.Count(TraceName + (reading.FirstRow ? ".start.rebased" : ".reading.rebased"), index);
+            BringIndexIntoViewCore(index, 0, reading.Anchor.ViewportTop,
+                () => IsCurrent(reading), reading.IsContentReady);
+        }
+    }
+    // Replace the rows with these, in place: every row whose key matches at the
+    // start and at the end keeps its Row, its realized element, focus and the
+    // scroll position; only the run between them is removed and inserted.
+    // Folding a sidebar organization used to replace ItemsSource: the repeater
+    // recycled every row, which were then rebuilt over the next frames, so the
+    // whole organization list vanished and came back.
+    internal void Reconcile(IReadOnlyList<Row> rows)
+    {
+        if (live == null || committed != revision || followingLast != null || restoringReading != null)
+        {
+            Children.Clear();
+            foreach (var row in rows) Children.Add(row);
+            Commit();
+            return;
+        }
+        if (ReplaceChanged(rows)) return;
+        var start = 0;
+        while (start < Children.Count && start < rows.Count && Children[start].Key is { } key && key == rows[start].Key) start++;
+        var end = 0;
+        while (end < Children.Count - start && end < rows.Count - start
+               && Children[Children.Count - 1 - end].Key is { } key && key == rows[rows.Count - 1 - end].Key) end++;
+        var removed = Children.Count - start - end; var inserted = rows.Count - start - end;
+        if (removed == 0 && inserted == 0) return;
+        using var timing = PerformanceTrace.Measure("rows.reconcile");
+        // Indices after the run shift: a request made for the old ones lapses.
+        CancelNativeBring(); pendingBring = null;
+        committed = ++revision;
+        Children.RemoveRange(start, removed);
+        Children.InsertRange(start, rows.Skip(start).Take(inserted));
+        for (var index = start + removed - 1; index >= start; index--) live.RemoveAt(index);
+        for (var index = 0; index < inserted; index++) live.Insert(start + index, rows[start + index]);
+        PerformanceTrace.Count(TraceName + ".reconcile", removed + inserted);
+    }
+    // The same rows by stable key: replace each row whose key changed, alone (see RememberHeights).
+    private bool ReplaceChanged(IReadOnlyList<Row> rows)
+    {
+        if (factory.Heights == null || live == null || rows.Count != Children.Count) return false;
+        for (var index = 0; index < rows.Count; index++)
+            if (StableKey(Children[index].Key) is not { } key || key != StableKey(rows[index].Key)) return false;
+        var replaced = 0;
+        for (var index = 0; index < rows.Count; index++)
+        {
+            if (Children[index].Key == rows[index].Key) continue;
+            if (replaced++ == 0) { CancelNativeBring(); pendingBring = null; committed = ++revision; }
+            Children[index] = rows[index]; live[index] = rows[index];
+        }
+        if (replaced > 0) PerformanceTrace.Count(TraceName + ".replace", replaced);
+        return true;
+    }
+    internal void FollowLastIntoView(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+    {
+        Commit();
+        StopFollowingLast();
+        if (Children.Count == 0 || !isCurrent()) return;
+        followingLast = new(committed, viewport, isCurrent, isContentReady);
+        viewport.AnchorRequested += FollowAnchorRequested;
+        viewport.ViewChanged += FollowViewChanged;
+        viewport.SizeChanged += FollowViewportSizeChanged;
+        PresentationPreparation.Completed += FollowPreparationCompleted;
+        BringIndexIntoViewCore(Children.Count - 1, 1, -Padding.Bottom, isCurrent, isContentReady);
+    }
+    internal void StopFollowingLast()
+    {
+        pendingBring = null;
+        CancelNativeBring();
+        StopRestoringReading(false);
+        if (followingLast is not { } follow) return;
+        followingLast = null;
+        follow.Viewport.AnchorRequested -= FollowAnchorRequested;
+        follow.Viewport.ViewChanged -= FollowViewChanged;
+        follow.Viewport.SizeChanged -= FollowViewportSizeChanged;
+        PresentationPreparation.Completed -= FollowPreparationCompleted;
+    }
+    private void FollowPreparationCompleted()
+    {
+        // Completion may arrive on a worker, including canceled requests whose
+        // old visual tree is gone. Coalesce onto the captured UI dispatcher.
+        if (Interlocked.Exchange(ref readinessQueued, 1) != 0) return;
+        if (!dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            Interlocked.Exchange(ref readinessQueued, 0);
+            if (restoringReading is { } reading)
+            {
+                if (!IsCurrent(reading)) { StopRestoringReading(false); return; }
+                if (reading.IsContentReady()) InvalidateArrange();
+                return;
+            }
+            if (followingLast is not { } follow) return;
+            if (!IsCurrent(follow)) { StopFollowingLast(); return; }
+            if (!follow.IsContentReady()) return;
+            // A decrement alone need not invalidate this chat. Request exactly
+            // one real Arrange before checking its now-completed geometry.
+            InvalidateArrange();
+        })) Interlocked.Exchange(ref readinessQueued, 0);
+    }
+    private bool IsCurrent(FollowRequest follow) => ReferenceEquals(followingLast, follow)
+        && follow.Revision == revision && follow.IsCurrent() && Children.Count > 0;
+    private bool IsCurrent(ReadingRestore reading) => ReferenceEquals(restoringReading, reading)
+        && reading.Revision == revision && reading.IsCurrent();
+    private int ReadingIndex(ReadingRestore reading) => reading.FirstRow
+        ? (Children.Count > 0 ? 0 : -1) : Children.FindIndex(row => row.Key == reading.Anchor.Key);
+    internal ReadingAnchor? ReadVisibleAnchor(ScrollViewer viewport)
+    {
+        ReadingAnchor? first = null;
+        // Enumerate the small realized visual set, never create an item or
+        // force layout while capturing the user's actual reading position.
+        for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(repeater); i++)
+        {
+            if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(repeater, i) is not Border
+                { IsLoaded: true, Child: not null, ActualHeight: > 0, Tag: Row { Key: not null } row } host) continue;
+            var bounds = host.TransformToVisual(viewport).TransformBounds(new(0, 0, host.ActualWidth, host.ActualHeight));
+            if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight) continue;
+            if (first == null || bounds.Top < first.ViewportTop) first = new(row.Key!, bounds.Top);
+        }
+        return first;
+    }
+    internal ReadingAnchor? ReadAnchor(ScrollViewer viewport, string key)
+    {
+        var index = Children.FindIndex(row => row.Key == key);
+        if (index < 0 || repeater.TryGetElement(index) is not Border
+            { IsLoaded: true, Child: not null, ActualHeight: > 0 } host) return null;
+        var bounds = host.TransformToVisual(viewport).TransformBounds(new(0, 0, host.ActualWidth, host.ActualHeight));
+        if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight) return null;
+        return new(key, bounds.Top);
+    }
+    internal Task<bool> RestoreReadingAnchorAsync(ReadingAnchor anchor, ScrollViewer viewport,
+        Func<bool> isCurrent, Func<bool> isContentReady)
+        => RestoreReadingPositionAsync(anchor, viewport, isCurrent, isContentReady, false);
+    internal Task<bool> RestoreFirstIntoViewAsync(ScrollViewer viewport, Func<bool> isCurrent, Func<bool> isContentReady)
+        => RestoreReadingPositionAsync(new ReadingAnchor("", Padding.Top), viewport, isCurrent, isContentReady, true);
+    private Task<bool> RestoreReadingPositionAsync(ReadingAnchor anchor, ScrollViewer viewport,
+        Func<bool> isCurrent, Func<bool> isContentReady, bool firstRow)
+    {
+        Commit(); StopFollowingLast();
+        var index = firstRow ? (Children.Count > 0 ? 0 : -1) : Children.FindIndex(row => row.Key == anchor.Key);
+        if (index < 0 || !isCurrent()) return Task.FromResult(false);
+        var reading = new ReadingRestore(committed, anchor, viewport, isCurrent, isContentReady, firstRow);
+        restoringReading = reading;
+        viewport.AnchorRequested += ReadingAnchorRequested;
+        viewport.ViewChanged += ReadingViewChanged;
+        PresentationPreparation.Completed += FollowPreparationCompleted;
+        PerformanceTrace.Count(TraceName + (firstRow ? ".start.request" : ".reading.request"), index);
+        if (firstRow)
+        {
+            // This explicit top intent has no drawn message anchor to retain.
+            // ItemsSource replacement preserves StackLayout's old origin and
+            // ViewportManager's estimated shifts. GetOrCreateElement masks that
+            // origin until its bring is rendered; releasing the suggested anchor
+            // can then leave offset zero with no realized rows. Changing Layout
+            // uninitializes that layout state and resets the native extent/shifts.
+            // Do it once, before realization, rather than retrying a blank range.
+            var spacing = Spacing;
+            repeater.Layout = new StackLayout { Spacing = spacing };
+            hasSuggestedAnchor = false;
+            PerformanceTrace.Count(TraceName + ".start.layout_reset", committed);
+        }
+        // Prepending changes virtual extent estimates. Address the retained
+        // message itself, after real Arrange and its deferred text preparation,
+        // instead of forcing UpdateLayout and subtracting two estimated extents.
+        // With no drawn reading anchor, an actual top request addresses row 0:
+        // offset=0 alone does not invalidate a stale virtual realization range.
+        BringIndexIntoViewCore(index, 0, anchor.ViewportTop, () => IsCurrent(reading), isContentReady);
+        return reading.Completion.Task;
+    }
+    private void StopRestoringReading(bool restored)
+    {
+        if (restoringReading is not { } reading) return;
+        restoringReading = null;
+        reading.Viewport.AnchorRequested -= ReadingAnchorRequested;
+        reading.Viewport.ViewChanged -= ReadingViewChanged;
+        PresentationPreparation.Completed -= FollowPreparationCompleted;
+        reading.Completion.TrySetResult(restored);
+    }
+    private void ReadingAnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
+    {
+        if (restoringReading is not { } reading || !IsCurrent(reading)) return;
+        var index = ReadingIndex(reading);
+        if (index < 0 || repeater.TryGetElement(index) is not FrameworkElement
+            { IsLoaded: true, ActualHeight: > 0 } element) return;
+        var bounds = element.TransformToVisual(sender).TransformBounds(new(0, 0, element.ActualWidth, element.ActualHeight));
+        if (bounds.Bottom > 0 && bounds.Top < sender.ViewportHeight) args.Anchor = element;
+    }
+    private void ReadingViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    { if (!args.IsIntermediate) QueueReadingCheck(); }
+    private void QueueReadingCheck()
+    {
+        if (restoringReading == null || readingCheckQueued) return;
+        readingCheckQueued = true;
+        if (!dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            readingCheckQueued = false;
+            if (restoringReading is not { } reading) return;
+            if (!IsCurrent(reading)) { StopRestoringReading(false); return; }
+            if (pendingBring != null || !NativeBringArranged() || !reading.IsContentReady()) return;
+            if (reading.FirstRow)
+            {
+                if (repeater.TryGetElement(0) is not Border { IsLoaded: true, Child: not null, ActualHeight: > 0 } first) return;
+                var bounds = first.TransformToVisual(reading.Viewport).TransformBounds(new(0, 0, first.ActualWidth, first.ActualHeight));
+                if (bounds.Bottom <= 0 || bounds.Top >= reading.Viewport.ViewportHeight
+                    || Math.Abs(reading.Viewport.VerticalOffset) > 1 || Math.Abs(bounds.Top - Padding.Top) > 1) return;
+                PerformanceTrace.Count(TraceName + ".start.restored", bounds.Top);
+                StopRestoringReading(true);
+                return;
+            }
+            var actual = ReadAnchor(reading.Viewport, reading.Anchor.Key);
+            if (actual == null || Math.Abs(actual.ViewportTop - reading.Anchor.ViewportTop) > 1) return;
+            PerformanceTrace.Count(TraceName + ".reading.restored", actual.ViewportTop);
+            StopRestoringReading(true);
+        })) readingCheckQueued = false;
+    }
+    private void FollowAnchorRequested(ScrollViewer sender, AnchorRequestedEventArgs args)
+    {
+        if (followingLast is not { } follow || !IsCurrent(follow)) { QueueFollowCheck(); return; }
+        // StartBringIntoView and StackLayout's suggested anchor own the move
+        // until it has actually settled. An application-selected end anchor
+        // during that move competes with the changing virtual extent; deferred
+        // rows can then repeatedly enter/leave a single native layout pass.
+        if (!follow.Settled || follow.IsScrolling || pendingBring != null || !follow.IsContentReady()
+            || Math.Abs(sender.ScrollableHeight - sender.VerticalOffset) > 1) return;
+        // An off-viewport anchor disturbs StackLayout's realization range and
+        // can repeatedly recycle/rebuild the very row being followed. Only
+        // preserve the real last row while it actually intersects this viewport.
+        // Never create/measure an element from inside Arrange.
+        if (repeater.TryGetElement(Children.Count - 1) is FrameworkElement { IsLoaded: true, ActualHeight: > 0 } last)
+        {
+            var bounds = last.TransformToVisual(sender).TransformBounds(new(0, 0, last.ActualWidth, last.ActualHeight));
+            if (bounds.Top >= sender.ViewportHeight || bounds.Bottom <= 0) return;
+            args.Anchor = last;
+            if (!ReferenceEquals(follow.LastAnchor, last))
+            { follow.LastAnchor = last; PerformanceTrace.Count(TraceName + ".follow.anchor", Children.Count - 1); }
+        }
+        else QueueFollowCheck();
+    }
+    private void FollowViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    {
+        if (followingLast is { } follow) follow.IsScrolling = args.IsIntermediate;
+        if (!args.IsIntermediate) QueueFollowCheck();
+    }
+    private void FollowViewportSizeChanged(object sender, SizeChangedEventArgs args) { LayoutFeedback.Note("virtual_rows:viewport", args.NewSize.Width, args.NewSize.Height); QueueFollowCheck(); }
+    private EndGeometry ReadEndGeometry(FollowRequest follow)
+    {
+        var viewport = follow.Viewport; var index = Children.Count - 1;
+        var last = repeater.TryGetElement(index) as FrameworkElement;
+        if (last is not { IsLoaded: true }) last = null;
+        var bounds = last?.TransformToVisual(viewport).TransformBounds(new(0, 0, last.ActualWidth, last.ActualHeight));
+        return new(index, last, viewport.VerticalOffset, viewport.ScrollableHeight, viewport.ViewportWidth,
+            viewport.ViewportHeight, bounds?.Top ?? 0, bounds?.Width ?? 0, bounds?.Height ?? 0);
+    }
+    private static PreparedEnd? PreparedGeometry(EndGeometry geometry) => geometry.Element == null || geometry.RowHeight <= 0
+        ? null : new(geometry.Index, geometry.ViewportWidth, geometry.ViewportHeight, geometry.RowWidth, geometry.RowHeight,
+            Math.Round((geometry.RowTop + geometry.RowHeight + geometry.Offset) * 64) / 64);
+    // Read-only readiness for CI whole-window and idle observation. This does
+    // not realize a row, submit a scroll request or drive the product layout.
+    internal bool IsLastPositionSettled
+    {
+        get
+        {
+            if (followingLast is not { Settled: true, IsScrolling: false } follow || !IsCurrent(follow)
+                || pendingBring != null || nativeBring != null || !follow.IsContentReady()) return false;
+            var geometry = ReadEndGeometry(follow);
+            return geometry.Element is Border { Child: not null } && geometry.RowHeight > 0
+                && geometry.RowTop < geometry.ViewportHeight && geometry.RowTop + geometry.RowHeight > 0
+                && Math.Abs(geometry.Extent - geometry.Offset) <= 1;
+        }
+    }
+    private void QueueFollowCheck()
+    {
+        if (followingLast == null || followQueued) return;
+        followQueued = true;
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            followQueued = false;
+            if (followingLast is not { } follow) return;
+            if (!IsCurrent(follow)) { StopFollowingLast(); return; }
+            if (pendingBring != null || !NativeBringArranged() || !follow.IsContentReady()) return;
+            var geometry = ReadEndGeometry(follow);
+            if (follow.ViewportWidth != geometry.ViewportWidth || follow.ViewportHeight != geometry.ViewportHeight)
+            {
+                follow.ViewportWidth = geometry.ViewportWidth; follow.ViewportHeight = geometry.ViewportHeight;
+                follow.LastCorrected = null; follow.RecoveryRequested = false;
+            }
+            var atEnd = Math.Abs(geometry.Extent - geometry.Offset) <= 1 && geometry.Element != null
+                && geometry.RowHeight > 0 && geometry.RowTop < geometry.ViewportHeight
+                && geometry.RowTop + geometry.RowHeight > 0;
+            if (atEnd)
+            {
+                follow.IsScrolling = false;
+                if (!follow.Settled) PerformanceTrace.Count(TraceName + ".follow.settled", geometry.Index);
+                follow.Settled = true;
+                return;
+            }
+            if (follow.IsScrolling)
+            {
+                // A completed preparation can change content geometry without
+                // changing the scroll offset, hence without ViewChanged.
+                var prepared = PreparedGeometry(geometry);
+                if (arrangeRevision <= follow.SubmittedArrange || prepared == null || prepared == follow.SubmittedGeometry) return;
+                follow.IsScrolling = false;
+            }
+            // Only completed content/viewport geometry permits a correction.
+            // Offset, estimated extent and recycled host identity are NOT new
+            // content: scrolling changes those values itself, so using them as
+            // repair triggers creates a self-sustaining realization loop.
+            if (geometry.Element == null || geometry.RowHeight <= 0)
+            {
+                if (follow.RecoveryRequested) return;
+                follow.RecoveryRequested = true;
+            }
+            else
+            {
+                var prepared = PreparedGeometry(geometry);
+                // Content-space position also changes when an earlier message
+                // finishes layout but this final row keeps the same size. Pure
+                // scrolling changes RowTop and Offset in opposite directions.
+                if (follow.LastCorrected == prepared) return;
+                follow.LastCorrected = prepared;
+            }
+            follow.Settled = false;
+            PerformanceTrace.Count(TraceName + ".follow.repair", geometry.Index);
+            PerformanceTrace.Count(TraceName + ".follow.gap", geometry.Extent - geometry.Offset);
+            // A missing row starts new deferred construction below, even when
+            // the old viewport was ready at this check. Wait for the requested
+            // row's actual content and its next Arrange before submitting the
+            // bring; aligning its temporary estimate can lose it again as soon
+            // as Markdown/font preparation changes the virtual extent.
+            BringIndexIntoViewCore(geometry.Index, 1, -Padding.Bottom, follow.IsCurrent, follow.IsContentReady);
+        })) followQueued = false;
+    }
+    internal void BringLastIntoView(Func<bool>? isCurrent = null)
+    {
+        // Align the last row above the content's real bottom padding. Let the
+        // ScrollViewer's bottom anchor preserve it as deferred rows settle;
+        // repeated ChangeView(maximum) fights virtual extent estimation.
+        BringIndexIntoView(Children.Count - 1, 1, -Padding.Bottom, isCurrent);
+    }
+    internal void BringIndexIntoView(int index, double alignment = .5, double offset = 0, Func<bool>? isCurrent = null)
+    {
+        StopFollowingLast();
+        BringIndexIntoViewCore(index, alignment, offset, isCurrent);
+    }
+    private void BringIndexIntoViewCore(int index, double alignment, double offset, Func<bool>? isCurrent,
+        Func<bool>? isReady = null)
+    {
+        if (index < 0 || index >= Children.Count || isCurrent?.Invoke() == false) return;
+        Commit();
+        // GetOrCreateElement also resets the layout's suggested anchor even
+        // when a row already exists. Reuse the real row for a size correction;
+        // only a genuinely missing row needs new realization.
+        var existing = repeater.TryGetElement(index);
+        var element = (FrameworkElement)(existing ?? repeater.GetOrCreateElement(index));
+        if (existing == null) hasSuggestedAnchor = true;
+        // GetOrCreateElement only suggests an anchor for the NEXT layout pass.
+        // A dispatcher callback (even Low priority) can run before that pass,
+        // when a distant row still has no position. Wait for actual Arrange,
+        // without forcing the whole window through synchronous UpdateLayout.
+        pendingBring = new(committed, index, element, alignment, offset, isCurrent, arrangeRevision, isReady, hasSuggestedAnchor);
+        PerformanceTrace.Count(TraceName + ".bring.request", index);
+        InvalidateArrange();
+    }
+    private void QueueArrangedBring()
+    {
+        if (bringQueued || pendingBring is not { } request || arrangeRevision <= request.AfterArrange) return;
+        bringQueued = true;
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            bringQueued = false;
+            if (!ReferenceEquals(pendingBring, request)) { QueueArrangedBring(); return; }
+            if (request.Revision != revision || request.IsCurrent?.Invoke() == false)
+            { pendingBring = null; return; }
+            // Never scroll a recycled host that now belongs to another row.
+            if (!ReferenceEquals(repeater.TryGetElement(request.Index), request.Element)
+                || repeater.GetElementIndex(request.Element) != request.Index)
+            {
+                BringIndexIntoViewCore(request.Index, request.Alignment, request.Offset, request.IsCurrent, request.IsReady);
+                return;
+            }
+            if (!request.Element.IsLoaded || request.Element.ActualWidth <= 0 || request.Element.ActualHeight <= 0) return;
+            if (request.IsReady?.Invoke() == false) return;
+            pendingBring = null;
+            PerformanceTrace.Count(TraceName + ".bring.arranged", request.Index);
+            var viewport = followingLast?.Viewport ?? restoringReading?.Viewport;
+            if (viewport != null && !request.Created && AtRequestedPosition(request, viewport))
+            {
+                PerformanceTrace.Count(TraceName + ".bring.already_positioned", request.Index);
+                QueueReadingCheck(); QueueFollowCheck();
+                return;
+            }
+            if (viewport != null)
+            {
+                CancelNativeBring(); nativeBring = new(request, viewport);
+                viewport.AddHandler(UIElement.BringIntoViewRequestedEvent, bringRouted, true);
+            }
+            // The request is asynchronous: ViewChanged reports the actual
+            // completed move. Do not let the already-queued follow check read
+            // the previous offset and issue another bring in this same turn.
+            if (followingLast is { } follow && request.Index == Children.Count - 1 && IsCurrent(follow))
+            {
+                follow.IsScrolling = true;
+                follow.SubmittedArrange = arrangeRevision;
+                follow.SubmittedGeometry = PreparedGeometry(ReadEndGeometry(follow));
+            }
+            request.Element.StartBringIntoView(new BringIntoViewOptions
+            { AnimationDesired = false, VerticalAlignmentRatio = request.Alignment, VerticalOffset = request.Offset });
+            QueueReadingCheck();
+        })) bringQueued = false;
+    }
+    private bool AtRequestedPosition(BringRequest request, ScrollViewer viewport)
+    {
+        var bounds = request.Element.TransformToVisual(viewport).TransformBounds(new(0, 0, request.Element.ActualWidth, request.Element.ActualHeight));
+        var top = (viewport.ViewportHeight - bounds.Height) * request.Alignment + request.Offset;
+        if (bounds.Bottom <= 0 || bounds.Top >= viewport.ViewportHeight || Math.Abs(bounds.Top - top) > 1) return false;
+        if (followingLast != null) return Math.Abs(viewport.ScrollableHeight - viewport.VerticalOffset) <= 1;
+        return restoringReading?.FirstRow != true || Math.Abs(viewport.VerticalOffset) <= 1;
+    }
+    private void OnNativeBringRequested(UIElement sender, BringIntoViewRequestedEventArgs args)
+    {
+        if (nativeBring is not { } bring || !ReferenceEquals(sender, bring.Viewport)
+            || !ReferenceEquals(args.OriginalSource, bring.Request.Element)) return;
+        bring.Routed = true;
+        bring.Viewport.RemoveHandler(UIElement.BringIntoViewRequestedEvent, bringRouted);
+        PerformanceTrace.Count(TraceName + ".bring.routed", bring.Request.Index);
+        // ItemsRepeater releases its suggested anchor on this request's first
+        // Rendering event, and can then invalidate Measure. Observe that real
+        // frame once, then verify the resulting layout; no frame polling.
+        if (!bringRendering)
+        {
+            bringRendering = true;
+            Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += OnNativeBringRendering;
+        }
+    }
+    private void OnNativeBringRendering(object? sender, object args)
+    {
+        Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= OnNativeBringRendering;
+        bringRendering = false;
+        if (nativeBring is not { } bring) return;
+        dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            if (!ReferenceEquals(nativeBring, bring)) return;
+            hasSuggestedAnchor = false;
+            bring.Rendered = true; bring.AfterRenderArrange = arrangeRevision;
+            PerformanceTrace.Count(TraceName + ".bring.rendered", bring.Request.Index);
+            InvalidateArrange();
+        });
+    }
+    private bool NativeBringArranged()
+    {
+        if (nativeBring is not { } bring) return true;
+        if (!bring.Rendered || arrangeRevision <= bring.AfterRenderArrange) return false;
+        PerformanceTrace.Count(TraceName + ".bring.completed", bring.Request.Index);
+        CancelNativeBring();
+        if (followingLast is { } follow) follow.IsScrolling = false;
+        return true;
+    }
+    private void CancelNativeBring()
+    {
+        if (nativeBring is { } bring) bring.Viewport.RemoveHandler(UIElement.BringIntoViewRequestedEvent, bringRouted);
+        nativeBring = null;
+        if (bringRendering) Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= OnNativeBringRendering;
+        bringRendering = false;
+    }
+    internal object ReadScrollState(ScrollViewer viewport)
+    {
+        var index = Children.Count - 1;
+        var last = index >= 0 ? repeater.TryGetElement(index) as FrameworkElement : null;
+        var bounds = last is { IsLoaded: true } ? last.TransformToVisual(viewport)
+            .TransformBounds(new(0, 0, last.ActualWidth, last.ActualHeight)) : (Windows.Foundation.Rect?)null;
+        return new {
+            revision, committed, arrange_revision = arrangeRevision, realized = Realized, pending_builds = PendingBuilds,
+            suggested_anchor_pending = hasSuggestedAnchor,
+            offset = viewport.VerticalOffset, maximum = viewport.ScrollableHeight,
+            pending_bring = pendingBring == null ? null : new { pendingBring.Index, pendingBring.AfterArrange, pendingBring.Created },
+            native_bring = nativeBring == null ? null : new { nativeBring.Request.Index, nativeBring.Routed, nativeBring.Rendered, nativeBring.AfterRenderArrange },
+            follow = followingLast == null ? null : new { in_flight = followingLast.IsScrolling, followingLast.Settled,
+                followingLast.RecoveryRequested, followingLast.SubmittedArrange, followingLast.SubmittedGeometry, followingLast.LastCorrected },
+            reading = restoringReading == null ? null : new { restoringReading.FirstRow, restoringReading.Anchor, completed = restoringReading.Completion.Task.IsCompleted },
+            last_row = new { index, loaded = last?.IsLoaded ?? false, child_ready = last is Border { Child: not null },
+                top = bounds?.Top, bottom = bounds?.Bottom, height = bounds?.Height }
+        };
+    }
+    internal bool MoveFocus(UIElement source, int delta, Func<UIElement, Control?> focusTarget)
+    {
+        DependencyObject? container = source;
+        while (container != null && !ReferenceEquals(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(container), repeater))
+            container = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(container);
+        if (container is not UIElement current || delta == 0) return false;
+        var index = repeater.GetElementIndex(current);
+        for (index += Math.Sign(delta); index >= 0 && index < Children.Count; index += Math.Sign(delta))
+        {
+            var element = repeater.GetOrCreateElement(index);
+            factory.BuildNow((Border)element);
+            if (focusTarget(element) is not { IsEnabled: true } target) continue;
+            target.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
+            return target.Focus(FocusState.Keyboard);
+        }
+        return false;
+    }
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+    {
+        InLayout = true;
+        using var timing = PerformanceTrace.Measure(TraceName + ".measure");
+        var result = base.MeasureOverride(availableSize);
+        PerformanceTrace.Count(TraceName + ".realized", Realized);
+        return result;
+    }
+    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+    {
+        InLayout = true;
+        using var timing = PerformanceTrace.Measure(TraceName + ".arrange");
+        var result = base.ArrangeOverride(finalSize);
+        arrangeRevision++;
+        QueueArrangedBring();
+        QueueReadingCheck();
+        QueueFollowCheck();
+        return result;
+    }
+    // KnownHeights' layout: rows top to bottom, a realized row at its measured height and any other row at its known
+    // height, so the list's height does not depend on which rows are realized. Realizes the rows in the repeater's
+    // realization rect (the view and CacheLength screens around it), and a row asked for outside it (the repeater's
+    // recommended anchor, from GetOrCreateElement) as well.
+    private sealed class KnownStack : VirtualizingLayout
+    {
+        private readonly VirtualRows owner;
+        private double[] tops = Array.Empty<double>(), heights = Array.Empty<double>();
+        private int first = -1, last = -1, extra = -1;  // the realized rows, and one asked for outside them
+        internal double Spacing;
+        internal KnownStack(VirtualRows owner) { this.owner = owner; }
+        private double Place(int count)
+        {
+            var y = 0d;
+            for (var index = 0; index < count; index++) { tops[index] = y; y += heights[index] + (index < count - 1 ? Spacing : 0); }
+            return y;
+        }
+        // The first row whose bottom is below y.
+        private int FirstEndingAfter(double y, int count)
+        {
+            int low = 0, high = count - 1, found = count;
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+                if (tops[middle] + heights[middle] > y) { found = middle; high = middle - 1; } else low = middle + 1;
+            }
+            return found;
+        }
+        // The last row whose top is above y.
+        private int LastStartingBefore(double y, int count)
+        {
+            int low = 0, high = count - 1, found = -1;
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+                if (tops[middle] < y) { found = middle; low = middle + 1; } else high = middle - 1;
+            }
+            return found;
+        }
+        protected override Windows.Foundation.Size MeasureOverride(VirtualizingLayoutContext context, Windows.Foundation.Size availableSize)
+        {
+            var count = context.ItemCount;
+            if (heights.Length != count) { heights = new double[count]; tops = new double[count]; }
+            for (var index = 0; index < count; index++) heights[index] = owner.KnownHeight(index);
+            Place(count);
+            var rect = context.RealizationRect;
+            var from = FirstEndingAfter(rect.Y, count); var to = LastStartingBefore(rect.Y + rect.Height, count);
+            if (from > to) { from = 0; to = -1; }
+            var anchor = context.RecommendedAnchorIndex;
+            var wanted = anchor >= 0 && anchor < count && (anchor < from || anchor > to) ? anchor : -1;
+            for (var index = first; index >= 0 && index <= last && index < count; index++)
+                if ((index < from || index > to) && index != wanted) context.RecycleElement(context.GetOrCreateElementAt(index));
+            if (extra >= 0 && extra < count && extra != wanted && (extra < from || extra > to)) context.RecycleElement(context.GetOrCreateElementAt(extra));
+            var width = availableSize.Width; var widest = 0d;
+            var size = new Windows.Foundation.Size(width, double.PositiveInfinity);
+            for (var index = from; index <= to; index++)
+            {
+                var element = context.GetOrCreateElementAt(index);
+                element.Measure(size);
+                heights[index] = element.DesiredSize.Height;
+                widest = Math.Max(widest, element.DesiredSize.Width);
+            }
+            if (wanted >= 0)
+            {
+                var element = context.GetOrCreateElementAt(wanted);
+                element.Measure(size);
+                heights[wanted] = element.DesiredSize.Height;
+            }
+            first = from <= to ? from : -1; last = from <= to ? to : -1; extra = wanted;
+            var extent = Place(count);
+            return new Windows.Foundation.Size(double.IsInfinity(width) ? widest : width, extent);
+        }
+        protected override Windows.Foundation.Size ArrangeOverride(VirtualizingLayoutContext context, Windows.Foundation.Size finalSize)
+        {
+            for (var index = first; index >= 0 && index <= last && index < context.ItemCount && index < tops.Length; index++)
+                context.GetOrCreateElementAt(index).Arrange(new Windows.Foundation.Rect(0, tops[index], finalSize.Width, heights[index]));
+            if (extra >= 0 && extra < context.ItemCount && extra < tops.Length)
+                context.GetOrCreateElementAt(extra).Arrange(new Windows.Foundation.Rect(0, tops[extra], finalSize.Width, heights[extra]));
+            return finalSize;
+        }
+        // The repeater has already cleared the elements of removed or replaced rows and given the others their new
+        // indices; keep the realized range on the same rows.
+        protected override void OnItemsChangedCore(VirtualizingLayoutContext context, object source, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+        {
+            if (extra >= 0)
+            {
+                if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                { if (args.NewStartingIndex <= extra) extra += args.NewItems?.Count ?? 0; }
+                else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+                {
+                    var gone = args.OldStartingIndex; var count = args.OldItems?.Count ?? 0;
+                    extra = extra < gone ? extra : extra >= gone + count ? extra - count : -1;
+                }
+                else if (args.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace) extra = -1;
+            }
+            if (first >= 0)
+            {
+                if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                {
+                    var added = args.NewItems?.Count ?? 0;
+                    if (args.NewStartingIndex <= first) { first += added; last += added; }
+                    else if (args.NewStartingIndex <= last) last += added;
+                }
+                else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+                {
+                    var at = args.OldStartingIndex; var removed = args.OldItems?.Count ?? 0;
+                    first = first < at ? first : first >= at + removed ? first - removed : at;
+                    last = last < at ? last : last >= at + removed ? last - removed : at - 1;
+                    if (last < first) first = last = -1;
+                }
+                else if (args.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace) first = last = -1;
+            }
+            InvalidateMeasure();
+        }
+    }
+    private sealed class RowFactory : IElementFactory
+    {
+        private readonly Stack<Border> empty = new();
+        private static readonly Queue<(RowFactory Owner, Border Host, Row Row)> pending = new();
+        private static Microsoft.UI.Dispatching.DispatcherQueueTimer? pumpTimer;
+        internal static int PendingBuilds;
+        internal int Realized { get; private set; }
+        internal string TrackKind = "VirtualRow.rows";
+        internal Action<UIElement>? Recycling;
+        internal Dictionary<string, double>? Heights;  // stable row key -> its height when last built (RememberHeights)
+        public UIElement GetElement(ElementFactoryGetArgs args)
+        {
+            Border host;
+            if (empty.Count > 0) host = empty.Pop();
+            else
+            {
+                host = new Border { HorizontalAlignment = HorizontalAlignment.Stretch };
+                // Only a list that remembers heights listens for its rows' sizes; every other list stays as it was.
+                if (Heights != null) host.SizeChanged += RememberHeight;
+            }
+            var row = (Row)args.Data;
+            host.Tag = row; Realized++;
+            host.MinHeight = Heights != null && StableKey(row.Key) is { } stable && Heights.TryGetValue(stable, out var built) ? built : row.Estimate;
+            pending.Enqueue((this, host, row)); Interlocked.Increment(ref PendingBuilds);
+            if (pumpTimer == null)
+            {
+                pumpTimer = host.DispatcherQueue.CreateTimer();
+                pumpTimer.Interval = TimeSpan.FromMilliseconds(16); pumpTimer.IsRepeating = true;
+                pumpTimer.Tick += (_, _) => Pump();
+            }
+            if (!pumpTimer.IsRunning) pumpTimer.Start();
+            return host;
+        }
+        private static void Pump()
+        {
+            // Keep construction outside MeasureOverride with a small measured
+            // budget. One row per 16 ms unnecessarily delays dozens of cheap
+            // sidebar/inspector rows for more than a second on organization
+            // changes. A cold/expensive row still gets the turn to itself.
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var built = 0;
+            while (pending.TryDequeue(out var work))
+            {
+                try
+                {
+                    if (!ReferenceEquals(work.Host.Tag, work.Row)) continue;
+                    // The UI-owned timer guarantees native control creation
+                    // stays on the dispatcher even when realization originated
+                    // in a native callback without a managed sync context.
+                    work.Owner.BuildNow(work.Host);
+                    built++;
+                }
+                finally { Interlocked.Decrement(ref PendingBuilds); PresentationPreparation.NotifyCompletion(); }
+                // Sidebar and inspector rows are cheap: four per 16 ms tick kept an
+                // organization switch waiting several frames for its own rows.
+                if (built >= 32 || System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 12) break;
+            }
+            if (pending.Count == 0) pumpTimer!.Stop();
+        }
+        private void RememberHeight(object sender, SizeChangedEventArgs args)
+        {
+            if (Heights != null && sender is Border { Child: not null, Tag: Row row } && StableKey(row.Key) is { } stable)
+                Heights[stable] = args.NewSize.Height;
+        }
+        internal void BuildNow(Border host)
+        {
+            if (host.Child != null || host.Tag is not Row row) return;
+            using var timing = PerformanceTrace.Measure("row.build");
+            host.Child = row.Build(); host.MinHeight = 0;
+            PerformanceTrace.Track(TrackKind, host.Child);
+        }
+        public void RecycleElement(ElementFactoryRecycleArgs args)
+        {
+            using var timing = PerformanceTrace.Measure("row.recycle");
+            var host = (Border)args.Element;
+            if (host.Child is { } child) Recycling?.Invoke(child);
+            host.Tag = null; host.Child = null; Realized--;
+            if (empty.Count < 32) empty.Push(host);
+        }
+    }
+}

@@ -5,11 +5,13 @@ automatic wake-up).
 folder and permission, seated in the organization before its first turn. Without --new the turn resumes the seat's
 current CLI session; an existing Claude GUI seat uses native peer messaging and waits for a GUI Stop receipt.
 The prompt is the introduction (on --new), text the person wrote in the window, or an auto-wake
-prompt (--wake-from names the senders). A woken seat that ends its turn without messaging its wakers sends them an
-automatic receipt with its final reply; when the turn ends, waiting wake-ups of the organization are dispatched.
+prompt (--wake-from names the senders). Each waker gets a completion receipt quoting only replies in the triggering
+message threads; when the turn ends, waiting wake-ups of the organization are dispatched.
 
-A surface=gui Codex chat open in the desktop app uses desktop.py. A CLI seat keeps its app-server route and reports
-a writer lock when its old thread is desktop-owned; it never injects that prompt into the GUI.
+A surface=gui Codex chat goes to the desktop app through desktop.py whenever the app knows it, loaded or not (the app
+loads it); its app-server route is left for when the app is not running or does not take the prompt. A CLI seat keeps
+its app-server route and reports a writer lock when its old thread is desktop-owned; it never injects that prompt into
+the GUI.
 A ChatGPT chat member (chat.py) has no Relic tools: its turn carries the messages' text, and its reply goes back to
 their writers as its message (forwarded by the person when the ChatGPT app hides its text), which stands in for the
 receipt.
@@ -24,8 +26,8 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from relic_core import chat, claude_desktop, desktop, platform_support, runner, wake  # noqa: E402
-from relic_core.store import Store, now  # noqa: E402
+from relic_core import antigravity, chat, claude_desktop, desktop, platform_support, runner, wake  # noqa: E402
+from relic_core.store import Store, codex_parent  # noqa: E402
 
 
 def run_claude(store, org, member, config, prompt, new, cwd):
@@ -58,11 +60,12 @@ def run_claude(store, org, member, config, prompt, new, cwd):
     return session, str(result.get("result") or ""), bool(result.get("is_error")), None
 
 
-def run_in_desktop(app, thread, prompt):
-    """The chat is open in the Codex desktop app: the app runs the turn there, and the runner follows it. Once the
-    prompt may have reached the app it is never sent again, so a turn that fails there is reported in the receipt
-    instead of being retried (a retry would send the same prompt a second time)."""
-    reply, failed = desktop.run_turn(app, thread, prompt)
+def run_in_desktop(app, thread, prompt, load=False):
+    """The chat is open in the Codex desktop app (with load, one the app knows and loads for the turn): the app runs
+    the turn there, and the runner follows it. Once the prompt may have reached the app it is never sent again, so a
+    turn that fails there is reported in the receipt instead of being retried (a retry would send the same prompt a
+    second time)."""
+    reply, failed = desktop.run_turn(app, thread, prompt, load=load)
     if failed:
         reply = "The turn ended as failed in the Codex desktop app; the prompt was delivered and is not sent again. " + reply
     return "codex:" + thread, reply, False, None
@@ -70,13 +73,25 @@ def run_in_desktop(app, thread, prompt):
 
 def open_in_desktop(app, thread):
     """Whether the Codex desktop app has this chat loaded (then only the app can run a turn in it)."""
+    return desktop_state(app, thread) not in (None, desktop.NOT_LOADED)
+
+
+def desktop_state(app, thread):
+    """The chat's status in the Codex desktop app (desktop.NOT_LOADED for one it knows but has not loaded), or None
+    when the app cannot read it."""
     try:
-        return desktop.status(app.read(thread)) not in (None, desktop.NOT_LOADED)
+        return desktop.status(app.read(thread))
     except desktop.DesktopError:
-        return False
+        return None
 
 
 def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.connect):
+    seat = org["members"][member]
+    if not new and seat.get("harness") == "codex" and codex_parent(seat.get("carrier")):
+        # a Codex subagent with a seat of its own ("codex:<session>/<agent>"): only the session that spawned it can
+        # give it input (the desktop app refuses direct input to multi-agent v2 sub-agents); nothing is started
+        raise RuntimeError("%s is a Codex subagent of %s; only that session gives it a turn (followup_task), %s." % (
+            member, codex_parent(seat["carrier"]), wake.SUBAGENT_INPUT))
     if sys.platform == "darwin" and config.get("surface") == "gui":
         capability = desktop.transport_capability()
         if not platform_support.can_auto_deliver("codex", "gui"):
@@ -97,8 +112,21 @@ def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.conn
     held = seat["carrier"].split(":", 1)[1] if resume else None
     gui = config.get("surface") == "gui"
     app = connect() if held and gui else None
-    if app and open_in_desktop(app, held):
+    state = desktop_state(app, held) if app else None
+    if state not in (None, desktop.NOT_LOADED):
         return run_in_desktop(app, held, prompt)
+    if state == desktop.NOT_LOADED:
+        # The app knows the chat but has not loaded it: it loads the chat for this turn, so the chat and the
+        # subagents it spawns stay in the app's one process. A runner app-server cannot reach a subagent thread the
+        # app holds, nor can anyone else give that subagent input (2026-11-16, Learning's astra-systems-lead).
+        # When the app takes nothing (a terminal session holds the chat, say), the runner tries, as before.
+        try:
+            return run_in_desktop(app, held, prompt, load=True)
+        except desktop.Uncertain:
+            raise  # the app may have it: never sent twice
+        except desktop.DesktopError as error:
+            if desktop.BUSY in str(error):
+                raise  # a turn is running there now: wait for it
     settings = {"cwd": cwd, "approvalPolicy": "on-request", "sandbox": runner.checked_permission(config),
                 "approvalsReviewer": config.get("reviewer") or runner.CODEX_REVIEWER}
     if runner.checked_model(config):
@@ -154,26 +182,17 @@ def run_codex(store, org, member, config, prompt, new, cwd, connect=desktop.conn
     return "codex:" + thread, reply or (error or ""), failed, approvals
 
 
-def receipt(store, org_id, member, wake_from, since, state):
-    """Every woken turn ends with exactly one receipt to its wakers (sent once, from this runner's finally): whether
-    the turn finished or failed, and its final words. Messages the seat sent during the turn may be progress notes,
-    so they never replace the receipt; they only shorten it."""
-    replied = store.sent_since(org_id, member, since, skip_prefix=wake.RECEIPT_MARK)
-    if state.get("status") == "failed":
-        what = "the turn failed: %s" % (state.get("error") or state.get("reply") or "unknown error")[-1200:]
-    elif state.get("status") != "done":
-        what = "the turn is not complete: %s" % (state.get("error") or "no matching GUI Stop receipt")[-1200:]
-    elif all(m in replied for m in wake_from):
-        what = "the turn finished; it also messaged you during the turn. Its final words in its own session:\n%s" % (
-            (state.get("reply") or "(no reply)")[-600:])
-    else:
-        what = "the turn finished without a reply through Relic. Its final words in its own session:\n%s" % (
-            (state.get("reply") or "(no reply)")[-1500:])
-    declined = (state.get("approvals") or {}).get("declined") or []
-    if declined:
-        what += "\nRequests the runner declined: " + "; ".join("%s (%s)" % (d["method"], d["about"]) for d in declined[:5])
-    return store.send_as(org_id, member, wake_from, "%s %s was woken by your message(s); %s" % (
-        wake.RECEIPT_MARK, member, what))
+def receipt(store, org_id, member, wake_from, after, state):
+    return wake.receipt(store, org_id, member, wake_from, after, state)
+
+
+def repeated(store, org_id, member, error, state):
+    """wake.repeated_failure, failing open: when it cannot tell, the wakers get the receipt, and the wake-up is still
+    settled after it."""
+    try:
+        return wake.repeated_failure(store, org_id, member, error, state.get("wake_message_ids"))
+    except Exception:
+        return False
 
 
 def needs_receipt(harness, error):
@@ -198,10 +217,14 @@ def main():
     state = runner.run_state(a.org, a.member) or {}
     state.update(status="running", started=state.get("started") or time.time(), pid=os.getpid())
     runner.write_state(a.org, a.member, state)  # liveness: others check this pid before starting another turn
-    since = now()
+    after = 0
+    first = None
     harness = None
     try:
         store = Store()
+        first = wake.latest_message(store)
+        after = wake.message_checkpoint(store, a.org)
+        state["wake_after"] = after
         org = store.get(a.org)
         seat = org["members"][a.member]
         config = store.seat_config(a.org, a.member, org) or runner.default_config(seat.get("harness") or "codex")
@@ -216,6 +239,9 @@ def main():
         if harness == "chatgpt":
             cwd, approvals = None, None
             session, reply, failed = chat.run_chatgpt(store, org, a.member, prompt, hop=state.get("wake_hop", 0))
+        elif harness == "antigravity":  # a conversation in the Antigravity app: the app runs the turn
+            cwd = None
+            session, reply, failed, approvals = antigravity.run_turn(store, org, a.member, config, prompt, a.new)
         else:
             cwd = runner.workspace(config, a.member)
             run = (run_codex if harness == "codex" else
@@ -223,7 +249,8 @@ def main():
             session, reply, failed, approvals = run(store, org, a.member, config, prompt, a.new, cwd)
         state.update(status="failed" if failed else "done", session=session, reply=reply[-4000:], cwd=cwd, error=None,
                      approvals=approvals)
-        if a.open and not failed and harness != "chatgpt" and config.get("surface") != "gui":
+        if (a.open and not a.wake_from and not state.get("wake_hop") and not state.get("wake_from")
+                and not failed and harness not in ("chatgpt", "antigravity") and config.get("surface") != "gui"):
             harness = "codex" if session.startswith("codex:") else "claude-code"
             try:
                 runner.open_session(config, session.split(":", 1)[1] if harness == "codex" else session, harness, cwd)
@@ -248,12 +275,19 @@ def main():
             wake_from = [m for m in a.wake_from.split(",") if m]
             if wake_from:
                 error = None if state.get("status") == "done" else str(state.get("error") or state.get("reply") or "failed")
-                if needs_receipt(harness, error):
-                    receipt(store, a.org, a.member, wake_from, since, state)
+                # A retry that fails like the last one, for messages the wakers were told about, adds nothing.
+                if needs_receipt(harness, error) and not (error and repeated(store, a.org, a.member, error, state)):
+                    receipt(store, a.org, a.member, wake_from, after, state)
                 # A held/unknown/sent GUI request can still arrive. Consume this wake
                 # claim without calling it complete or scheduling a duplicate send.
                 wake.finish(store, a.org, a.member, None if state.get("delivery_possible") else error)
             wake.dispatch(store, a.org)  # messages that arrived while this seat or others were busy
+            # This runner is the Relic installed last (runner.entry). What was written anywhere during the turn is
+            # dispatched again with its rules, which an older copy that wrote it may lack (the Codex plugin waits
+            # for the person's hook trust after each upgrade; 2026-11-16: a Codex subagent woken through the app).
+            for org_id in wake.written_since(store, first) if first is not None else []:
+                if org_id != a.org:
+                    wake.dispatch(store, org_id)
         except Exception as error:  # the turn itself is recorded; the next dispatch elsewhere catches up
             state["after_turn_error"] = str(error)[-500:]
             runner.write_state(a.org, a.member, state)

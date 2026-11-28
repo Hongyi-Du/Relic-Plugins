@@ -185,11 +185,13 @@ In an organization's overview, Hierarchy places it under another organization (i
 here; a member can ask for it with `group op=reparent`, which the secretary-general decides (you, without a
 secretariat). Members of an organization above see the ones below, write to their members, assign their tasks and issue
 protocols that take effect there directly; a protocol marked inherit (older name: downward) binds every organization
-below its own. Members of
-an organization below only report upward. The sidebar shows the organizations as a tree; an organization's overview
+below its own. Members of an organization below report upward and read the ones above: their documents and a
+read-only status, so what they should keep knowing can be a document instead of a protocol. The sidebar shows the
+organizations as a tree; an organization's overview
 lists the ones right below it with what waits there (decisions, blocked tasks, work in progress); the group chats show
 what was done across organizations, with the member's organization next to its name. `POST /api/org/<id>/parent`
-(`{"parent": <org id or null>}`) sets the parent; the rules live in `relic_core/store.py` (`set_parent`, `reach`).
+(`{"parent": <org id or null>}`) sets the parent; the rules live in `relic_core/store.py` (`set_parent`, `reach`,
+`reach_to_read`).
 
 ## The organization model
 

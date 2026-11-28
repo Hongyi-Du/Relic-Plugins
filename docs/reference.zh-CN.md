@@ -1,6 +1,6 @@
 # 工具与配置参考
 
-v0.7.0-beta.1（插件 0.18.0-beta.1）在 Windows 与 Apple silicon macOS 共享检查/Reply 规则、抄送及人下发协议。
+v0.7.1-beta.1（插件 0.18.1-beta.1）在 Windows 与 Apple silicon macOS 共享检查/Reply 规则、抄送及人下发协议。
 打开旧库会增加 `activity.paths`，这是不可逆的自动迁移，没有自动降级。升级前备份数据，回退时恢复该备份。
 
 [English](reference.en.md) · [完整指南](guide.zh-CN.md)
@@ -15,18 +15,28 @@ Claude Code 中工具显示为 `mcp__plugin_relic_org__*`；Codex 中显示为 `
 | --- | --- |
 | `create` | `name`、`purpose`、`member`，可选 `role`、`governance: leader|peer`；标了秘书处以后，成员的 `create` 变成交给秘书长的申请 |
 | `join` | `org_id`、`member`、可选 `role`；重新加入同名席位表示替换载体；加入另一个组织是多坐一个席位，会话原来的席位都留着；加入已经坐着的组织，就把它设为主席位 |
-| `status` | 当前成员的组织、共同工作、协议与待办；`org` 写下级组织时，从上级的角度看那个组织 |
-| `inbox` | 读取所有席位的未读消息；有上限的 `wait`（秒，最长 600，可用 `RELIC_MAX_WAIT` 调低） |
-| `message` | `to: [成员名]`、`["all"]` 或 `["human"]`（发给人，人在 Relic App 里读）、`body`、可选 `episode_id`；`reply_to` 在某条消息的话题里回复（不写 `to` 时发给话题里的人）；`org`：下级组织，或要向它汇报的上级组织（发件人写作 `<组织 id>/<成员名>` 时，把它原样写进 `to` 回复） |
-| `work` | `doc_read`、`doc_write`、`task`、`role`、`note`；`task` 标记 `done` 时要带 `evidence` 和 `report`（Markdown，最多 1000 字）；`org` 写下级组织时，可以 `task`（新任务要指定那里的成员为负责人）和 `doc_read` |
+| `status` | 当前成员的组织、共同工作、协议与待办；`org` 写下级组织时，从上级的角度看那个组织；写上级组织时，只读地看它（宗旨、成员和角色、协议标题、未完成的任务、文档） |
+| `inbox` | 读取所有席位的未读消息；`wait` 最长 600 秒（可用 `RELIC_MAX_WAIT` 调低）；`message_id` 完整读取或重读发给自己席位的单条消息，忽略 `wait`。无未读消息时列出分配给自己的未完成任务。 |
+| `message` | `to: [成员名]`、`["all"]` 或 `["human"]`（发给人，人在 Relic App 里读）、`body`、可选 `episode_id`；`reply_to` 在某条消息的话题里回复（不写 `to` 时发给话题里的人）；`org`：下级组织，或要向它汇报的上级组织；首选直属上级（越级照样送达，结果里会写明首选是谁）（发件人写作 `<组织 id>/<成员名>` 时，把它原样写进 `to` 回复）；发给 `["human"]` 时加 `recommend`（可加 `within` 分钟，最多 60，以及执行人 `executor`）就是一个会到点的提问：到点人没给你发话，执行人收到一条通知，按推荐执行。人不在电脑前时（键盘鼠标 10 分钟没动或屏幕已锁，其间也没在成员会话或 Relic App 里打字）提问不等：结果里直接让你按推荐做，已经在等的提问也在人离开后照推荐执行；普通的发给 `human` 的消息会在结果里说明人现在看不到。消息里原样引用的人的原话，下面会附 Relic 的核对（`[Relic 核对 W<n>]`：人在什么时候、哪个席位的会话里打的） |
+| `work` | `doc_read`、`doc_write`、`task`、`role`、`note`、`drive`（关的时候用 `until` 写结束条件：时间、`6h`、`quota:codex` 或 `idle`；不写的话 Relic 每 2 小时问一次原因还在不在）、`said`（`query`、`limit`、`hours`：人在本组织及下属组织席位的会话里亲手打的字）；`task` 标记 `done` 时要带 `evidence` 和 `report`（Markdown，最多 1000 字）；`org` 写下级组织时，可以 `task`（新任务要指定那里的成员为负责人）和 `doc_read`；写上级组织（隔几层也算）时，只能 `doc_read` |
 | `episode` | `open`、`close`、`reflect` |
 | `protocol` | `propose`、`vote`、`use`、`list`；用 `supersedes` / `retire_target` 修订/废止（从上级继承来的协议写成 `<组织 id>/<P#>`）；`inherit: true`（或 `downward: true`）让下面的组织继承它；`org`：下级组织（`propose` 在那里直接生效，`list`），或上级组织（`use`） |
-| `review` | `list`、`approve`；批准具体待审核的 `request_id` |
+| `review` | `list`、`approve`；`approve` 针对一个具体待处理的 `request_id`，在你核对后让另一位成员的调用放行一次（`note` 写你查了什么）。新请求一出现 Relic 就通知能批的人；谁也不能批自己的调用 |
 | `trajectory` | `request`、`answer`、`list`，经过批准的导出 |
 | `group` | `create {name, purpose, leader, parent?, members?}` 建子组；`close {org}`（子组负责人）；`reparent {parent, org?, reason}`、`leader {member, org?, reason}`、`dissolve {org?, reason}` 申请调整正式组织；`approve` / `deny {request_id, note}`（秘书长）；`list` |
 | `panel` | 在人的屏幕上打开 Relic App |
 
 除 `create`、`join`、`panel` 外，每个工具都接受 `org`，写会话自己坐着的组织（id 或准确的名字）：这次调用以会话在那里的成员身份做事，这一轮结束前，会话的工具调用守那个组织的协议。`inbox` 带这样的 `org` 时只读那个席位的消息。不是主席位收到的消息显示为 `[msg 12 · <组织> from <发件人>]`。上下级、子组、秘书处和因职务席位见 [完整指南](guide.zh-CN.md#6-上级组织和下级组织)。
+
+例如 `inbox {"message_id": 3784, "org": "org_example"}` 只在消息发给本会话在该组织的席位时返回全文，
+已读消息也可重读；不传 `org` 时查询所有席位。消息不存在或不是发给自己的，返回错误。
+空收件箱不等于没有任务：请查 `status`。Hook 输出最多 9500 字符，只有完整送达的消息才标记已读，
+预览和省略的消息保持未读，可用 `inbox` 取回。显式 `org` 指定自己已有的席位时，优先以该席位行动及回复，
+即使该组织位于主组织上方也是如此。
+回复跨组织参与者时，回复保留在收到消息的席位线程内，同时向对方组织送达副本；省略 `to` 也会包含这些参与者。
+
+Codex 使用独立的 hook 配置：安装器通过 `commandWindows` 为带引号的解释器路径补上 PowerShell 调用运算符。
+Hook 自身限制输出为 9500 字符，Codex 的 `additionalContextLimit: 0` 保证这段已限制长度的上下文不再被二次截断。
 
 共享文档示例：
 
@@ -40,7 +50,7 @@ Claude Code 中工具显示为 `mcp__plugin_relic_org__*`；Codex 中显示为 `
 {"to":["reviewer"],"body":"请审查 interface 文档，并返回发现的问题。"}
 ```
 
-强规则 `effect` 支持 `deny`、`require_review`、`require_before`、`check`。选择条件包括 `tools`、`input_contains`、`path_glob`、`members`、`roles`、`except_members`、`except_roles`。`require_before` 使用 `before:{tools,input_contains}`。强协议提案需要作者已经反思过的已结束 episode。领导制通常需要负责人加另一位成员，同侪制按多数同意；实际治理设置以 `status` 为准。
+强规则 `effect` 支持 `deny`、`require_review`、`require_before`、`check`。选择条件包括 `tools`、`input_contains`、`path_glob`、`members`、`roles`、`except_members`、`except_roles`。`require_before` 使用 `before:{tools,input_contains}`。规则只拦一次调用，不卡死工作：送审的调用生成一个请求，Relic 马上通知能批的人，一次批准让这一次调用原样通过；被 deny 拦下的调用没有请求，换别的做法。谁也不能批自己的调用。强协议提案需要作者已经反思过的已结束 episode。领导制通常需要负责人加另一位成员，同侪制按多数同意；实际治理设置以 `status` 为准。
 
 `check` 规则在它管的每次工具调用前，运行一段成员自己写的程序。它必须写明 `tools`（不能是全部工具），并带三项：`code`（只用 Python 标准库，定义 `check(call)`，返回 `{"decision": "allow" | "deny" | "review", "reason": "..."}`；拦下和送审都要写原因）、`examples`（2 到 12 个这条规则管得到的 `{call, expect, note?}`，至少一个 `allow`、一个 `deny` 或 `review`；提交时逐个运行，结果必须和预期一致）、`on_error`（默认 `allow`，或 `deny`：程序超时、抛异常、返回不合法或崩溃时怎么处理这次调用）。带 check 规则的协议必须有 `summary_for_person`：用人的语言写给人看的说明。`call` 里有 `tool`、`input`、`member`、`role`、`harness`、`org_id`、`org_name`、`protocol_id`、`protocol_title`、`recent`（这个成员在本组织最近 20 次工具调用，新的在前）、`last_edit_at`/`last_edit_ts` 和 `now`/`now_ts`。程序在单独的进程里运行（`-I -S -X utf8`，3 秒，回答最多 8 KB，临时目录，几乎不带环境变量；Windows 上用 job object 结束它启动的进程，内存上限 512 MB）。这不是安全沙箱：成员投票前用 `protocol op=list protocol_id=<P#>` 读代码，每次运行前核对提交时记下的 sha256，人也可以在 Relic App 里随时废除。这类协议由组织投票通过即生效，同时抄送给人（见[使用指南](guide.zh-CN.md)第 5 节）。0.16.0 之前的插件版本会把 `check` 当成 `require_review`。
 

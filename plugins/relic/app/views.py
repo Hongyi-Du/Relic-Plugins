@@ -5,8 +5,11 @@ protocols, events and tool activity, plus each session's own transcript for its 
 writes to the store.
 """
 import calendar
+import copy
 import json
+import math
 import os
+import re
 import time
 from pathlib import Path
 
@@ -22,6 +25,42 @@ CHAT_HARNESSES = ("chatgpt", "claude-chat")
 
 
 # ---------------------------------------------------------------- small helpers
+def platform_info(capabilities, lang=None):
+    """Localize fixed UI diagnostics without changing transport proofs or caches."""
+    keys = {
+        "Windows desktop bridge": "view.platform.windows_bridge",
+        "No desktop bridge on this platform": "view.platform.no_bridge",
+        "Host bridge handshake verified; delivery still requires host authorization": "view.platform.bridge_authorization",
+        "Host bridge handshake verified": "view.platform.bridge_verified",
+        "Host bridge lacks the required Relic desktop tools": "view.platform.bridge_tools_missing",
+        "Desktop endpoint is not verified; run doctor.py --probe-desktop": "view.platform.bridge_unverified",
+        "No private host-supplied desktop socket; open a chat with the Relic plugin loaded": "view.platform.bridge_missing",
+        "Native peer messaging; exact Desktop target and Stop receipt required": "view.platform.peer_receipt",
+        "Native route prerequisites verified; delivery requires its exact peer and Stop receipt": "view.platform.peer_verified",
+        "Enable Claude Desktop delivery explicitly in Relic settings": "view.platform.claude_enable",
+        "Choose Claude Code 2.1.224+ and run the desktop capability probe": "view.platform.claude_probe",
+        "In an existing GUI-configured seat, complete a manual Desktop turn with the Relic hooks loaded": "view.platform.claude_turn",
+    }
+
+    def translate(reason):
+        if reason in keys:
+            return i18n.t(keys[reason], lang)
+        parts = []
+        for part in (reason or "").split("; "):
+            base, separator, version = part.partition(" (observed ")
+            if separator and base in keys and version.endswith(")"):
+                parts.append(i18n.t(keys[base], lang) + " " + i18n.t("view.platform.observed", lang, version=version[:-1]))
+            else:
+                parts.append(i18n.t(keys[part], lang) if part in keys else part)
+        return "; ".join(parts)
+
+    result = dict(capabilities)
+    for name in ("desktop_transport", "claude_desktop"):
+        if isinstance(result.get(name), dict):
+            result[name] = dict(result[name], reason=translate(result[name].get("reason")))
+    return result
+
+
 def epoch(at):
     try:
         return calendar.timegm(time.strptime(at, "%Y-%m-%dT%H:%M:%SZ"))
@@ -65,6 +104,34 @@ def _plain(path):
     return Path(text[4:]) if text.startswith("\\\\?\\") else Path(text)
 
 
+def _antigravity_transcript(session):
+    """Locate an Antigravity conversation's JSONL transcript when present."""
+    try:
+        from relic_core import antigravity
+        path = antigravity.transcript_path(session)
+        if path and path.is_file():
+            return path
+        compact = path.with_name("transcript.jsonl") if path else None
+        if compact and compact.is_file():
+            return compact
+        return None
+    except ImportError:
+        pass
+    configured = os.getenv("RELIC_GEMINI_DIR")
+    if configured:
+        root = Path(configured)
+    elif runner.test_run() or os.getenv("RELIC_TEST"):
+        return None
+    else:
+        root = Path.home() / ".gemini"
+    logs = root / "antigravity" / "brain" / session / ".system_generated" / "logs"
+    for name in ("transcript_full.jsonl", "transcript.jsonl"):
+        candidate = logs / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def locate(actor):
     """(harness, session, transcript path or None). Unlike trajectory.locate, a Claude Code subagent whose own
     transcript is not found gets None, not its parent session's transcript, and long Windows paths are searched."""
@@ -72,9 +139,12 @@ def locate(actor):
     if hit and time.time() - hit[0] < 120 and (hit[1][2] is None or long_path(hit[1][2]).exists()):
         return hit[1]
     head = actor.split("/", 1)[0]
-    if ":" in head:  # codex:<thread>, or a chat member (no transcript on this computer)
+    if ":" in head:  # codex:<thread>, antigravity:<conversation>, or a chat member (no transcript on this computer)
         if actor.startswith("codex:") and "/" in actor:  # a Codex subagent is a thread of its own: codex:<parent>/<child>
             found = trajectory.locate("codex:" + actor.rsplit("/", 1)[1])
+        elif actor.startswith("antigravity:"):
+            session = actor.split(":", 1)[1].split("/", 1)[0]
+            found = ("antigravity", session, _antigravity_transcript(session))
         else:
             found = trajectory.locate(actor) if actor.startswith("codex:") else (head.split(":", 1)[0], actor, None)
     else:
@@ -132,6 +202,9 @@ def session_meta(actor):
                 meta["model"] = p.get("model")
                 meta["effort"] = p.get("effort") or meta.get("effort")
                 meta["cwd"] = p.get("cwd") or meta.get("cwd")
+        elif harness == "antigravity":
+            if e.get("type") == "PLANNER_RESPONSE" and e.get("model"):
+                meta["model"] = e["model"]
         else:
             if e.get("entrypoint"):
                 meta["entrypoint"] = e["entrypoint"]
@@ -167,7 +240,8 @@ def surface_of(seat, meta):
         return "subagent"
     entry = (meta.get("entrypoint") or "").lower()
     origin = ("%s %s" % (meta.get("originator") or "", meta.get("source") or "")).lower()
-    if "desktop" in entry or "desktop" in origin or config.get("surface") == "gui":
+    if ("desktop" in entry or "desktop" in origin or config.get("surface") in ("gui", "app")
+            or seat.get("harness") == "antigravity" or carrier.startswith("antigravity:")):
         return "desktop"
     if entry in ("cli", "claude-vscode") or "cli" in origin or "exec" in origin or config.get("surface") == "cli":
         return "cli"
@@ -179,7 +253,7 @@ def surface_of(seat, meta):
 SURFACE_KEYS = {"desktop": "view.surface.desktop", "cli": "view.surface.cli", "acp": "view.surface.acp",
                 "chat": "view.surface.chat"}
 SURFACE_NAMES = {"subagent": "subagent", "sdk": "SDK", "unknown": ""}
-HARNESS_LABEL = {"claude-code": "Claude Code", "codex": "Codex", "chatgpt": "ChatGPT",
+HARNESS_LABEL = {"claude-code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity", "chatgpt": "ChatGPT",
                  "kimi-code": "Kimi Code", "deepseek-harness": "DeepSeek Harness"}
 
 
@@ -197,16 +271,42 @@ def harness_label(harness, lang=None):
 
 
 # ---------------------------------------------------------------- organizations
-def org_list(store):
+def org_list(store, lang=None):
     last = dict(_rows(store, "SELECT org_id, MAX(at) FROM events GROUP BY org_id"))
+    orgs = store.list_orgs()
+    names = {o["id"]: o["name"] for o in orgs}
     out = []
-    for org in store.list_orgs():
+    for org in orgs:
         members = org.get("members") or {}
         out.append({"id": org["id"], "name": org["name"], "purpose": org.get("purpose", ""),
                     "governance": org.get("governance"), "status": org.get("status"), "created_at": org.get("created_at"),
                     "parent": org.get("parent"), "members": len(members), "member_names": list(members)[:9], "last_at": last.get(org["id"]),
-                    "kind": kind_of(org), "cabinet": bool(org.get("cabinet")), "leader": org.get("leader")})
+                    "kind": kind_of(org), "cabinet": bool(org.get("cabinet")), "leader": org.get("leader"),
+                    "roster": roster(org, names, lang)})
     out.sort(key=lambda o: o.get("last_at") or o.get("created_at") or "", reverse=True)
+    return out
+
+
+def roster(org, names, lang=None):
+    """The organization's own members as the sidebar tree lists them under it, whether or not it is open: its leader
+    first, then its secretary, then the others in the order they joined. A member is listed once even when it both
+    leads and is the secretary, and a seat held ex officio (by the head of an organization below) says so. The same
+    session may sit in several organizations and is then listed under each."""
+    members = org.get("members") or {}
+    leader, secretary = org.get("leader"), secretary_of(org)
+    order = sorted(members, key=lambda name: (name != leader, name != secretary))  # stable: the rest keep their order
+    try:  # one look for the organization's avatar folder instead of one per member and picture type
+        pictures = order and prefs.avatar_base(org["id"], order[0]).parent.is_dir()
+    except (OSError, ValueError):
+        pictures = False
+    out = []
+    for name in order:
+        seat = members[name]
+        office = (seat.get("ex_officio") or {}).get("org")
+        out.append({"name": name, "display": naming.display(seat, name, lang), "role": seat.get("role", ""),
+                    "leader": name == leader, "secretary": name == secretary,
+                    "ex_officio": {"org": office, "org_name": names.get(office, office)} if office else None,
+                    "avatar": prefs.avatar_url(org["id"], name) if pictures else None})
     return out
 
 
@@ -275,6 +375,30 @@ CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 CODEX_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"]
 CODEX_MODELS = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra",
                 "gpt-5.6-luna"]
+ANTIGRAVITY_MODELS = ["flash", "pro", "flash_lite"]
+_AG_MODELS = {}  # gemini_dir -> (timestamp, [model ids])
+
+
+def _antigravity_models():
+    """Model ids offered by the running Antigravity app (relic_core.antigravity.models), cached briefly."""
+    try:
+        from relic_core import antigravity
+    except ImportError:
+        return []
+    getter = getattr(antigravity, "models", None)
+    if not callable(getter):
+        return []
+    key = str(antigravity.gemini_dir() or "")
+    hit = _AG_MODELS.get(key)
+    if hit and time.time() - hit[0] < (60 if hit[1] else 15):
+        return list(hit[1])
+    try:
+        info = getter()
+    except Exception:
+        info = None
+    ids = [str(c["id"]) for c in (info or {}).get("choices") or [] if isinstance(c, dict) and c.get("id")]
+    _AG_MODELS[key] = (time.time(), ids)
+    return list(ids)
 
 
 def model_info(harness, surface, config, live, agent, lang=None):
@@ -285,6 +409,8 @@ def model_info(harness, surface, config, live, agent, lang=None):
         efforts = known.get("efforts") or CLAUDE_EFFORTS
     elif harness == "codex":
         models, efforts = known.get("models") or CODEX_MODELS, known.get("efforts") or CODEX_EFFORTS
+    elif harness == "antigravity":
+        models, efforts = _antigravity_models() or known.get("models") or list(ANTIGRAVITY_MODELS), []
     else:
         models, efforts = known.get("models") or [], known.get("efforts") or []
     if live and live.get("models"):
@@ -304,6 +430,8 @@ def model_info(harness, surface, config, live, agent, lang=None):
         info["note"] = i18n.t("view.model.claude", lang)
     elif harness == "codex":
         info["note"] = i18n.t("view.model.codex", lang)
+    elif harness == "antigravity":
+        info["note"] = i18n.t("view.model.antigravity", lang)
     return info
 
 
@@ -369,10 +497,7 @@ def ex_officio(store, seat):
 
 def unread_counts(store, org_id):
     """Unread messages per member (what each member has not read yet)."""
-    out = {}
-    for member, messages in store.unread_by_member(org_id).items():
-        out[member] = len(messages)
-    return out
+    return store.unread_counts(org_id)
 
 
 def decisions(store, org, hub=None, lang=None):
@@ -413,12 +538,164 @@ def approval_item(store, org, r, lang=None):
             "error": r.get("error")}
 
 
+def protocol_rules(rules):
+    """Expose the engine's effective check fallback, including legacy records.
+
+    Clients must display the same outcome as Store._check_outcome rather than
+    each interpreting an absent on_error field. Example labels and tooltips
+    follow the reference's formatting. This never rewrites the store.
+    """
+    # A caller may reuse an example object in separate rules. Add display
+    # fields only to the check rule, without leaking across that alias.
+    result = [copy.deepcopy(rule) for rule in rules or []]
+    for rule in result:
+        if rule.get("effect") == "check":
+            rule["on_error"] = "deny" if rule.get("on_error") == "deny" else "allow"
+            for example in rule.get("examples") or []:
+                call = example.get("call") or {}
+                example["call_display"] = _example_call_display(call)
+                example["call_json"] = _display_json(call)
+    return result
+
+
+def _display_json_number(value):
+    """JSON's binary64 value, using ECMAScript's decimal/exponent thresholds.
+
+    Python's shortest-round-trip coefficient supplies the significant digits;
+    Number::toString formats them without .0, -0, or padded exponents. Integers
+    cross the same binary64 boundary as JSON.parse in the reference client.
+    """
+    try:
+        number = float(value)
+    except OverflowError:
+        return "null"
+    if not math.isfinite(number):
+        return "null"
+    if number == 0:
+        return "0"
+    coefficient, _, exponent = repr(abs(number)).partition("e")
+    whole, _, fraction = coefficient.partition(".")
+    digits = whole + fraction
+    point = len(whole) + int(exponent or 0) - (len(digits) - len(digits.lstrip("0")))
+    digits = digits.lstrip("0").rstrip("0")
+    if 0 < point <= 21:
+        body = (digits + "0" * (point - len(digits)) if point >= len(digits)
+                else digits[:point] + "." + digits[point:])
+    elif -6 < point <= 0:
+        body = "0." + "0" * -point + digits
+    else:
+        body = digits[0] + ("." + digits[1:] if len(digits) > 1 else "")
+        body += "e" + ("+" if point > 0 else "-") + str(abs(point - 1))
+    return ("-" if number < 0 else "") + body
+
+
+def _display_json(value, indent=2):
+    """JSON.stringify for shared protocol and file preview display values.
+
+    Keep ordinary property insertion order; JavaScript enumerates array-index
+    keys first in numeric order. None selects JSON.stringify's compact format.
+    """
+    def quoted(text):
+        # JSON.stringify emits Unicode directly, but escapes lone surrogates.
+        return "".join("\\u%04x" % ord(char) if 0xD800 <= ord(char) <= 0xDFFF else char
+                       for char in json.dumps(text, ensure_ascii=False))
+
+    def encode(value, depth=0):
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return _display_json_number(value)
+        if isinstance(value, str):
+            return quoted(value)
+        if isinstance(value, dict):
+            indices = sorted((key for key in value if len(key) <= 10 and key.isascii() and key.isdecimal()
+                              and str(int(key)) == key and int(key) < 2 ** 32 - 1), key=int)
+            keys = indices + [key for key in value if key not in indices]
+            items = [quoted(key) + (":" if indent is None else ": ") + encode(value[key], depth + 1) for key in keys]
+            opening, closing = "{", "}"
+        elif isinstance(value, list):
+            items = [encode(item, depth + 1) for item in value]
+            opening, closing = "[", "]"
+        else:
+            raise TypeError("Display requires JSON values")
+        if not items:
+            return opening + closing
+        if indent is None:
+            return opening + ",".join(items) + closing
+        padding = " " * (indent * (depth + 1))
+        return opening + "\n" + padding + (",\n" + padding).join(items) + "\n" + " " * (indent * depth) + closing
+
+    return encode(value)
+
+
+def json_file_display(text):
+    """The reference file preview's JSON.parse / JSON.stringify(..., null, 2).
+
+    Parsing numbers directly as binary64 also handles integer tokens beyond
+    Python's integer-string limit, as the browser does. JSON.parse rejects
+    Python's optional NaN/Infinity syntax; overflow from valid JSON numbers
+    instead becomes Infinity and is stringified as null. Invalid or cut-off
+    JSON retains the exact text returned by the existing file reader.
+    """
+    def invalid_constant(value):
+        raise ValueError("Not a JSON number: " + value)
+
+    try:
+        value = json.loads(text, parse_int=float, parse_float=float, parse_constant=invalid_constant)
+        return _display_json(value)
+    except (ValueError, RecursionError):
+        return text
+
+
+def protocol_rules_display(rules):
+    """JSON.stringify(plainRules(wire.rules), null, 2), without editing rules."""
+    plain = [{key: value for key, value in rule.items() if key not in ("code", "examples", "code_sha256")}
+             if rule.get("effect") == "check" else rule for rule in rules or []]
+    return _display_json(plain)
+
+
+def _example_call_display(call):
+    """The reference exampleText/clip label, including UTF-16 slice semantics."""
+    def truthy(value):
+        # In JavaScript empty arrays/objects remain true, unlike Python.
+        return not (value is None or value is False or isinstance(value, (int, float, str))
+                    and (not value or isinstance(value, float) and math.isnan(value)))
+
+    def text(value):
+        # Array.join converts selected command/path values to JS strings.
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return "[object Object]"
+        if isinstance(value, list):
+            return ",".join("" if item is None else text(item) for item in value)
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        number = _display_json_number(value)
+        if number == "null":
+            return "NaN" if isinstance(value, float) and math.isnan(value) else "-Infinity" if value < 0 else "Infinity"
+        return number
+
+    inputs = call.get("input") or {}
+    argument = next((inputs.get(key) for key in ("command", "file_path", "path") if truthy(inputs.get(key))), None)
+    if argument is None:
+        argument = _display_json(inputs, indent=None) if inputs else ""
+    joined = " ".join(text(value) for value in (call.get("tool"), argument) if truthy(value))
+    # ECMAScript \s includes BOM, but excludes Python's NEL and C0 separators.
+    joined = re.sub(r"[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+", " ", joined).strip(" ")
+    units = joined.encode("utf-16-le", "surrogatepass")
+    return units[:318].decode("utf-16-le", "surrogatepass") + "…" if len(units) > 320 else joined
+
+
 def copies(store, lang=None):
     """What was copied to the person (GET /api/cc): protocols with a check program, each with its note for the person,
     who proposed it (author_display, by display name) and how it stands now; unread counts every unread copy."""
-    items = store.copies()
+    items = copy.deepcopy(store.copies())
     orgs = {o["id"]: o for o in store.list_orgs()}
     for c in items:
+        c["rules"] = protocol_rules(c.get("rules"))
         seats = (orgs.get(c.get("org")) or {}).get("members") or {}
         shown = lambda m, seats=seats: naming.display(seats[m], m, lang) if m in seats else m  # noqa: E731
         issued = c.get("issued_by") or {}
@@ -442,7 +719,7 @@ def snapshot(store, org_id, hub=None, lang=None):
     tasks = sorted((org.get("tasks") or {}).values(), key=lambda t: int(t["id"][1:]) if t["id"][1:].isdigit() else 0)
     protocols = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
                   "version": p.get("version"), "author": p.get("author"), "votes": len(p.get("votes") or {}),
-                  "uses": len(p.get("uses") or []), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
+                  "uses": len(p.get("uses") or []), "guidance": p.get("guidance", ""), "rules": protocol_rules(p.get("rules")),
                   "trigger": p.get("trigger", ""), "retire_target": p.get("retire_target"),
                   "issued_by": p.get("issued_by"), "downward": bool(p.get("downward")), "inherit": inherits(p),
                   "supersedes": p.get("supersedes"), "replaces_above": "/" in str(p.get("supersedes") or p.get("retire_target") or ""),
@@ -469,10 +746,12 @@ def snapshot(store, org_id, hub=None, lang=None):
                          "working": sum(1 for t in child_tasks if t.get("status") in ("open", "working"))})
     lineage = store.inheritance(org)
     inherited = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "status": p["status"],
-                  "version": p.get("version"), "guidance": p.get("guidance", ""), "rules": p.get("rules", []),
+                  "version": p.get("version"), "guidance": p.get("guidance", ""), "rules": protocol_rules(p.get("rules")),
                   "trigger": p.get("trigger", ""), "uses": len(p.get("uses") or []), "from": a["name"],
                   "from_id": a["id"], "issued_by": p.get("issued_by"), "check": has_check(p),
                   "summary_for_person": p.get("summary_for_person", "")} for a, p in lineage["inherited"]]
+    for protocol in protocols + inherited:
+        protocol["rules_display"] = protocol_rules_display(protocol["rules"])
     # protocols of the organizations above that this organization or one between overrode or stopped
     replaced = [{"id": p["id"], "title": p["title"], "strength": p["strength"], "from": a["name"], "from_id": a["id"],
                  "how": how, "by": by, "at": level["name"], "at_id": level["id"]}
@@ -610,7 +889,7 @@ NOTICE_KINDS = ("organization.created", "member.joined", "member.prepared", "mem
                 "organization.group_created", "organization.closed", "organization.dissolved",
                 "organization.child_closed", "organization.child_dissolved", "member.office_ended", "request.filed",
                 "request.approved", "request.denied", "request.failed", "protocol.copied", "protocol.retired_by_person",
-                "protocol.check_alert")
+                "protocol.check_alert", "organization.wake_resumed")
 # how a check program failed (protocol.check_alert), in the person's words
 CHECK_ERRORS = {"timeout": "view.check.timeout", "raised": "view.check.raised", "load": "view.check.load",
                 "invalid": "view.check.invalid", "crashed": "view.check.crashed",
@@ -733,6 +1012,8 @@ def notice_text(org, e, lang=None, store=None):
         return None
     if k == "member.wake_gave_up":
         return i18n.t("view.notice.wake_failed", lang, who=who)
+    if k == "organization.wake_resumed":  # the person's message ended a Stop (monitor.back_to_work)
+        return i18n.t("view.notice.wake_resumed_timers" if b.get("still_paused") else "view.notice.wake_resumed", lang)
     return None
 
 
@@ -853,14 +1134,59 @@ _STEPS = {}  # (path, full) -> (mtime, size, steps): a transcript is parsed agai
 STEP_CLIP = 20000
 
 
+def _antigravity_steps(path, clip=STEP_CLIP, full=False):
+    """Parse Antigravity transcript_full.jsonl into Relic's shared step format."""
+    def clipped(text):
+        text = str(text or "")
+        return text if not clip or len(text) <= clip else text[:clip] + " …[%d more chars]" % (len(text) - clip)
+
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(e, dict):
+                continue
+            at = e.get("created_at") or ""
+            kind = e.get("type")
+            if kind == "USER_INPUT":
+                content = str(e.get("content") or "")
+                match = re.search(r"<USER_REQUEST>\s*([\s\S]*?)\s*</USER_REQUEST>", content)
+                text = match.group(1) if match else content
+                if text.strip():
+                    yield {"at": at, "role": "user", "text": clipped(text)}
+            elif kind == "SYSTEM_MESSAGE" and full and e.get("content"):
+                yield {"at": at, "role": "context", "text": clipped(e["content"])}
+            elif kind == "PLANNER_RESPONSE":
+                if full and e.get("thinking"):
+                    yield {"at": at, "role": "thinking", "text": clipped(e["thinking"])}
+                for tc in e.get("tool_calls") or []:
+                    if isinstance(tc, dict):
+                        yield {"at": at, "role": "tool_call", "tool": tc.get("name", ""),
+                               "text": clipped(json.dumps(tc.get("args") or {}, ensure_ascii=False,
+                                                          indent=1 if full else None))}
+                if e.get("content"):
+                    yield {"at": at, "role": "assistant", "text": clipped(e["content"])}
+            elif kind == "GENERIC":
+                body = e.get("error") or e.get("content") or ""
+                yield {"at": at, "role": "tool_result", "error": e.get("status") == "ERROR" or bool(e.get("error")),
+                       "text": clipped(body)}
+
+
 def _steps(harness, actor, path, full=False):
     key = (str(path), bool(full))
     stat = long_path(path).stat()
     hit = _STEPS.get(key)
     if hit and hit[0] == stat.st_mtime and hit[1] == stat.st_size:
         return hit[2]
-    reader = trajectory.codex_steps if harness == "codex" else trajectory.claude_steps
-    subagent = harness != "codex" and "/" in actor
+    if harness == "antigravity":
+        reader = _antigravity_steps
+    elif harness == "codex":
+        reader = trajectory.codex_steps
+    else:
+        reader = trajectory.claude_steps
+    subagent = harness not in ("codex", "antigravity") and "/" in actor
     # a Claude Code subagent's own file marks every entry as a side chain, which the reader skips unless full
     steps = list(reader(long_path(path), STEP_CLIP, full or subagent))
     if subagent and not full:

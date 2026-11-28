@@ -1,0 +1,364 @@
+{
+    "provenance":  {
+                       "commit":  "a37467a",
+                       "scene":  "en-US-dark-1024x700-group",
+                       "source_file":  "en-US-dark-1024x700-group.xaml.json",
+                       "full_receipt_nodes":  [
+                                                  "xaml-205",
+                                                  "xaml-206"
+                                              ],
+                       "retained_node_fields":  [
+                                                    "id",
+                                                    "type",
+                                                    "parent",
+                                                    "render_sibling_order"
+                                                ],
+                       "retained_owner_fields":  [
+                                                     "outline_owner_evidence",
+                                                     "render_type_evidence",
+                                                     "style.background",
+                                                     "style.border_color",
+                                                     "style.border_width"
+                                                 ],
+                       "description":  "Unmodified recorded values for PersonPicture xaml-205, its current ContentPresenter xaml-206, direct content xaml-207 and actual ancestor chain. The historical parent own-paint contract is null and remains unknown."
+                   },
+    "raw_nodes":  [
+                      {
+                          "id":  "xaml-0",
+                          "type":  "Grid",
+                          "parent":  null,
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-133",
+                          "type":  "Grid",
+                          "parent":  "xaml-0",
+                          "render_sibling_order":  2
+                      },
+                      {
+                          "id":  "xaml-134",
+                          "type":  "Border",
+                          "parent":  "xaml-133",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-135",
+                          "type":  "Grid",
+                          "parent":  "xaml-134",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-176",
+                          "type":  "NativeRegionGrid",
+                          "parent":  "xaml-135",
+                          "render_sibling_order":  1
+                      },
+                      {
+                          "id":  "xaml-177",
+                          "type":  "ScrollViewer",
+                          "parent":  "xaml-176",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-178",
+                          "type":  "Border",
+                          "parent":  "xaml-177",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-179",
+                          "type":  "Grid",
+                          "parent":  "xaml-178",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-180",
+                          "type":  "ScrollContentPresenter",
+                          "parent":  "xaml-179",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-181",
+                          "type":  "StackPanel",
+                          "parent":  "xaml-180",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-185",
+                          "type":  "StackPanel",
+                          "parent":  "xaml-181",
+                          "render_sibling_order":  1
+                      },
+                      {
+                          "id":  "xaml-186",
+                          "type":  "ListView",
+                          "parent":  "xaml-185",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-187",
+                          "type":  "Border",
+                          "parent":  "xaml-186",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-188",
+                          "type":  "ScrollViewer",
+                          "parent":  "xaml-187",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-189",
+                          "type":  "Border",
+                          "parent":  "xaml-188",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-190",
+                          "type":  "Grid",
+                          "parent":  "xaml-189",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-191",
+                          "type":  "ScrollContentPresenter",
+                          "parent":  "xaml-190",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-192",
+                          "type":  "ItemsPresenter",
+                          "parent":  "xaml-191",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-195",
+                          "type":  "StackPanel",
+                          "parent":  "xaml-192",
+                          "render_sibling_order":  1
+                      },
+                      {
+                          "id":  "xaml-196",
+                          "type":  "ListViewItem",
+                          "parent":  "xaml-195",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-197",
+                          "type":  "ContentPresenter",
+                          "parent":  "xaml-196",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-198",
+                          "type":  "Grid",
+                          "parent":  "xaml-197",
+                          "render_sibling_order":  0
+                      },
+                      {
+                          "id":  "xaml-205",
+                          "type":  "PersonPicture",
+                          "parent":  "xaml-198",
+                          "render_sibling_order":  1,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-205",
+                                                         "runtime_type":  "Microsoft.UI.Xaml.Controls.PersonPicture",
+                                                         "own_paint_contract":  null,
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  false,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-205",
+                                                                                              "xaml-198",
+                                                                                              "xaml-197",
+                                                                                              "xaml-196",
+                                                                                              "xaml-195",
+                                                                                              "xaml-192",
+                                                                                              "xaml-191",
+                                                                                              "xaml-190",
+                                                                                              "xaml-189",
+                                                                                              "xaml-188",
+                                                                                              "xaml-187",
+                                                                                              "xaml-186",
+                                                                                              "xaml-185",
+                                                                                              "xaml-181",
+                                                                                              "xaml-180",
+                                                                                              "xaml-179",
+                                                                                              "xaml-178",
+                                                                                              "xaml-177",
+                                                                                              "xaml-176",
+                                                                                              "xaml-135",
+                                                                                              "xaml-134",
+                                                                                              "xaml-133",
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+                                                                                        {
+                                                                                            "id":  "xaml-206",
+                                                                                            "index":  0,
+                                                                                            "same_parent_object":  true
+                                                                                        }
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     },
+                          "render_type_evidence":  {
+                                                       "is_panel":  false,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  true,
+                                                       "control_template_present":  true,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "style":  {
+                                        "background":  [
+                                                           255,
+                                                           255,
+                                                           255,
+                                                           18
+                                                       ],
+                                        "border_color":  [
+                                                             0,
+                                                             0,
+                                                             0,
+                                                             25
+                                                         ],
+                                        "border_width":  1
+                                    }
+                      },
+                      {
+                          "id":  "xaml-206",
+                          "type":  "ContentPresenter",
+                          "parent":  "xaml-205",
+                          "render_sibling_order":  0,
+                          "outline_owner_evidence":  {
+                                                         "source":  "winui-own-outline-v1",
+                                                         "owner_id":  "xaml-206",
+                                                         "runtime_type":  "Microsoft.UI.Xaml.Controls.ContentPresenter",
+                                                         "own_paint_contract":  "native-presenter-fill-border-and-content",
+                                                         "scope":  "Exact native primitive own fill/border/stroke/glyph/image paint; separately owned children are not folded into this receipt",
+                                                         "focus":  {
+                                                                       "status":  "measured",
+                                                                       "state":  "Unfocused",
+                                                                       "use_system_focus_visuals":  false,
+                                                                       "is_template_focus_target":  false,
+                                                                       "global":  {
+                                                                                      "source":  "winui-own-outline-v1",
+                                                                                      "focus_api":  "FocusManager.GetFocusedElement(actual root.XamlRoot)",
+                                                                                      "status":  "measured",
+                                                                                      "focused_object_is_null":  true,
+                                                                                      "focused_object_type":  null,
+                                                                                      "focused_object_id":  null,
+                                                                                      "focused_object_focus_state":  null,
+                                                                                      "focused_object_use_system_focus_visuals":  null
+                                                                                  },
+                                                                       "owner_ancestry":  [
+                                                                                              "xaml-206",
+                                                                                              "xaml-205",
+                                                                                              "xaml-198",
+                                                                                              "xaml-197",
+                                                                                              "xaml-196",
+                                                                                              "xaml-195",
+                                                                                              "xaml-192",
+                                                                                              "xaml-191",
+                                                                                              "xaml-190",
+                                                                                              "xaml-189",
+                                                                                              "xaml-188",
+                                                                                              "xaml-187",
+                                                                                              "xaml-186",
+                                                                                              "xaml-185",
+                                                                                              "xaml-181",
+                                                                                              "xaml-180",
+                                                                                              "xaml-179",
+                                                                                              "xaml-178",
+                                                                                              "xaml-177",
+                                                                                              "xaml-176",
+                                                                                              "xaml-135",
+                                                                                              "xaml-134",
+                                                                                              "xaml-133",
+                                                                                              "xaml-0"
+                                                                                          ],
+                                                                       "owner_ancestry_complete":  true,
+                                                                       "relationship":  "no-focused-object"
+                                                                   },
+                                                         "composition":  {
+                                                                             "status":  "measured",
+                                                                             "api":  "ElementCompositionPreview.GetElementChildVisual(actual owner)",
+                                                                             "child_visual_present":  false,
+                                                                             "child_visual_type":  null,
+                                                                             "shadow_present":  false,
+                                                                             "shadow_type":  null
+                                                                         },
+                                                         "children":  {
+                                                                          "status":  "measured",
+                                                                          "complete":  true,
+                                                                          "items":  [
+                                                                                        {
+                                                                                            "id":  "xaml-207",
+                                                                                            "index":  0,
+                                                                                            "same_parent_object":  true
+                                                                                        }
+                                                                                    ]
+                                                                      },
+                                                         "status":  "measured"
+                                                     },
+                          "render_type_evidence":  {
+                                                       "is_panel":  false,
+                                                       "is_shape":  false,
+                                                       "is_content_control":  false,
+                                                       "is_control":  false,
+                                                       "control_template_present":  null,
+                                                       "source":  "Actual runtime XAML base types"
+                                                   },
+                          "style":  {
+                                        "background":  [
+                                                           0,
+                                                           0,
+                                                           0,
+                                                           0
+                                                       ],
+                                        "border_color":  [
+                                                             0,
+                                                             0,
+                                                             0,
+                                                             0
+                                                         ],
+                                        "border_width":  0
+                                    }
+                      },
+                      {
+                          "id":  "xaml-207",
+                          "type":  "Grid",
+                          "parent":  "xaml-206",
+                          "render_sibling_order":  0
+                      }
+                  ]
+}

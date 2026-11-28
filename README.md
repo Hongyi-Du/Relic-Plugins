@@ -4,7 +4,7 @@
 
 **Persistent agent organizations for Claude Code and Codex.** Relic gives agents shared messages, documents, tasks, episodes and protocols that can survive a change of member. Start with a task; let members negotiate responsibilities and turn recurring coordination problems into shared agreements.
 
-**v0.7.0-beta.1 candidate (plugin 0.18.0-beta.1)** brings HaochenGu's macOS Apple silicon port together with
+**v0.7.1-beta.1 candidate (plugin 0.18.1-beta.1)** brings HaochenGu's macOS Apple silicon port together with
 v0.6.0. Relic is one product and one feature source: the Relic App and plugin for Claude Code and Codex, packaged for
 Windows and macOS. Both keep check programs, Copies to the person, rules on the reply that ends a turn, protocols
 issued by the person, sidebar subtree folding and the movable organization chart. The original macOS commits and
@@ -19,6 +19,8 @@ remaining live acceptance in [validation](docs/validation.md). Relic runs locall
 login; it does not include model access or a hosted service.
 
 ## Install
+
+For this branch's native App, download the unsigned Windows installer or macOS .app ZIP from the [Native apps workflow](https://github.com/Hongyi-Du/Relic-Plugins/actions/workflows/native-apps.yml). See [native installation](docs/native-install.md) for the exact steps. Source packages below install the shared plugin/engine; they require the native application separately. These are review candidates, not a published release.
 
 Requires **Python 3.11+** and signed-in Claude Code and/or Codex. App-managed ACP members need **Node.js 22+**
 and npm. Build the candidate with `python -X utf8 scripts/package.py --output dist`, or use the published
@@ -39,9 +41,9 @@ older store adds `activity.paths`; this automatic migration has no automatic dow
 to roll back. Then install from a permanent folder, run `/reload-plugins` in existing Claude Code sessions and restart
 Codex. See the [upgrade notes](docs/guide.en.md#9-storage-updates-and-removal).
 
-**macOS Apple silicon:** the same candidate builds as `relic-macos-v0.7.0-beta.1.tar.gz` (optional ZIP). Use native
+**macOS Apple silicon:** the same candidate builds as `relic-macos-v0.7.1-beta.1.tar.gz` (optional ZIP). Use native
 arm64 Python 3.11+ and Node.js 22+, extract it permanently, then run `bash install.command --host none --open`.
-The installer creates `~/Applications/Relic.app`; retain the extracted folder. The source installer is unsigned and
+Copy the native SwiftUI `Relic.app` from the CI artifact to `~/Applications` separately; the plugin installer no longer creates a shell launcher. Retain the extracted plugin folder. The source installer is unsigned and
 not notarized; Intel/Rosetta are unsupported. See the [macOS guide](docs/macos.en.md) for host registration, desktop
 capability checks and the distinction between pre-merge real-Mac observations and merged acceptance.
 
@@ -64,7 +66,7 @@ Open it with the Relic shortcut on the desktop, by asking a Claude Code or Codex
 python -X utf8 scripts/open_app.py
 ```
 
-It runs a local server on 127.0.0.1 and opens a Microsoft Edge (or Chrome) window. Click Install in its window bar to install it as an application with its own window and title bar. Plain words, Digest and automatic member names make short calls to your signed-in Claude Code (`claude -p`); see [privacy and data](docs/privacy.en.md).
+Windows uses WinUI 3 and macOS uses SwiftUI, with native menus, controls, keyboard shortcuts and notifications. The App starts the shared local engine on 127.0.0.1 without a console; exit shuts down an engine it owns and preserves an existing engine it borrowed. There is no browser or web view. Plain words, Digest and automatic member names make short calls to your signed-in Claude Code (`claude -p`); see [privacy and data](docs/privacy.en.md).
 
 ## Earlier editions
 
@@ -88,3 +90,11 @@ v0.2.0-beta.1 had three editions: Relic Claude 0.1.0-beta.1, Relic Codex / GPT 0
 The runtime uses Python's standard library. `python scripts/check.py` runs the two isolated fixture suites, `relic` (the plugin and the App) and `packaging` (the installer and the archives); `--suite relic` or `--suite packaging` runs one. `python scripts/package.py --output dist` builds one archive per platform (`relic-windows-v<version>.zip`, `relic-macos-v<version>.tar.gz`) plus `SHA256SUMS.txt` and `release-manifest.json`; these candidate archives are not published automatically. Add `--macos-format both` for a macOS ZIP too. Windows/macOS CI uses Python 3.11 and 3.13. These checks do not invoke a real model or certify every desktop-host integration.
 
 Source is under [MIT](LICENSE), matching the current public [Relic research repository](https://github.com/Hongyi-Du/Relic). This plugin release is separate from the paper's experiment code and from [Relic-Agent](https://github.com/Hongyi-Du/Relic-Agent). Please report reproducible issues at [GitHub Issues](https://github.com/Hongyi-Du/Relic-Plugins/issues) after removing private data.
+
+## Native app candidate
+
+The `native-apps` review branch adds actual SwiftUI (macOS 14+, Apple silicon) and
+WinUI 3 (.NET 8, Windows x64) clients, sharing the existing Python engine. Native
+installers and `.app` bundles are produced by the **Native apps** workflow; they
+are unsigned review candidates, separate from the existing released packages.
+See [native installation](docs/native-install.md) and the [screen/API contract](docs/native-apps.md).

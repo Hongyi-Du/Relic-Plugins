@@ -11,6 +11,7 @@ the CLDR names), chosen by the number named n. A list given for a placeholder re
 import json
 import re
 import threading
+import time
 from pathlib import Path
 
 LOCALES = Path(__file__).resolve().parent / "locales"
@@ -72,13 +73,40 @@ def resolve(tag):
     return FALLBACK
 
 
+_merged = {}  # (locale folder, tag) -> (checked at, (code, fallback list, chosen list), (code, merged texts))
+_RECHECK = 1.0  # seconds: an edited word list still takes effect within a second
+
+
+def _strings(tag):
+    """The shared (code, texts) for a tag. Resolving a tag lists the locale folder and every _read stats a file; one
+    organization snapshot asks for over a hundred texts, so reuse the merged list and look at the files again at most
+    once a second. Callers must not change the returned texts."""
+    clock = time.monotonic()
+    key = (str(LOCALES), tag)
+    with _lock:
+        hit = _merged.get(key)
+    if hit and clock - hit[0] < _RECHECK:
+        return hit[2]
+    code = resolve(tag)
+    fallback = _read(FALLBACK)
+    chosen = _read(code) if code != FALLBACK else fallback
+    stamp = (code, id(fallback), id(chosen))  # _read hands back the same list until its file changes
+    if hit and hit[1] == stamp:
+        result = hit[2]
+    else:
+        words = {k: v for k, v in fallback.items() if not k.startswith("@")}
+        if code != FALLBACK:
+            words.update((k, v) for k, v in chosen.items() if not k.startswith("@"))
+        result = (code, words)
+    with _lock:
+        _merged[key] = (clock, stamp, result)
+    return result
+
+
 def strings(tag):
     """(code, texts): the word list the tag resolves to, with what it lacks taken from English; no "@" entries."""
-    code = resolve(tag)
-    words = {k: v for k, v in _read(FALLBACK).items() if not k.startswith("@")}
-    if code != FALLBACK:
-        words.update((k, v) for k, v in _read(code).items() if not k.startswith("@"))
-    return code, words
+    code, words = _strings(tag)
+    return code, dict(words)
 
 
 def plural(code, n):
@@ -114,7 +142,7 @@ def t(key, lang=None, **args):
     if lang is None:
         from .store import person_language
         lang = person_language()
-    code, words = strings(lang)
+    code, words = _strings(lang)
     text = words.get(key, key)
     if isinstance(text, dict):
         n = args.get("n")

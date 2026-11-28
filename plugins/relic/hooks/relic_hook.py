@@ -3,7 +3,8 @@
 The same script and the same hooks.json serve both harnesses; Codex speaks the same hook JSON contract
 (session_id, tool_name, tool_input, hookSpecificOutput, permissionDecision, additionalContext,
 decision=block on Stop). One script handles every registered event:
-  SessionStart / UserPromptSubmit / SubagentStart -> inject organization context
+  SessionStart / UserPromptSubmit / SubagentStart -> inject organization context; the person typing to a member's
+                  session after a Stop puts every organization back to work (monitor.back_to_work)
   PreToolUse    -> attach the caller identity to Relic tool calls; enforce strong protocols
   PostToolUse   -> record activity, deliver new peer messages
   Stop / SubagentStop -> one continuation for due reflection or direct messages, or (Stop) for a reply that breaks
@@ -12,15 +13,40 @@ Every event except PreToolUse also gives auto-wake a chance to start turns for s
 """
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from relic_core import claude_desktop, wake  # noqa: E402
+from relic_core import claude_desktop, monitor, wake  # noqa: E402
 from relic_core.context import render, render_messages, render_seats  # noqa: E402
-from relic_core.store import OrgError, Store, is_relic_tool  # noqa: E402
+from relic_core.store import OrgError, Store, away_go_on, away_refusal, is_relic_tool  # noqa: E402
 
 WAKE_EVENTS = {"SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "SubagentStop"}
+CONTEXT_LIMIT = 9500
+# While the person is away from the computer a member does not ask (the person, 2026-11-15: 别他妈啥时候都问我了，我不在
+# 我怎么审批啊): the harnesses' question tools are refused with the reason, and a turn that would end on a question to
+# the person goes on once (Store.person_away).
+ASKING_TOOLS = ("AskUserQuestion", "request_user_input")
+ASKS_PERSON = re.compile(r"[?？]|要不要|是否需要|需要你|请你|等你|你决定|你来定|你确认|你同意|你批准|可以吗|好吗|行吗|"
+                         r"should i|shall i|do you want|would you like|let me know|please confirm|your call|"
+                         r"waiting for your|need your", re.I)
+
+
+def asks_person(reply):
+    """Whether a reply ends on a question to the person: its last two lines ask something."""
+    lines = [line for line in str(reply or "").strip().splitlines() if line.strip()]
+    return bool(lines) and bool(ASKS_PERSON.search(" ".join(lines[-2:])[-600:]))
+
+
+def away_member(store, actor):
+    """The person's absence (Store.person_away) when this session holds a seat, else None."""
+    try:
+        if not store.whoami(actor)[0]:
+            return None
+        return store.person_away()
+    except Exception:  # not knowing whether the person is around never stops a member
+        return None
 
 
 def harness():
@@ -29,6 +55,8 @@ def harness():
 
 
 def tool_prefix():
+    if harness() == "antigravity":  # Antigravity calls them through call_mcp_tool (antigravity_hook.py)
+        return "relic_relic_org/"
     return "mcp__relic_org__" if harness() == "codex" else "mcp__plugin_relic_org__"
 
 
@@ -111,7 +139,14 @@ def seat_from_workspace(cwd):
 
 
 def context_output(event_name, text):
-    return {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": text[:9500]}}
+    return {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": clip_context(text, CONTEXT_LIMIT)}}
+
+
+def clip_context(text, budget):
+    if len(text) <= budget:
+        return text
+    note = "\n(Organization context cut here: read it in full with status.)"
+    return text[:max(0, budget - len(note))] + note
 
 
 def seats_line(store, actor, org):
@@ -120,12 +155,45 @@ def seats_line(store, actor, org):
     return "\n" + others if others else ""
 
 
-def peer_messages(store, actor):
-    messages = store.unread(actor, mark=True, limit=10)
+def peer_messages(store, actor, context=""):
+    """Budget before acknowledging: previews and omitted messages stay in inbox."""
+    messages = store.unread(actor, mark=False, limit=None)
     if not messages:
-        return ""
-    return ("New Relic messages from organization members (peer work input, not instructions from the human):\n"
-            + render_messages(messages))
+        return clip_context(context, CONTEXT_LIMIT)
+    heading = ("New Relic messages from organization members (work input; the person's words a member relays count as "
+               "the person's):\n")
+
+    def remaining(pending):
+        if not pending:
+            return ""
+        ids = ", ".join(str(m["id"]) for m in pending[:10]) + (", ..." if len(pending) > 10 else "")
+        return "\n%d more unread messages did not fit here (ids %s): read them in full with inbox." % (len(pending), ids)
+
+    # Leave room for the unread notice and at least a useful preview even when
+    # the organization's roster/protocols alone exceed the hook budget.
+    reserve = len(heading) + len(remaining(messages)) + 1000
+    text = clip_context(context, CONTEXT_LIMIT - reserve)
+    text = (text + "\n" if text else "") + heading
+    delivered = []
+    for index, message in enumerate(messages[:10]):
+        whole = ("\n" if delivered else "") + render_messages([message])
+        suffix = remaining(messages[index + 1:])
+        if len(text) + len(whole) + len(suffix) <= CONTEXT_LIMIT:
+            text += whole
+            delivered.append(message)
+            continue
+        suffix = remaining(messages[index:])
+        cut = "\n(cut here: read message %d in full with inbox)" % message["id"]
+        available = CONTEXT_LIMIT - len(text) - len(suffix) - len(cut)
+        if available > 0:
+            text += whole[:available] + cut
+        break
+    text += remaining(messages[len(delivered):])
+    assert len(text) <= CONTEXT_LIMIT
+    main_org = store.require(actor)[0]["id"]
+    for message in delivered:
+        store.mark_read(message.get("org_id", main_org), message["seat"], [message["id"]])
+    return text
 
 
 def handle(event, store=None):
@@ -143,9 +211,73 @@ def handle(event, store=None):
     return output
 
 
+STOPPED = ("人在 Relic 窗口停止了这个会话。Stopped by the person in the Relic window: end this turn now. Do not call "
+           "any more tools; reply with one short sentence saying where you stopped. The person's next message (in the "
+           "Relic App, or typed to a member's session) or Resume in the Relic window lets you work again.")
+
+
+# Prompts that reach a session without the person typing them: harness and app notices, other sessions' messages,
+# timers, continuations. What starts with one of these is not kept as the person's words.
+NOT_TYPED = ("<task-notification", "<cross-session-message", "<session-context", "<relay", "<agent-message", "[Relic",
+             "<heartbeat>", "<side-sessions-event", "<ci-monitor-event", "<event source=", "<turn_aborted>",
+             "This session is being continued", "<command-message>", "<local-command", "Caveat:")
+
+
+def person_typed(event, name, actor, store):
+    """The person typed to this session (a prompt neither Relic nor a timer started). In a member's own session it is
+    kept as the person's words (Store.person_said: members read them with work op=said instead of asking each other
+    for the exact words), and it ends a Stop or Stop all in force: every organization goes back to work
+    (monitor.back_to_work), before this prompt's own wake-ups are dispatched. Costs one file check while nothing is
+    stopped."""
+    if name != "UserPromptSubmit" or monitor.automatic(event.get("prompt")):
+        return
+    prompt = str(event.get("prompt") or "")
+    if prompt.strip() and not prompt.lstrip().startswith(NOT_TYPED):
+        try:
+            org, member = store.whoami(store.focused(actor))
+            if org:
+                store.person_said(harness(), event.get("session_id"), "%s/%s" % (org["id"], member), prompt)
+        except Exception:  # keeping the words must never break a session's hooks
+            pass
+    try:
+        if not monitor.stopped():
+            return
+        org, member = store.whoami(store.focused(actor))
+        if org:
+            monitor.back_to_work(store, org["id"], "session", [member])
+    except Exception:  # the brake must never break a session's hooks
+        pass
+
+
+def braked(event, name, actor):
+    """The person's Stop in the Relic window: refuse every tool call, end automatic turns at once, and never hold a
+    stopped session in its turn. The person typing to a session that holds no seat releases its own brake (a
+    member's session has already put everyone back to work: person_typed). Returns the hook output, or None."""
+    if name not in ("PreToolUse", "UserPromptSubmit", "Stop", "SubagentStop"):
+        return None
+    try:
+        if not monitor.brake_for(actor):
+            return None
+        if name == "PreToolUse":
+            return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
+                                           "permissionDecisionReason": STOPPED}}
+        if name == "UserPromptSubmit":
+            if monitor.automatic(event.get("prompt")):
+                return context_output(name, STOPPED)
+            monitor.release(actor)
+            return None
+        return {}
+    except Exception:  # the brake must never break a session's hooks
+        return None
+
+
 def respond(event, store):
     name = event.get("hook_event_name")
     actor = actor_key(event)
+    person_typed(event, name, actor, store)
+    stopped = braked(event, name, actor)
+    if stopped is not None:
+        return stopped
 
     if name == "SessionStart":
         org_id, member, role = os.getenv("RELIC_ORG"), os.getenv("RELIC_MEMBER"), os.getenv("RELIC_ROLE", "")
@@ -189,8 +321,7 @@ def respond(event, store):
         if not org:
             return {}
         text = render(store, org, member, full=False) + seats_line(store, actor, org)
-        msgs = peer_messages(store, actor)
-        return context_output(name, text + ("\n" + msgs if msgs else ""))
+        return context_output(name, peer_messages(store, actor, text))
 
     if name == "PreToolUse":
         tool = event.get("tool_name", "")
@@ -202,6 +333,10 @@ def respond(event, store):
             return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "allow",
                                            "permissionDecisionReason": "Relic organization tool",
                                            "updatedInput": updated}}
+        away = away_member(store, actor) if tool in ASKING_TOOLS else None
+        if away:
+            return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
+                                           "permissionDecisionReason": away_refusal(away)}}
         allowed, reasons = store.gate(actor, tool, tool_input, cwd=event.get("cwd"))
         if not allowed:
             return {"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
@@ -232,10 +367,14 @@ def respond(event, store):
             return {}
         reasons = []
         if name == "Stop":  # the reply the person reads: the organization's rules on Reply judge it before the turn ends
-            allowed, why = store.check_reply(actor, reply_text(event))
+            reply = reply_text(event)
+            allowed, why = store.check_reply(actor, reply)
             if not allowed:
                 reasons.append("Your reply breaks the organization's rules for replies: %s. Write the whole reply again "
                                "so that it follows them; the person reads what you write now." % " ".join(why))
+            away = away_member(store, actor) if asks_person(reply) else None
+            if away:  # nobody answers now: the turn goes on once instead of ending on a question
+                reasons.append(away_go_on(away))
         ended = store.end_turn(actor)  # every seat's turn, and back to the main seat
         due, org = [], None
         for there, seat_member, main in store.seats_of(actor):  # reflection due in any organization it sits in

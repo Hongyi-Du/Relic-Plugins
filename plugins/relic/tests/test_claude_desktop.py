@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -328,6 +329,8 @@ class LocalTransport(unittest.TestCase):
             with self.subTest(outcome=outcome):
                 path = gui.request_path(self.oid, "claude-reviewer")
                 path.unlink(missing_ok=True)
+                for folder in runner.runs_dir().glob("claude-gui-*"):  # each case starts with no request in flight
+                    shutil.rmtree(folder)
                 def route(request, config, folder):
                     gui._write(folder / "delivery.json", {"outcome": outcome, "records": []})
                     return outcome
@@ -336,8 +339,12 @@ class LocalTransport(unittest.TestCase):
                     self.run_turn(route_mock)
                 self.assertEqual(caught.exception.outcome, outcome)
                 self.assertTrue(caught.exception.possible)
-                with self.assertRaises(gui.TransportError):
+                with self.assertRaises(gui.TransportError) as again:
                     self.run_turn(route_mock)
+                # The session still owes the first request its Stop: nothing more is sent, and the wake-up waits.
+                self.assertEqual(again.exception.outcome, "blocked")
+                self.assertFalse(again.exception.possible)
+                self.assertTrue(wake.no_turn(again.exception))
                 self.assertEqual(route_mock.call_count, 1)
 
     def test_matching_real_gui_hook_receipt_is_the_only_success_path(self):
@@ -357,6 +364,91 @@ class LocalTransport(unittest.TestCase):
                              ("carrier", "other"), ("session_id", "other"), ("event", "StopFailure"),
                              ("entrypoint", "cli"), ("last_assistant_message", ""), ("at", 0)):
             self.assertFalse(gui.receipt_matches(dict(receipt, **{field: value}), self.request))
+
+    def test_router_prompt_then_a_turn_end_frees_the_session_without_a_receipt(self):
+        # 2026-11-08 (benchlead): the session took a request and replied with Relic messages, but its Stop bound no
+        # receipt (another prompt came in between); the request held the session for 6 hours and a newer message
+        # waited all that time while the session was up.
+        for case in ("human prompt in between", "no public text"):
+            with self.subTest(case=case):
+                folder = self.pending()
+                for name in ("binding.json", "prompted.json", "ended.json", "receipt.json"):
+                    (folder / name).unlink(missing_ok=True)
+                self.assertEqual([r["nonce"] for r, _ in gui.blocking(self.store, SID)], ["abc123"])
+                self.handle(self.event("UserPromptSubmit", prompt=gui.payload(self.request)))
+                self.handle(self.event("Stop", last_assistant_message="still working"), {"decision": "block"})
+                self.assertFalse(gui.gui_receipt.ended(folder))  # a Stop that does not end the turn ends nothing
+                if case == "human prompt in between":
+                    self.handle(self.event("UserPromptSubmit", prompt="the person's own question"))
+                    self.handle(self.event("Stop", last_assistant_message="Answer to the person."))
+                else:
+                    self.handle(self.event("Stop", last_assistant_message=""))
+                self.assertFalse((folder / "receipt.json").exists())
+                self.assertTrue(gui.gui_receipt.ended(folder))
+                self.assertEqual(gui.blocking(self.store, SID), [])
+                self.assertEqual(gui.hold(self.store, SID), 0)
+                if case == "no public text":  # still answerable by the usual rules: a later Stop quoting its nonce
+                    self.handle(self.event("Stop", last_assistant_message="Late reply " + gui.marker(self.request)))
+                    self.assertTrue(gui.receipt_matches(gui._read(folder / "receipt.json"), self.request))
+
+    def test_turns_without_the_router_prompt_never_end_a_request(self):
+        folder = self.pending()
+        self.handle(self.event("UserPromptSubmit", prompt="the person's own question"))
+        self.handle(self.event("Stop", last_assistant_message="Answer to the person."))
+        self.handle(self.event("Stop", last_assistant_message=""))
+        self.assertFalse(gui.gui_receipt.ended(folder))
+        self.assertEqual([r["nonce"] for r, _ in gui.blocking(self.store, SID)], ["abc123"])
+        # nor does a prompt that carries only another request's router text
+        other = dict(self.request, nonce="def456")
+        self.handle(self.event("UserPromptSubmit", prompt=gui.payload(other)))
+        self.handle(self.event("Stop", last_assistant_message=""))
+        self.assertFalse(gui.gui_receipt.ended(folder))
+
+    def test_a_late_reply_to_another_request_does_not_end_this_one(self):
+        folder = self.pending()
+        old = dict(self.request, nonce="old789", created=time.time() - 60)
+        old_folder = runner.runs_dir() / "claude-gui-old789"
+        old_folder.mkdir()
+        gui._write(old_folder / "request.json", old)
+        self.handle(self.event("UserPromptSubmit", prompt=gui.payload(self.request)))
+        self.handle(self.event("Stop", last_assistant_message="old task finished " + gui.marker(old)))
+        self.assertTrue(gui.receipt_matches(gui._read(old_folder / "receipt.json"), old))
+        self.assertFalse(gui.gui_receipt.ended(folder))  # that Stop was the old request's reply
+        self.assertGreater(gui.hold(self.store, SID), 0)
+        self.handle(self.event("Stop", last_assistant_message=""))
+        self.assertTrue(gui.gui_receipt.ended(folder))
+        self.assertEqual(gui.hold(self.store, SID), 0)
+
+    def test_ended_request_is_never_reported_expired(self):
+        folder = self.pending()
+        self.handle(self.event("UserPromptSubmit", prompt=gui.payload(self.request)))
+        self.handle(self.event("Stop", last_assistant_message=""))
+        gui._expire(self.store, SID, time.time() + gui.PENDING_EXPIRY + 60)
+        self.assertFalse((folder / "expired.json").exists())
+
+    def test_run_turn_returns_once_the_session_ended_the_requests_turn(self):
+        def route(request, config, folder):
+            gui._write(folder / "delivery.json", {"outcome": "sent", "records": []})
+            self.handle(self.event("UserPromptSubmit", prompt="peer wrapper\n" + gui.payload(request)))
+            self.handle(self.event("Stop", last_assistant_message=""))
+            return "sent"
+        self.assertEqual(self.run_turn(route), (SID, "", False, None))
+        # the next request goes out at once: nothing holds the session
+        self.assertEqual(self.run_turn(route), (SID, "", False, None))
+
+    def test_repeated_failure_for_the_same_messages_sends_one_receipt(self):
+        # 2026-11-08: four retries for one absent Desktop session sent each waker the same receipt four times.
+        def route(request, config, folder):
+            gui._write(folder / "delivery.json", {"outcome": "unavailable", "records": []})
+            return "unavailable"
+        def receipts():
+            return [m for m in self.store.history(self.oid, 100) if m["body"].startswith(wake.RECEIPT_MARK)]
+        for ids, expected in (([41, 42], 1), ([41, 42], 1), ([42], 1), ([41, 42, 43], 2)):
+            runner.write_state(self.oid, "claude-reviewer", {"wake_message_ids": ids})
+            state, _ = self.main(route)
+            self.assertEqual(state["status"], "failed")
+            self.assertEqual(len(receipts()), expected, ids)
+        self.assertIn("without repeating this receipt", receipts()[0]["body"])
 
     def test_no_cli_reviewer_fallback_or_gui_bootstrap(self):
         with mock.patch.object(runner, "find_claude", side_effect=AssertionError("must not invoke CLI reviewer")):
@@ -406,8 +498,13 @@ class LocalTransport(unittest.TestCase):
         receipt = self.store.history(self.oid)[-1]["body"]
         self.assertIn("not complete", receipt)
         self.assertNotIn("turn finished", receipt)
-        state, _ = self.main(route)
-        self.assertEqual(state["status"], "incomplete")
+        state, finish = self.main(route)
+        # Nothing is sent while the first request has no Stop: the wake-up is handed back to wait (as for a busy
+        # chat), without another receipt.
+        self.assertEqual(state["delivery"], "blocked")
+        self.assertFalse(state["delivery_possible"])
+        self.assertIn(gui.gui_receipt.WAITING, finish.call_args[0][3])
+        self.assertEqual(self.store.history(self.oid)[-1]["body"], receipt)
         self.assertEqual(route.call_count, 1)
 
     def test_main_finishes_only_after_gui_public_stop_receipt(self):

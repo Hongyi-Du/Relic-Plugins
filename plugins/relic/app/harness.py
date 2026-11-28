@@ -15,6 +15,8 @@ Adding a harness is one entry in HARNESSES:
   title, vendor     shown in the App
   package | command how to start its ACP agent: an npm ACP adapter installed under ~/.relic/acp (package), or a
                     program that speaks ACP itself (command: a function finding it; args: its ACP arguments)
+  own_acp           the command is the harness itself, speaking ACP with no adapter (Kimi Code, DeepSeek Harness):
+                    there is nothing for Relic to install, and settings say so instead of naming an adapter
   launch            optional function taking that program and returning (argv, extra env), for a native launcher
   program           a function finding the harness program on this computer (shown in settings)
   env               a function returning extra environment variables (raises RuntimeError naming what is missing)
@@ -39,12 +41,13 @@ import sys
 import threading
 from pathlib import Path
 
-from relic_core import i18n, runner, platform_support
+from relic_core import __version__, i18n, runner, platform_support
 from relic_core.store import data_home
 
 from . import native
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # the Relic plugin folder this App runs from
+ANTIGRAVITY_ACP = Path(__file__).resolve().parent / "antigravity_acp.py"
 # Never passed on to a session the App runs: they would make it look like the session that started the App (a Codex
 # thread, a Claude Code session, a plugin hook) or like another seat.
 INHERITED = platform_support.SESSION_IDENTITY_ENV
@@ -123,14 +126,14 @@ def deepseek_program():
 def _claude_env():
     exe = claude_program()
     if not exe or not exe.lower().endswith(".exe") and os.name == "nt":
-        raise RuntimeError("Claude Code was not found on this computer. Install Claude Code or choose its executable in Settings.")
+        raise RuntimeError(i18n.t("harness.claude_missing"))
     return {"CLAUDE_CODE_EXECUTABLE": exe}
 
 
 def _codex_env():
     exe = codex_program()
     if not exe:
-        raise RuntimeError("Codex was not found on this computer. Install the Codex app or CLI first.")
+        raise RuntimeError(i18n.t("harness.codex_missing"))
     return {"CODEX_PATH": _codex_program(exe)}
 
 
@@ -206,8 +209,10 @@ def codex_relic_plugin():
     plugins = config.get("plugins") or {}
     enabled = any(isinstance(v, dict) and k.split("@", 1)[0] == "relic" and v.get("enabled", True)
                   for k, v in plugins.items())
-    state = ((config.get("hooks") or {}).get("state") or {}) if isinstance(config.get("hooks"), dict) else {}
-    trusted = any(k.split("@", 1)[0] == "relic" and ":pre_tool_use:" in k for k in state)
+    # Trusted only while Codex's approvals match this plugin's current contents: after an upgrade Codex skips the
+    # hooks until the person approves them again, and the App must then do their work for its Codex members.
+    from relic_core import codex_trust
+    trusted = codex_trust.status(codex_home())["state"] == "trusted"
     hooks_on = (config.get("features") or {}).get("codex_hooks", True)
     return enabled, bool(enabled and trusted and hooks_on)
 
@@ -224,6 +229,68 @@ def _codex_mode():
     return CODEX_MODES.get(config.get("sandbox_mode"))
 
 
+def _antigravity_module():
+    try:
+        from relic_core import antigravity
+        return antigravity
+    except ImportError:
+        return None
+
+
+def antigravity_program():
+    """Path to the local Antigravity app executable (or chosen path in Settings), or '' when not found."""
+    chosen = chosen_path("antigravity")
+    if chosen:
+        return chosen
+    if os.name == "nt":
+        local = os.getenv("LOCALAPPDATA")
+        if local:
+            exe = Path(local) / "Programs" / "antigravity" / "Antigravity.exe"
+            if exe.is_file():
+                return str(exe)
+    elif sys.platform == "darwin":
+        for root in (Path("/Applications"), Path.home() / "Applications"):
+            app = root / "Antigravity.app" / "Contents" / "MacOS" / "Antigravity"
+            if app.is_file():
+                return str(app)
+    mod = _antigravity_module()
+    if mod and mod.installed():
+        return str((mod.gemini_dir() / "antigravity") if mod.gemini_dir() else "")
+    return ""
+
+
+def antigravity_command():
+    """Built-in Python ACP adapter driving the local Antigravity app through relic_core.antigravity."""
+    return python_program() if ANTIGRAVITY_ACP.is_file() else ""
+
+
+def _antigravity_env():
+    mod = _antigravity_module()
+    if mod is None or mod.hub() is None:
+        raise RuntimeError(i18n.t("harness.antigravity_missing"))
+    return {}
+
+
+def antigravity_relic_plugin():
+    """Whether the Relic plugin for Antigravity is installed (~/.gemini/config/plugins/relic): (enabled, has_hooks)."""
+    mod = _antigravity_module()
+    root = mod.gemini_dir() if mod is not None else None
+    if root is None:
+        return False, False
+    plugin_dir = root / "config" / "plugins" / getattr(mod, "PLUGIN", "relic")
+    if not (plugin_dir / "plugin.json").is_file():
+        return False, False
+    try:
+        cfg = json.loads((root / "config" / "config.json").read_text(encoding="utf-8"))
+        entry = (cfg.get("plugins") or {}).get(plugin_dir.name)
+        if isinstance(entry, dict) and entry.get("enabled") is False:
+            return False, False
+    except (OSError, ValueError, AttributeError):
+        pass
+    has_hooks_file = (plugin_dir / "hooks.json").is_file()
+    return True, has_hooks_file
+
+
 HARNESSES = {
     "claude-code": {
         "title": "Claude Code", "vendor": "Anthropic", "package": "@agentclientprotocol/claude-agent-acp@0.97.0",
@@ -236,12 +303,20 @@ HARNESSES = {
         "host_plugin": codex_relic_plugin, "default_mode": _codex_mode,
         "modes_note": "follows sandbox_mode in your Codex config",
     },
+    "antigravity": {
+        "title": "Antigravity", "vendor": "Google",
+        "command": antigravity_command, "args": ["-X", "utf8", str(ANTIGRAVITY_ACP)],
+        "program": antigravity_program, "env": _antigravity_env,
+        "actor": lambda sid: "antigravity:" + sid, "relic": "mcp",
+        "host_plugin": antigravity_relic_plugin, "default_mode": "",
+        "modes_note": "runs in your local Antigravity app",
+    },
     "kimi-code": {
-        "title": "Kimi Code", "vendor": "Moonshot AI", "command": kimi_program, "args": ["acp"],
+        "title": "Kimi Code", "vendor": "Moonshot AI", "command": kimi_program, "args": ["acp"], "own_acp": True,
         "actor": lambda sid: "kimi-code:" + sid, "relic": "mcp", "default_mode": "",
     },
     "deepseek-harness": {
-        "title": "DeepSeek Harness", "vendor": "DeepSeek", "command": deepseek_program,
+        "title": "DeepSeek Harness", "vendor": "DeepSeek", "command": deepseek_program, "own_acp": True,
         "launch": native.deepseek_launch,
         "actor": lambda sid: "deepseek-harness:" + sid, "relic": "mcp", "default_mode": "",
     },
@@ -377,7 +452,7 @@ def launch(harness, extra_env=None):
     else:
         program = spec["command"]()
         if not program:
-            raise RuntimeError("%s was not found on this computer. Install it first." % spec["title"])
+            raise RuntimeError(i18n.t("harness.program_missing", title=spec["title"]))
         if spec.get("launch"):
             argv, native_env = spec["launch"](program)
         else:
@@ -399,8 +474,10 @@ def program(harness):
 
 
 def adapter_version(harness):
-    if not HARNESSES[harness].get("package"):
+    if HARNESSES[harness].get("own_acp"):
         return ""
+    if not HARNESSES[harness].get("package"):
+        return __version__ if installed(harness) else ""
     package = HARNESSES[harness]["package"].rsplit("@", 1)[0]
     try:
         manifest = _package_entry(package).parents[1] / "package.json"
@@ -410,6 +487,8 @@ def adapter_version(harness):
 
 
 def install_command(harness):
+    if not HARNESSES[harness].get("package"):
+        return []
     if HARNESSES[harness]["package"].rsplit("@", 1)[0] in LOCKED_PACKAGES:
         return ["npm", "ci", "--prefix", str(locked_home()), "--ignore-scripts", "--omit=optional", "--no-audit", "--no-fund"]
     return ["npm", "install", "--prefix", str(acp_home()), "--omit=optional", "--no-audit", "--no-fund",
@@ -418,10 +497,13 @@ def install_command(harness):
 
 def install(harness, log, processes=None):
     """Install a harness's ACP adapter with npm; `log` gets each output line. Returns npm's exit code."""
-    if not HARNESSES[harness].get("package"):
-        log(i18n.t("harness.native_acp"))
+    if HARNESSES[harness].get("own_acp"):
+        log(i18n.t("harness.native_acp"))  # the person installs and signs in to the program itself
         return 1
     with _INSTALL_LOCK:
+        if not HARNESSES[harness].get("package"):
+            log("Built-in ACP adapter; no external package installation is needed.")
+            return 0 if installed(harness) else 1
         return _install(harness, log, processes)
 
 
@@ -489,7 +571,8 @@ def catalog():
             problem = i18n.t("harness.need_node") if not runtime["path"] else runtime["problem"]
         known = remembered(key)
         out.append({"id": key, "title": spec["title"], "vendor": spec["vendor"], "available": not problem,
-                    "problem": problem, "adapter": spec.get("package") or "", "adapter_installed": adapter,
+                    "problem": problem, "adapter": "" if spec.get("own_acp") else spec.get("package") or "built-in",
+                    "adapter_installed": adapter,
                     "adapter_version": adapter_version(key) if adapter else "", "program": found,
                     "program_chosen": bool(chosen_path(key)), "node": runtime["path"] or "",
                     "node_version": runtime["version"], "node_architecture": runtime["architecture"], "mode": default_mode(key),

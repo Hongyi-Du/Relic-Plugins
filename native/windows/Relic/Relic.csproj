@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Relic</RootNamespace><ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Relic.ico</ApplicationIcon>
+    <Platforms>x64</Platforms><RuntimeIdentifier>win-x64</RuntimeIdentifier><PlatformTarget>x64</PlatformTarget>
+    <UseWinUI>true</UseWinUI><EnableMsixTooling>true</EnableMsixTooling><WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained><SelfContained>true</SelfContained>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
+    <!-- Ship the precompiled code without repeatedly optimizing it on a
+         background tiering thread after the desktop has become idle. -->
+    <TieredCompilation Condition="'$(Configuration)' == 'Release'">false</TieredCompilation>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+    <PackageReference Include="System.Speech" Version="8.0.0" />
+    <ProjectReference Include="../Relic.Core/Relic.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Pool workers are not retired after 20 s idle (the .NET 8 default). Each
+         burst of chat work otherwise created workers that exited a little
+         later, so the process kept growing and shrinking by a few threads and
+         the next burst paid for creating them again. -->
+    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.ThreadsToKeepAlive" Value="-1" />
+    <!-- A worker with nothing to do sleeps at once instead of spinning for
+         new work first (70 rounds by default). Work here comes a few dozen
+         times a second at most, so the spinning only burnt CPU: a pool worker
+         used 14 M cycles a second while the app sat idle. -->
+    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.UnfairSemaphoreSpinLimit" Value="0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../../plugins/relic/app/static/icon.svg" Link="Assets/Relic.svg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

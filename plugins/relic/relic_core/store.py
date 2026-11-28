@@ -9,8 +9,10 @@ A *member* is an organizational seat (name + role). A *carrier* is the agent
 instance currently occupying the seat (a Claude Code session or subagent).
 Replacing a carrier resets member-local state and keeps everything else.
 """
+import calendar
 import contextlib
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -34,6 +36,17 @@ class OrgError(ValueError):
 
 
 HUMAN = "human"  # the person, as a message sender and recipient (not a seat)
+SYSTEM = "relic"  # the plugin itself, as the sender of keep-going notices (not a seat; never woken, gets no receipts)
+RESERVED_NAMES = (HUMAN, SYSTEM)
+
+
+def check_member_name(member):
+    member = (member or "").strip()
+    if not member or any(c in member for c in " /\\:"):
+        raise OrgError("Member names are short words without spaces, e.g. alice or release.")
+    if member in RESERVED_NAMES:
+        raise OrgError("'%s' is reserved; pick another member name." % member)
+    return member
 
 
 def qualified(org_id, member):
@@ -53,8 +66,331 @@ def inherits(protocol):
     return bool(p["inherit"] if "inherit" in p else p.get("downward"))
 
 
+def leaders(org):
+    """The leader of a leader-led organization and its co-leaders, who lead it with the same say (2026-11-15: the
+    person gave the secretariat two heads of the same rank, 「相当于 Claude 和 Codex 那边各有一个秘书处的负责人」)."""
+    org = org or {}
+    if org.get("governance") != "leader":
+        return []
+    first = [org["leader"]] if org.get("leader") else []
+    return first + [m for m in org.get("co_leaders") or [] if m not in first and m in (org.get("members") or {})]
+
+
+def leads(org, member):
+    """Whether member is the leader or a co-leader of org."""
+    return member in leaders(org)
+
+
+def codex_thread(carrier):
+    """The Codex thread a carrier names: "codex:<thread>", or "codex:<session>/<agent>" for a subagent that holds a
+    seat of its own (the hook names a Codex subagent by the session that spawned it and its own thread). None for a
+    carrier of another harness."""
+    carrier = str(carrier or "")
+    if not carrier.startswith("codex:"):
+        return None
+    return carrier.split(":", 1)[1].rsplit("/", 1)[-1] or None
+
+
+def codex_parent(carrier):
+    """"codex:<session>" for the carrier "codex:<session>/<agent>" of a Codex subagent; None for any other carrier."""
+    carrier = str(carrier or "")
+    if not carrier.startswith("codex:") or "/" not in carrier:
+        return None
+    return carrier.split("/", 1)[0]
+
+
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def iso(ts):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+def central(ts):
+    """A time as the person reads it: Chicago, US Central (the person's clock), with the UTC time beside it."""
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+        local = datetime.fromtimestamp(ts, ZoneInfo("America/Chicago")).strftime("%m-%d %H:%M")
+    except Exception:  # no tz database: UTC-6
+        local = time.strftime("%m-%d %H:%M", time.gmtime(ts - 6 * 3600))
+    return "%s（芝加哥时间，%s UTC）" % (local, time.strftime("%H:%MZ", time.gmtime(ts)))
+
+
+def epoch(text):
+    try:
+        return float(calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")))
+    except (TypeError, ValueError):
+        return None
+
+
+# A pause has a reason and an end (the person, 2026-11-12, made it the organizations' rule: no stop without the
+# condition that ends it). A member who turns an organization's or a seat's auto-wake or keep-going off without saying
+# until when gets this; the person's own switches (the Relic App, Stop, Stop all) end with the person's next message.
+PAUSE_DEFAULT = 2 * 3600
+PAUSE_MAX = 7 * 24 * 3600
+# A quota:codex pause ends once the usage data shows the reset. Only Codex sessions that run write newer data, and the
+# ones a quota pause stops are those very sessions, so when the newest reading's own window has been over this long,
+# its limit is over too (2026-11-23: the weekly limit reset at 15:34Z, but the newest reading was from 11-19 and the
+# Learning and OrgBench pauses went on until the person said to start again, at 11-24 04:57Z).
+QUOTA_GRACE = 1800
+# A question to the person waits this long at most; then the asker goes ahead with its recommendation (the person,
+# 2026-11-12: "如果我一个小时没反应你的继续，你就直接开干").
+ASK_DEFAULT = 3600
+# The person's own switches and brakes (monitor.py, the Relic App) give these reasons or none.
+PERSON_REASONS = ("stopped", "resumed")
+_SECRET = re.compile(r"(sk-[A-Za-z0-9_\-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abpr]-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|"
+                     r"[A-Za-z0-9_\-]{32,}|(?i:(?:password|passwd|pwd|token|api[_ -]?key|secret|密码)\s*[:=：]\s*\S+))")
+
+
+def mask_secrets(text):
+    """Keys, tokens and passwords out of text a member will read (the person's typed words)."""
+    return _SECRET.sub("[已隐藏]", str(text or ""))
+
+
+# The person's words relayed by a member are the person's (the person, 2026-11-15: 我跟 Claude 说的话，他转述给 Codex，
+# 结果 Codex 那边说这不是我人说的，然后又不干). A message that quotes them verbatim gets Relic's check under it: which words
+# are the person's own typing, when and in which seat's session (Store.person_quotes).
+QUOTE_SEED = 6  # characters (spaces and quote marks left out) that start a quoted stretch of the person's words
+QUOTE_SHOWN = 12  # weight of a stretch Relic names (a Chinese character weighs 2, a letter or digit 1)
+QUOTE_FLOOR = 16  # weight of the longest stretch before Relic vouches for a prompt: "好的", "继续", a name prove nothing
+_UNMARKED = re.compile(r"[\s「」『』“”\"'‘’《》〈〉（）()\[\]【】]+")
+
+
+def flat_words(text):
+    """Text without spaces and quote marks, for finding the person's words inside a member's message."""
+    return _UNMARKED.sub("", str(text or "")).lower()
+
+
+def _flat_with_places(text):
+    """flat_words(text), and where each of its characters stands in text."""
+    kept, places = [], []
+    for i, ch in enumerate(text):
+        if not _UNMARKED.fullmatch(ch):
+            kept.append(ch.lower())
+            places.append(i)
+    return "".join(kept), places
+
+
+def _weight(text):
+    return sum(2 if ord(ch) >= 0x2E80 else 1 for ch in text)
+
+
+def away_why(away):
+    """Why the person counts as away, as the person reads it (person_away's result)."""
+    from . import i18n
+    return i18n.t("away.locked") if away.get("locked") else i18n.t("away.idle", minutes=away.get("minutes", 0))
+
+
+def away_refusal(away):
+    """Why a harness's question tool (AskUserQuestion) is refused while the person is away (relic_hook)."""
+    from . import i18n
+    return i18n.t("away.ask_tool", why=away_why(away))
+
+
+def away_go_on(away):
+    """Why a turn that would end on a question to the person goes on while the person is away (relic_hook, Stop)."""
+    from . import i18n
+    return i18n.t("away.stop", why=away_why(away))
+
+
+def away_note(away):
+    """What a member is told while the person is away from the computer (Store.person_away): a woken turn, a
+    keep-going notice, the organization context. "" while the person is around."""
+    if not away:
+        return ""
+    return (" The person is away from the computer right now (%s): nobody answers questions or approvals until they "
+            "are back, so run on your own. Do not ask the person or wait for an approval: decide with your "
+            "recommendation and keep going. Only what is kept for the person (spending money, publishing, deleting "
+            "the person's data, sign-in credentials) and the hard protections (disk space, real quota) wait: note "
+            "those with message to=human and recommend, and go on with the rest. The person reads what you decided "
+            "when back." % away_why(away))
+
+
+def _rollout_limits():
+    """The Codex plan's weekly limit from the newest Codex session files' own token_count events:
+    {used_percent, resets_at, window_minutes, at}, or {}. Fresher than the Relic App's usage reader whenever the App is
+    not reading (on 2026-11-14 its copy was five days old)."""
+    root = Path(os.getenv("CODEX_HOME") or Path.home() / ".codex") / "sessions"
+    try:
+        days = []
+        for year in sorted(p for p in root.iterdir() if p.is_dir())[-2:]:
+            for month in sorted(p for p in year.iterdir() if p.is_dir())[-2:]:
+                days += sorted(p for p in month.iterdir() if p.is_dir())
+        files = sorted((f for d in days[-3:] for f in d.glob("rollout-*.jsonl")), key=lambda f: f.stat().st_mtime,
+                       reverse=True)[:6]
+    except OSError:
+        return {}
+    best = {}
+    for path in files:
+        try:
+            with open(path, "rb") as handle:
+                handle.seek(max(0, path.stat().st_size - 512 * 1024))
+                lines = handle.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if '"rate_limits"' not in line:
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            primary = ((record.get("payload") or {}).get("rate_limits") or {}).get("primary") or {}
+            at = epoch(str(record.get("timestamp") or "")[:19] + "Z")
+            if primary and at and at > best.get("at", 0):
+                best = dict(primary, at=at)
+            break
+    return best
+
+
+def codex_limits():
+    """The Codex plan's weekly limit, the fresher of the Relic App's usage reader and the newest Codex session files:
+    {used_percent, resets_at, at}, or {}."""
+    found = []
+    try:
+        with contextlib.closing(sqlite3.connect(data_home() / "usage.sqlite3", timeout=2)) as db:
+            row = db.execute("SELECT value FROM meta WHERE key='codex_limits'").fetchone()
+        kept = json.loads(row[0]) if row else {}
+        primary = (kept.get("value") or {}).get("primary") or {}
+        if primary:
+            found.append(dict(primary, at=float(kept.get("at") or 0)))
+    except (sqlite3.Error, ValueError, TypeError, AttributeError):
+        pass
+    found.append(_rollout_limits())
+    found = [limits for limits in found if limits]
+    return max(found, key=lambda limits: limits.get("at") or 0) if found else {}
+
+
+def codex_reset():
+    """When the Codex plan's weekly limit resets next (epoch seconds); None when unknown or already past."""
+    try:
+        resets = float(codex_limits().get("resets_at") or 0)
+    except (TypeError, ValueError):
+        return None
+    return resets if resets > time.time() else None
+
+
+IDLE_AFTER = 600  # seconds without keyboard or mouse input: the person has left the computer
+GAMES = ("PBZ", "Seer", "VALORANT", "VALORANT-Win64-Shipping", "Hearthstone", "javaw", "RDR2", "GTA5", "cs2",
+         "Overwatch", "League of Legends", "Diablo IV", "Wow", "StarRail", "GenshinImpact", "Cyberpunk2077")
+SHELL = ("explorer", "searchhost", "startmenuexperiencehost", "shellexperiencehost")  # the desktop, not a window in use
+LOCK_SCREENS = ("lockapp", "logonui")
+LOCKED_AFTER = 60  # no window in front and no input for this long: the screen is locked
+
+
+def _foreground():
+    """The window in front: (its process name without .exe, whether it fills its monitor without a title bar (a game,
+    a full-screen video), whether the screen is locked). Windows only."""
+    import ctypes
+    from ctypes import wintypes
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+    user32.MonitorFromWindow.restype = wintypes.HMONITOR
+    user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.c_void_p]
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = ctypes.c_long
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                                                    ctypes.POINTER(wintypes.DWORD)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return None, False, None  # nothing in front: locked (the secure desktop), or a moment between two windows
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    name = None
+    handle = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if handle:
+        try:
+            size = wintypes.DWORD(1024)
+            path = ctypes.create_unicode_buffer(size.value)
+            if kernel32.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size)):
+                name = os.path.splitext(os.path.basename(path.value))[0]
+        finally:
+            kernel32.CloseHandle(handle)
+    lowered = (name or "").lower()
+    if lowered in LOCK_SCREENS:
+        return name, False, True
+    full = False
+    rect = wintypes.RECT()
+    if lowered not in SHELL and user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                        ("dwFlags", wintypes.DWORD)]
+
+        monitor = user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
+        info = MONITORINFO(ctypes.sizeof(MONITORINFO))
+        if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            m = info.rcMonitor
+            covers = rect.left <= m.left and rect.top <= m.top and rect.right >= m.right and rect.bottom >= m.bottom
+            caption = 0x00C00000  # WS_CAPTION: a maximized window keeps it, a game or a full-screen video does not
+            full = covers and (user32.GetWindowLongW(hwnd, -16) & caption) != caption
+    return name, full, False
+
+
+def presence():
+    """Whether the person is at this computer, from the keyboard and mouse and the window in front (the person,
+    2026-11-15: 看鼠标、前台): {idle_seconds, foreground, fullscreen, locked, game, at_computer}. A locked screen is
+    away at once; a game or a full-screen window in front counts as at the computer whatever the input. Windows only;
+    elsewhere unknown (at_computer None). RELIC_PRESENCE=here|away sets it (the test suite, a check by hand)."""
+    forced = os.getenv("RELIC_PRESENCE", "").strip().lower()
+    if forced in ("here", "away"):
+        return {"idle_seconds": 0.0 if forced == "here" else float(IDLE_AFTER), "foreground": None,
+                "fullscreen": False, "locked": False, "game": None, "at_computer": forced == "here"}
+    unknown = {"idle_seconds": None, "foreground": None, "fullscreen": False, "locked": False, "game": None,
+               "at_computer": None}
+    if sys.platform != "win32":
+        return unknown
+    import ctypes
+
+    class LASTINPUTINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+    info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
+    try:
+        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+            return unknown  # no interactive desktop here (a service, another window station)
+        idle = max(0, (ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+        name, full, locked = _foreground()
+    except (OSError, AttributeError, ValueError):
+        return unknown
+    if locked is None:  # nothing in front: locked when no input for a minute too, not a switch between windows
+        locked = idle >= LOCKED_AFTER
+    game = name if name in GAMES else None
+    return {"idle_seconds": idle, "foreground": name, "fullscreen": full, "locked": locked, "game": game,
+            "at_computer": not locked and (idle < IDLE_AFTER or bool(game) or full)}
+
+
+def pause_end(until, now_ts):
+    """When a pause ends: until is an ISO time (2026-11-16T15:13:00Z), epoch seconds, a number of minutes ("90m"),
+    hours ("6h"), "quota:codex" (once the Codex weekly limit has really reset: checked from then on) or "idle" (once
+    the person has left the computer and no game runs: checked every 5 minutes); None gives PAUSE_DEFAULT, a review,
+    not an end. Never more than a week away."""
+    end = None
+    if isinstance(until, (int, float)):
+        end = float(until)
+    elif isinstance(until, str) and until.strip():
+        text = until.strip()
+        if text == "quota:codex":
+            end = codex_reset() or now_ts + 6 * 3600
+        elif text == "idle":
+            end = now_ts + 300
+        elif re.fullmatch(r"\d+(\.\d+)?[mh]", text):
+            end = now_ts + float(text[:-1]) * (60 if text.endswith("m") else 3600)
+        else:
+            end = epoch(text)
+            if end is None:
+                raise OrgError("until: an ISO time like 2026-11-16T15:13:00Z, minutes like 90m, hours like 6h, "
+                               "quota:codex or idle.")
+    if end is None:
+        end = now_ts + PAUSE_DEFAULT
+    return max(now_ts + 60, min(end, now_ts + PAUSE_MAX))
 
 
 def short_id(prefix):
@@ -173,6 +509,32 @@ def task_report(value):
     return value
 
 
+# A task can name the background job it waits on (a controller, an experiment, a build): a process on this computer.
+# research-head, 2026-11-16 (科研部): keep-going told them three times that nobody worked while the Glaze S model and its
+# controller ran for hours; 需要区分「席位会话空闲」与「受控后台作业在运行」，保留作业失败/退出后的接续唤醒. While the job
+# runs, keep-going counts its organization as working (wake.drive_check); once it exits, the next notice says so.
+def attach_job(task, value, member):
+    """work op=task job=<pid>: record the process the task waits on, with its start time (so a later process with the
+    same id is not taken for it); job=0 detaches it. Returns the job, or None when detached."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise OrgError("job: the process id of a background job running on this computer, or 0 to detach it.")
+    try:
+        pid = int(value)
+    except ValueError:
+        raise OrgError("job: the process id of a background job running on this computer, or 0 to detach it.")
+    if pid <= 0:
+        task.pop("job", None)
+        return None
+    if task["status"] in ("done", "dropped"):
+        raise OrgError("A background job belongs to an unfinished task.")
+    from .runner import process_start
+    alive, started = process_start(pid)
+    if not alive:
+        raise OrgError("No process %d runs on this computer: attach a job while it runs." % pid)
+    task["job"] = {"pid": pid, "started": started, "by": member, "at": now()}
+    return task["job"]
+
+
 def report_needed():
     """What to write when a task becomes done (the person's language named)."""
     return ("a report: a short report of what the task achieved and how it turned out (Markdown, at most %d "
@@ -189,11 +551,11 @@ def activity_kind(tool):
 
 
 RELIC_TOOLS = {"create", "join", "status", "message", "inbox", "work", "episode", "protocol", "review", "trajectory", "panel",
-               "group"}
+               "group", "slack"}
 # Chat members (relic_core/chat.py) discuss but have no files or commands: a ChatGPT chat ("chatgpt:<chat id>") and a
 # Claude chat of the Claude desktop app ("claude-chat:<name>").
 CHAT_HARNESSES = ("chatgpt", "claude-chat")
-HARNESSES = ("claude-code", "codex") + CHAT_HARNESSES
+HARNESSES = ("claude-code", "codex", "antigravity") + CHAT_HARNESSES
 
 
 def is_relic_tool(tool):
@@ -265,6 +627,24 @@ EFFECTS = ("deny", "require_review", "require_before", "check")
 # hook runs it (Store.check_reply) with the call {"tool": "Reply", "input": {"text": <the reply>}}. It is check or deny.
 REPLY = "Reply"
 SUMMARY_MAX = 2000  # characters of a protocol's note for the person
+# A strong rule stops one call, never the work (the person, 2026-11-12: many times the work must not be blocked dead by
+# a rule; they are not at the computer all the time). What a blocked member reads after the rules' reasons, and in its
+# context wherever strong rules on tool calls are in effect.
+WAY_PAST = ("A strong rule stops one call, never the work. A call a rule sends to review: Relic has asked the members "
+            "who can approve it (their auto-wake brings them), and you make the same call again once it is approved; "
+            "meanwhile go on with the rest of the work. A call a rule denies: do it another way, or go on with the "
+            "rest. Do not stop and wait for the person because a rule blocked you.")
+# A rule that denies a call (deny, require_before, a check program's deny) is a hard protection: nobody lets that call
+# through, its own member included; a call sent to review needs a member with the right to approve it, never the
+# blocked member itself (chief, 2026-11-14: no self-approval past a real protection).
+DENIED = ("A rule that denies a call stops that one call, never the work: do it another way, or go on with the rest. Do "
+          "not stop and wait for the person because a rule blocked you.")
+
+
+def way_past(rid, reviewers):
+    return ("Review request %s is open; Relic asked %s to review it. Make the same call again once it is approved; "
+            "go on with the rest of the work meanwhile. Do not stop and wait for the person because a rule blocked "
+            "you." % (rid, ", ".join(reviewers) if reviewers else "the members who can approve it"))
 # Chinese characters: CJK Unified Ideographs, Extension A and the Compatibility Ideographs
 CHINESE = re.compile("[%s-%s%s-%s%s-%s]" % tuple(map(chr, (0x3400, 0x4DBF, 0x4E00, 0x9FFF, 0xF900, 0xFAFF))))
 _ANY_TOOL = ("a", "Zq", "mcp__x__y", "relic_probe_tool")  # names no tool has: a pattern matching them all matches any tool
@@ -459,7 +839,20 @@ class Store:
                     PRIMARY KEY(org_id, protocol_id, kind));
                 CREATE TABLE IF NOT EXISTS cc(id INTEGER PRIMARY KEY AUTOINCREMENT, org_id TEXT, protocol_id TEXT,
                     body TEXT, at TEXT, read_at TEXT);
+                CREATE TABLE IF NOT EXISTS drive(org_id TEXT PRIMARY KEY, next_check REAL);
+                CREATE TABLE IF NOT EXISTS drive_wake(id INTEGER PRIMARY KEY, due REAL);
+                CREATE TABLE IF NOT EXISTS timers(kind TEXT, key TEXT, due REAL, ref TEXT, PRIMARY KEY(kind, key));
+                CREATE TABLE IF NOT EXISTS person_words(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, harness TEXT,
+                    session TEXT, place TEXT, text TEXT);
             """)
+            # timers: when a pause a member set ends (wake: an organization's auto-wake, seat: one seat's, drive:
+            # keep-going) and when a question to the person runs out (ask): fire_timers acts on the due ones.
+            # person_words: what the person typed into a session (the UserPromptSubmit hook), secrets masked, so that
+            # members read it themselves instead of asking each other for the person's exact words.
+            # drive: the organizations with keep-going on and when wake.drive_check looks at each next (epoch seconds);
+            # the setting itself (goal, driver, notices sent) is the organization's "drive". A row is all that every
+            # dispatch has to read to know whether any check is due. drive_wake: when the one delayed background check
+            # (wake.schedule_drive) is due, so that processes running checks together schedule one, not one each.
             # check_counts: how often each protocol's check programs allowed, denied, sent for review or failed
             # ("error:<kind>"), kept by the organization the protocol belongs to; allowed calls are only counted.
             # check_alerts: when a failure of each kind was last announced (once a day per protocol and kind).
@@ -468,6 +861,10 @@ class Store:
             # its Relic calls use when they name no organization. Bindings written before seats existed, or by an older
             # plugin that knows only actors, are seats too.
             db.execute("INSERT OR IGNORE INTO seats SELECT actor, org_id, member, bound_at FROM actors")
+            # A timers table written before timers named their record gets the column; its rows name none, so the
+            # pause or question they belong to is handled again by the scan (old pauses) or not at all (questions).
+            if "ref" not in {r[1] for r in db.execute("PRAGMA table_info(timers)")}:
+                db.execute("ALTER TABLE timers ADD COLUMN ref TEXT")
             # hop: how many automatic wake-ups led to this message (0 = sent outside an automatically started turn)
             if "hop" not in {r[1] for r in db.execute("PRAGMA table_info(messages)")}:
                 try:
@@ -655,15 +1052,23 @@ class Store:
     def seat_config(self, org_id, member, org=None):
         """How Relic starts turns of a seat: its own config, else (an ex officio seat, a subgroup seat) the config of
         the seat its session holds elsewhere, its main seat first."""
+        source = self.config_source(org_id, member, org)
+        return (source[0]["members"][source[1]].get("config") or {}) if source else {}
+
+    def config_source(self, org_id, member, org=None):
+        """(organization, member) of the seat whose config starts this seat's turns (see seat_config): the seat
+        itself, or the seat of the same session it inherits from; None when neither has one. A Claude Desktop
+        session is addressed by that seat's name, whichever of the session's seats a turn is for."""
         org = org or self.get(org_id)
         seat = (org.get("members") or {}).get(member) or {}
-        if seat.get("config") or not seat.get("carrier"):
-            return seat.get("config") or {}
+        if seat.get("config"):
+            return org, member
+        if not seat.get("carrier"):
+            return None
         for other, name, main in self.seats_of(seat["carrier"]):
-            config = (other["members"].get(name) or {}).get("config")
-            if other["id"] != org_id and config:
-                return config
-        return {}
+            if other["id"] != org_id and (other["members"].get(name) or {}).get("config"):
+                return other, name
+        return None
 
     def seat_keys(self, actor):
         """[(organization id, member)] of every seat a session holds, its main seat first."""
@@ -683,8 +1088,9 @@ class Store:
     # The person places an organization under another in the Relic App (set_parent). Members of an organization
     # above (at any depth) see one below, write to its members, assign and update its tasks and issue protocols that
     # take effect there directly; a protocol marked downward also binds every organization below its own. Members
-    # of an organization below only report upward: they write to members of the organizations above, and record
-    # their use of a protocol that binds them from above.
+    # of an organization below report upward: they write to members of the organizations above, and record their use
+    # of a protocol that binds them from above. And they read them (reach_to_read): their documents and a read-only
+    # view of each, so what an organization above keeps for the ones below can be a document instead of a protocol.
     @staticmethod
     def _ids_below(orgs, org_id):
         below, todo = [], [org_id]
@@ -744,6 +1150,24 @@ class Store:
         self.sync_offices(org_id)
         return {"org_id": org_id, "parent": parent_id}
 
+    def _other_seat(self, actor, own, target, up):
+        """(organization, member, target, way) for another seat of the session (not own) from which target is
+        reached: the nearest organization above target, else, with up, one below it. None when there is none, and
+        always for a call already scoped to one seat ("<actor>#<org id>")."""
+        base, scope = self.split_actor(actor)
+        if scope or not base:
+            return None
+        seats = {o["id"]: (o, m) for o, m, _ in self.seats_of(base) if o["id"] != own["id"]}
+        for ancestor in self.ancestors(target):  # nearest first
+            if ancestor["id"] in seats:
+                o, m = seats[ancestor["id"]]
+                return o, m, target, "down"
+        if up:
+            for o, m in seats.values():
+                if target["id"] in [a["id"] for a in self.ancestors(o)]:
+                    return o, m, target, "up"
+        return None
+
     def find_org(self, ref):
         """An active organization by id or by exact name."""
         ref = str(ref or "").strip()
@@ -758,7 +1182,10 @@ class Store:
 
     def reach(self, actor, ref, up=False):
         """(your organization, you, the organization ref names, how it is related): "down" for one below yours at
-        any depth; with up, "up" for one above it; None when ref is your own organization."""
+        any depth; with up, "up" for one above it; None when ref is your own organization. When the session's main
+        seat is not related to it, another seat the session holds can be: the nearest one above it (with up, else one
+        below it), and the call acts as that seat's member (2026-11-14: a department head who also sits in the
+        cabinet could not reach the organizations under the cabinet from its department seat)."""
         org, member = self.require(actor)
         if not ref or str(ref).strip() in (org["id"], org["name"]):
             return org, member, org, None
@@ -766,13 +1193,46 @@ class Store:
         if target["id"] in self._ids_below([o for o in self.list_orgs() if o.get("status") == "active"], org["id"]):
             return org, member, target, "down"
         above = [a["id"] for a in self.ancestors(org)]
+        if target["id"] in above and up:
+            return org, member, target, "up"
+        other = self._other_seat(actor, org, target, up)
+        if other:
+            return other
         if target["id"] in above:
-            if up:
-                return org, member, target, "up"
             raise OrgError("%s is above your organization: report to its members with message (org=%s); its work "
                            "belongs to them." % (target["name"], target["id"]))
         raise OrgError("%s is neither above nor below your organization (the person sets that in the Relic App), so "
                        "you cannot act in it." % target["name"])
+
+    @staticmethod
+    def adjacent(org, other):
+        """Whether other is right above org or right below it: the organizations a member writes to."""
+        return other["id"] == org.get("parent") or other.get("parent") == org["id"]
+
+    def passed_over(self, own, target, way):
+        """The organization a message from own to target goes past: the one right above own (way "up") or the one
+        right below own on the way down to target; None when target is right above or below own. Such a message goes
+        through, and its result names the first choice (2026-11-15, the person: 你该汇报的你就跟他的科研领导汇报 ……
+        越级可以发，但是它的第一选择应该是只发给直属上级)."""
+        if not way or self.adjacent(own, target):
+            return None
+        if way == "up":
+            try:
+                return self.get(own["parent"]) if own.get("parent") else None
+            except OrgError:
+                return None
+        return next((a for a in self.ancestors(target) if a.get("parent") == own["id"]), None)
+
+    def reach_to_read(self, actor, ref):
+        """reach for reading (status, work op=doc_read): an organization the session can act in comes as reach gives
+        it ("down", through any of its seats); else an organization above one of its seats comes as reach gives it
+        with up ("up"), and reading it is all the caller does there: its documents and a read-only view (2026-11-14:
+        run settings and working practices moved from protocols into documents of the organizations above, which the
+        members below could not read). Anything else stays as reach answers it: work above belongs to its members."""
+        try:
+            return self.reach(actor, ref)
+        except OrgError:
+            return self.reach(actor, ref, up=True)
 
     # Protocols are inherited like methods of a class. An organization's protocols bind it alone unless marked
     # inherit (older data: downward). Going down from the topmost organization above, each level takes what the level
@@ -825,9 +1285,12 @@ class Store:
 
     # ---------------- formal organizations: the cabinet and ex officio seats ----------------
     # Formal organizations are standing ones (departments); subgroups are made for one piece of work. The person marks
-    # one formal organization as the cabinet (the secretariat); its leader is the secretary-general. The leader of a
-    # formal organization holds a seat ex officio in the formal organization right above it and in the cabinet,
-    # carried by the session of its leader seat (seat["ex_officio"] = {"org": department, "member": leader}).
+    # one formal organization as the cabinet (the secretariat); its leader (and co-leaders) is the secretary-general.
+    # The leader of a formal organization holds a seat ex officio in the formal organization right above it, or, with
+    # none above it, in the cabinet, carried by the session of its leader seat (seat["ex_officio"] = {"org":
+    # department, "member": leader}). Reports go first to the organization right above (2026-11-15, the person: 不要让所有
+    # 的下面干活的全都直接给秘书长汇报……那我要中间的那一级科研部的负责人干什么): the leaders of organizations further
+    # down no longer sit in the cabinet.
     def cabinet(self):
         """The active organization marked as the cabinet, or None."""
         found = [o for o in self.list_orgs() if o.get("cabinet") and o.get("status") == "active"]
@@ -835,10 +1298,14 @@ class Store:
 
     def is_secretary_general(self, actor):
         """Whether the session holds the cabinet's leader seat."""
+        return bool(self._cabinet_head(actor))
+
+    def _cabinet_head(self, actor):
+        """The cabinet seat (member name) through which the session is one of the cabinet's heads, or None."""
         cab = self.cabinet()
-        if not cab or not cab.get("leader"):
-            return False
-        return any(o["id"] == cab["id"] and m == cab["leader"] for o, m, _ in self.seats_of(self.split_actor(actor)[0]))
+        heads = leaders(cab)
+        return next((m for o, m, _ in self.seats_of(self.split_actor(actor)[0]) if cab and o["id"] == cab["id"]
+                     and m in heads), None)
 
     def set_cabinet(self, org_id, on=True):
         """The person marks a formal organization as the cabinet (there is one at most), or unmarks it."""
@@ -873,6 +1340,29 @@ class Store:
                 self._event(db, org_id, by, "organization.leader_set", {"leader": member, "previous": previous})
         self.sync_offices(org_id)
         return {"org_id": org_id, "leader": member, "previous": previous}
+
+    def set_co_leaders(self, org_id, members, by=HUMAN):
+        """Co-leaders for a leader-led organization: they lead it with the leader's say (leaders). The person sets
+        them (2026-11-15: two heads of the same rank for the secretariat)."""
+        members = [str(m) for m in dict.fromkeys(members or [])]
+        with self.change(org_id) as (org, db):
+            if org.get("governance") != "leader":
+                raise OrgError("%s decides by majority; it has no leader." % org["name"])
+            unknown = [m for m in members if m not in org["members"]]
+            if unknown:
+                raise OrgError("Unknown members: " + ", ".join(unknown))
+            members = [m for m in members if m != org.get("leader")]
+            previous = list(org.get("co_leaders") or [])
+            if members:
+                org["co_leaders"] = members
+            else:
+                org.pop("co_leaders", None)
+            for m in members:  # a head's seat stands on its own: not an ex officio seat that ends with an office
+                org["members"][m].pop("ex_officio", None)
+            if previous != members:
+                self._event(db, org_id, by, "organization.co_leaders_set", {"co_leaders": members, "previous": previous})
+            leader = org.get("leader")
+        return {"org_id": org_id, "leader": leader, "co_leaders": members}
 
     def dissolve(self, org_id, by=HUMAN):
         """End a formal organization: its sessions leave their seats there; its record stays."""
@@ -910,9 +1400,9 @@ class Store:
             targets = []
             parent = orgs.get(dept.get("parent"))
             if parent and kind_of(parent) == "formal":
-                targets.append(parent["id"])
-            if cab and cab["id"] != dept["id"] and cab["id"] not in targets:
-                targets.append(cab["id"])
+                targets.append(parent["id"])  # it reports to the organization right above it
+            elif cab and cab["id"] != dept["id"]:
+                targets.append(cab["id"])  # a formal organization under no other one reports to the cabinet
             carrier = seat.get("carrier") if (seat.get("config") or {}).get("surface") != "acp" else None
             for target in targets:
                 wanted[(target, dept["id"])] = (dept["leader"], carrier, seat.get("harness") or "", dept)
@@ -1086,13 +1576,15 @@ class Store:
                  "approver": "secretary-general" if cab else HUMAN, "at": now()}
             home.setdefault("requests", {})[rid] = r
             self._event(db, home_id, sender, "request.filed", {"id": rid, "kind": kind, "args": args})
-            if cab and cab.get("leader") and cab["leader"] in home["members"] and sender != cab["leader"]:
-                self._post(db, home_id, sender, [cab["leader"]],
+            heads = [m for m in leaders(cab) if m in home["members"] and m != sender] if cab else []
+            if heads:
+                self._post(db, home_id, sender, heads,
                            "Approval request %s from %s: %s.%s\nDecide with the Relic group tool: op=approve or "
                            "op=deny, request_id=%s, note=<why>." % (rid, sender, self.request_text(r),
                                                                    (" Reason: " + r["reason"]) if r["reason"] else "", rid),
                            hop=self._sender_hop(org["id"], me) if org else 0)
-        who = "the secretary-general (%s of %s)" % (cab["leader"], cab["name"]) if cab else "the person, in the Relic App"
+        who = ("the secretary-general (%s of %s)" % (" or ".join(leaders(cab)), cab["name"]) if cab
+               else "the person, in the Relic App")
         return {"request_id": rid, "status": "pending", "kind": kind, "approver": r["approver"],
                 "text": "Request %s is filed and waits for %s; you get a message when it is decided." % (rid, who)}
 
@@ -1105,7 +1597,9 @@ class Store:
             return "place %s under %s" % (a.get("org_name") or a.get("org"), a.get("parent_name") or a.get("parent") or "nothing")
         if r["kind"] == "leader":
             return "make %s the leader of %s" % (a.get("member"), a.get("org_name") or a.get("org"))
-        return "dissolve %s" % (a.get("org_name") or a.get("org"))
+        if r["kind"] == "dissolve":
+            return "dissolve %s" % (a.get("org_name") or a.get("org"))
+        return "%s (a request kind this version does not know)" % r["kind"]
 
     def requests(self, org_id=None):
         """Every request kept in org_id (default: in any organization), newest first."""
@@ -1118,9 +1612,11 @@ class Store:
         cab = self.cabinet()
         if not cab:
             raise OrgError("There is no cabinet: the person decides requests in the Relic App.")
-        if not self.is_secretary_general(actor):
-            raise OrgError("Only the secretary-general (the leader of %s) decides requests." % cab["name"])
-        return self._decide(cab["id"], request_id, decision, note, cab["leader"])
+        head = self._cabinet_head(actor)
+        if not head:
+            raise OrgError("Only the secretary-general (a head of %s: %s) decides requests."
+                           % (cab["name"], ", ".join(leaders(cab))))
+        return self._decide(cab["id"], request_id, decision, note, head)
 
     def decide_request_as_human(self, org_id, request_id, decision, note=""):
         return self._decide(org_id, request_id, decision, note, HUMAN)
@@ -1156,7 +1652,10 @@ class Store:
             return self.set_parent(a["org"], a.get("parent"))
         if r["kind"] == "leader":
             return self.set_leader(a["org"], a["member"], by=qualified(who["org"], who["member"]) if who.get("org") else HUMAN)
-        return self.dissolve(a["org"], by=qualified(who["org"], who["member"]) if who.get("org") else HUMAN)
+        if r["kind"] == "dissolve":
+            return self.dissolve(a["org"], by=qualified(who["org"], who["member"]) if who.get("org") else HUMAN)
+        # Never fall through to another kind: a request filed by a newer version must not dissolve anything here.
+        raise OrgError("Request kind %s is not known to this version of Relic; nothing was changed." % r["kind"])
 
     def _tell_requester(self, home_id, r, by):
         """The requester learns the decision in its own organization (a created one: the new organization)."""
@@ -1246,9 +1745,7 @@ class Store:
         """Seat a session in org_id. Joining another organization adds a seat and keeps the session's other seats
         (the first one it holds is its main seat); joining an organization it already sits in makes that its main
         seat. A seat that gets a new carrier leaves only the previous carrier's seat in this organization."""
-        member = member.strip()
-        if not member or any(c in member for c in " /\\:"):
-            raise OrgError("Member names are short words without spaces, e.g. alice or release.")
+        member = check_member_name(member)
         actor, _ = self.split_actor(actor)
         for other, name, _ in self.seats_of(actor):
             config = (other["members"].get(name) or {}).get("config") or {}
@@ -1305,9 +1802,7 @@ class Store:
     # ---------------- human operations (Relic App) ----------------
     def add_seat(self, org_id, member, role="", config=None):
         """Prepare a seat before any session sits in it; config says how Relic starts its sessions."""
-        member = member.strip()
-        if not member or any(c in member for c in " /\\:"):
-            raise OrgError("Member names are short words without spaces, e.g. alice or release.")
+        member = check_member_name(member)
         leads = False
         with self.change(org_id) as (org, db):
             seat = org["members"].get(member)
@@ -1355,6 +1850,7 @@ class Store:
             self._event(db, org_id, "human", "message.sent", dict({"id": cur.lastrowid, "to": recipients},
                                                                   **({"channel": channel} if channel else {}),
                                                                   **({"reply_to": root} if root else {})))
+        self._answer_asks(org_id, root or cur.lastrowid, body, cur.lastrowid)
         return cur.lastrowid
 
     def pending_count(self, org_id, member):
@@ -1524,6 +2020,31 @@ class Store:
             raise OrgError("There is no message #%d in this organization to reply to." % parent)
         return row[1] or parent
 
+    def _reply_seat(self, actor, reply_to, org, names):
+        """("<actor>#<org id>", the id of the organization written to) when a reply addressed to another organization
+        (org=<id or name>, or every recipient named "<org id>/<member>") answers a message kept in an organization the
+        session sits in, not in that one; else (None, None).
+        A message that reaches a seat from another organization is kept where it arrived, under a number of its own
+        there (the copy of a thread reply, or the only record of a message written down to it), so the reply belongs
+        in that thread, and its addressee gets a copy (send). 2026-11-24: benchlead answered research-head's #8542
+        both ways the message tool describes, and both were refused: #8542 is kept in OrgBench 搭建组, not in 科研部."""
+        target = org
+        if not target:
+            places = {n.split("/", 1)[0] for n in names}
+            if not names or len(places) != 1 or not all("/" in n for n in names):
+                return None, None
+            target = places.pop()
+        text = str(reply_to).strip().lstrip("#")
+        if not text.isdigit():
+            return None, None
+        target = next((o["id"] for o in self.list_orgs() if target in (o["id"], o["name"])), target)
+        with self.db() as db:
+            row = db.execute("SELECT org_id FROM messages WHERE id=?", (int(text),)).fetchone()
+        if not row or row[0] == target:
+            return None, None
+        home = self.scoped(actor, row[0])
+        return (home, target) if home else (None, None)
+
     def _thread_people(self, db, org_id, root):
         """Everyone in a thread so far: the senders and recipients of its root and of each reply, in order of appearance
         ("human" too when the person took part)."""
@@ -1546,35 +2067,95 @@ class Store:
                 m["thread"] = heads[m["reply_to"]]
         return messages
 
-    def send(self, actor, to, body, episode_id=None, reply_to=None, org=None):
+    def send(self, actor, to, body, episode_id=None, reply_to=None, org=None, recommend=None, within=None,
+             executor=None, ask_key=None):
         """reply_to: answer inside the thread of that message; without `to`, everyone in the thread gets it.
         org: the organization to write in when it is not your own (one below yours, or one above it to report).
         Recipients named "<org id>/<member>", the way a message from another organization names its sender, say
-        it too."""
+        it too. recommend (a message to human): a question to the person with the recommended answer; the message
+        says until when (within minutes, at most an hour), and if the person has not answered it by then, the
+        executor (default: the asker) gets one notice to go ahead with the recommendation (fire_timers). The same
+        question (ask_key, by default its text and recommendation) is asked once while it is open."""
+        recommend = " ".join(str(recommend or "").split())
+        due = None
+        if recommend:
+            minutes = ASK_DEFAULT / 60 if within in (None, "") else float(within)
+            due = time.time() + max(1.0, min(minutes, ASK_DEFAULT / 60)) * 60
+        seated = self.scoped(actor, org) if org else None
+        if seated:  # explicit held seat wins before interpreting qualified recipients
+            self.set_focus(actor, self.split_actor(seated)[1])
+            actor, org = seated, None
         names = [str(n) for n in (to if isinstance(to, list) else ([to] if to else []))]
-        if not org and names and all("/" in n for n in names):
+        home, target = self._reply_seat(actor, reply_to, org, names) if reply_to else (None, None)
+        if home:  # it answers a message kept in one of the session's own organizations: answer in that thread there
+            if org:
+                names = to = [n if "/" in n else qualified(target, n) for n in names]
+            self.set_focus(actor, self.split_actor(home)[1])
+            actor, org = home, None
+        explicit_seat = self.split_actor(actor)[1] is not None
+        seat_reply = bool(explicit_seat and reply_to and not org)
+        if not seat_reply and not org and names and all("/" in n for n in names):
             places = {n.split("/", 1)[0] for n in names}
             if len(places) != 1:
                 raise OrgError("Write to one organization at a time.")
             org, to = places.pop(), [n.split("/", 1)[1] for n in names]
-        elif any("/" in n for n in names):
+        elif not seat_reply and any("/" in n for n in names):
             raise OrgError("Write to members of another organization in a message of its own (org=<its id>).")
-        seated = self.scoped(actor, org) if org else None
+        seated = self.scoped(actor, org) if org and not explicit_seat else None
         if seated:  # an organization the session sits in: write there as its member
             self.set_focus(actor, self.split_actor(seated)[1])
             actor, org = seated, None
         if org:
             own, member, target, way = self.reach(actor, org, up=True)
             if way:
-                return self._send_across(own, member, target, way, to, body, episode_id, reply_to)
+                result = self._send_across(own, member, target, way, to, body, episode_id, reply_to)
+                first = self.passed_over(own, target, way)
+                if first:  # it goes through: the result says which organization is the first choice
+                    from . import i18n
+                    if way == "up":
+                        result["note"] = i18n.t("send.past_up", org=first["name"], id=first["id"])
+                    else:
+                        result["note"] = i18n.t("send.past_down", org=first["name"], id=first["id"])
+                return result
         org, member = self.require(actor)
         if not body or not body.strip():
             raise OrgError("Empty message.")
+        if recommend:
+            return self._ask_send(org, member, to, body, recommend, due, executor, ask_key, episode_id)
+        body = self.with_quotes(body)  # the person's words it relays carry Relic's check
+        # A seat's reply may also name members of another organization this seat can write to (above or below it),
+        # not only those already in the thread: they get a copy, as thread participants from elsewhere do.
+        reachable, refused = {}, {}
+        for name in names if seat_reply else []:
+            place, _, other = name.partition("/")
+            if not other or place == org["id"]:
+                continue
+            try:
+                _, _, there, way = self.reach(actor, place, up=True)
+            except OrgError as error:
+                refused[name] = str(error)
+                continue
+            if way and there.get("status") == "active" and other in there["members"]:
+                reachable[name] = (there["id"], other)
+            elif way:
+                refused[name] = "%s has no member %s" % (there["name"], other)
         with self.db() as db:
             root = self._thread_root(db, org["id"], reply_to)
+            people = self._thread_people(db, org["id"], root) if root else []
+            external = {}
+            for name in people:
+                place, _, other = name.partition("/")
+                if other and place != org["id"]:
+                    try:
+                        there = self._load(db, place)
+                    except OrgError:
+                        continue
+                    if there.get("status") == "active" and other in there["members"]:
+                        external[name] = (place, other)
+            for name, value in reachable.items():
+                external.setdefault(name, value)
             if root and not to:
-                recipients = [m for m in self._thread_people(db, org["id"], root)
-                              if m != member and (m in org["members"] or m == HUMAN)]
+                recipients = [m for m in people if m != member and (m in org["members"] or m == HUMAN or m in external)]
                 if not recipients:
                     raise OrgError("Nobody else is in thread #%d; name the recipients with to." % root)
             elif not to or to == ["all"] or to == "all":
@@ -1582,17 +2163,43 @@ class Store:
             else:
                 recipients = list(dict.fromkeys(to if isinstance(to, list) else [to]))
                 # "human" is the person: they read and answer in the Relic App 
-                unknown = set(recipients) - set(org["members"]) - {HUMAN}
+                unknown = set(recipients) - set(org["members"]) - {HUMAN} - set(external)
                 if unknown:
-                    raise OrgError("Unknown members: " + ", ".join(sorted(unknown)))
+                    reasons = "; ".join("%s: %s" % (n, refused[n]) for n in sorted(unknown) if n in refused)
+                    raise OrgError("Unknown members: " + ", ".join(sorted(unknown)) +
+                                   (" (%s)" % reasons if reasons else ""))
             if not recipients:
                 raise OrgError("No other members yet.")
+            hop = self._sender_hop(org["id"], member)
             cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
                              "VALUES(?,?,?,?,?,?,?,?)", (org["id"], member, json.dumps(recipients), body, episode_id,
-                                                         now(), self._sender_hop(org["id"], member), root))
+                                                         now(), hop, root))
             thread = {"reply_to": root} if root else {}
             self._event(db, org["id"], member, "message.sent", dict({"id": cur.lastrowid, "to": recipients}, **thread))
-            return dict({"message_id": cur.lastrowid, "to": recipients}, **thread)
+            result = dict({"message_id": cur.lastrowid, "to": recipients}, **thread)
+            reached = []
+            for recipient in recipients:
+                if recipient not in external:
+                    continue
+                place, other = external[recipient]
+                # Keep the reply in this seat's thread, and deliver a copy to a
+                # participant who wrote from another organization, as receipts do.
+                copied = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                                    "VALUES(?,?,?,?,?,?,?,?)", (place, qualified(org["id"], member), json.dumps([other]),
+                                    body, None, now(), hop, None))
+                self._event(db, place, qualified(org["id"], member), "message.sent",
+                            {"id": copied.lastrowid, "to": [other], "from_org": org["id"], "source_reply": cur.lastrowid})
+                reached.append(place)
+            if reached:
+                result["delivered_orgs"] = list(dict.fromkeys(reached))
+        last = self._last_hop_note(hop, recipients)
+        if last:
+            result["wakes_nobody"] = last
+        away = self.person_away() if HUMAN in recipients else None
+        if away:  # nobody reads it now: the sender does not stop to wait for an answer
+            from . import i18n
+            result["person_away"] = i18n.t("send.away", why=away_why(away))
+        return result
 
     def _send_across(self, own, member, target, way, to, body, episode_id, reply_to):
         """A message from a member of `own` to members of `target`, an organization below it (way "down") or above it
@@ -1602,6 +2209,7 @@ class Store:
         if episode_id:
             raise OrgError("An episode belongs to one organization: leave episode_id out when you write to another one.")
         sender = qualified(own["id"], member)
+        body = self.with_quotes(body)  # the person's words it relays carry Relic's check
         with self.db() as db:
             root = self._thread_root(db, target["id"], reply_to)
             if root and not to:
@@ -1617,21 +2225,37 @@ class Store:
                     raise OrgError("Unknown members of %s: %s" % (target["name"], ", ".join(sorted(unknown))))
             if not recipients:
                 raise OrgError("%s has no members to write to." % target["name"])
+            hop = self._sender_hop(own["id"], member)
             cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
                              "VALUES(?,?,?,?,?,?,?,?)", (target["id"], sender, json.dumps(recipients), body, None, now(),
-                                                         self._sender_hop(own["id"], member), root))
+                                                         hop, root))
             thread = {"reply_to": root} if root else {}
             self._event(db, target["id"], sender, "message.sent",
                         dict({"id": cur.lastrowid, "to": recipients, "from_org": own["id"]}, **thread))
             self._event(db, own["id"], member, "organization.reached",
                         {"what": "message", "org": target["id"], "name": target["name"], "way": way,
                          "id": cur.lastrowid, "to": recipients})
-        return dict({"message_id": cur.lastrowid, "to": recipients, "org_id": target["id"]}, **thread)
+        result = dict({"message_id": cur.lastrowid, "to": recipients, "org_id": target["id"]}, **thread)
+        last = self._last_hop_note(hop, recipients)
+        if last:
+            result["wakes_nobody"] = last
+        return result
+
+    @staticmethod
+    def _last_hop_note(hop, recipients):
+        """What a message sent in the last automatically started turn of an exchange tells its sender: it is kept,
+        but it wakes nobody (wake.MAX_HOPS). research-head, 2026-11-18: four work handoffs sent that way were taken for
+        lost; the send result now tells a message kept from one that also wakes its recipient."""
+        from . import i18n, wake
+        if hop < wake.MAX_HOPS or not [r for r in recipients if r != HUMAN]:
+            return None
+        return i18n.t("send.last_hop", hop=hop, max=wake.MAX_HOPS, minutes=wake.DRIVE_QUIET // 60)
 
     def _work_below(self, own, member, target, op, a):
-        if op not in ("task", "doc_read"):
-            raise OrgError("In an organization below yours you read documents (doc_read) and assign or update tasks "
-                           "(task); the rest of its work belongs to its members.")
+        if op not in ("task", "doc_read", "drive", "purpose"):
+            raise OrgError("In an organization below yours you read documents (doc_read), assign or update tasks "
+                           "(task), switch keep-going (drive) and bring its purpose up to date (purpose); the rest "
+                           "of its work belongs to its members.")
         if op == "task" and not a.get("task_id") and not a.get("owner"):
             raise OrgError("A task you assign in another organization needs an owner: one of its members.")
         result = self._work(target, qualified(own["id"], member), op, a)
@@ -1839,9 +2463,10 @@ class Store:
             return 0
         return int(state.get("wake_hop") or 0) if state.get("status") == "running" else 0
 
-    def unread(self, actor, mark=True, limit=20):
+    def unread(self, actor, mark=True, limit=20, message_id=None):
         """Unread messages to the session in every seat it holds ("<actor>#<org id>": in that seat only), oldest
-        first. A message that reached a seat other than the main one carries org_id and org_name: answer it there."""
+        first. message_id selects one addressed message whether read or unread; limit=None removes the page limit.
+        A message that reached a seat other than the main one carries org_id and org_name: answer it there."""
         seats = self.seats_of(actor)
         if not seats:
             return []
@@ -1850,10 +2475,12 @@ class Store:
             for org, member, main in seats:
                 # Filter by recipient before taking `limit`: messages to other members are never marked read by this
                 # one, so a LIMIT in SQL could fill up with them and hide this member's own messages.
+                condition = ("m.id=?" if message_id is not None else """m.sender<>? AND NOT EXISTS
+                    (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)""")
+                parameters = (message_id,) if message_id is not None else (member, member)
                 rows = db.execute("""SELECT m.id, m.sender, m.recipients, m.body, m.episode_id, m.at, m.reply_to
-                    FROM messages m WHERE m.org_id=? AND m.sender<>? AND m.recipients LIKE ? AND NOT EXISTS
-                    (SELECT 1 FROM reads r WHERE r.org_id=m.org_id AND r.message_id=m.id AND r.member=?)
-                    ORDER BY m.id""", (org["id"], member, "%" + json.dumps(member) + "%", member)).fetchall()
+                    FROM messages m WHERE m.org_id=? AND m.recipients LIKE ? AND """ + condition + " ORDER BY m.id",
+                                  (org["id"], "%" + json.dumps(member) + "%") + parameters).fetchall()
                 found = 0
                 for mid, sender, recipients, body, ep, at, reply_to in rows:
                     rec = json.loads(recipients)
@@ -1867,7 +2494,7 @@ class Store:
                         m.update(org_id=org["id"], org_name=org["name"])
                     out.append(m)
                     found += 1
-                    if found >= limit:
+                    if limit is not None and found >= limit:
                         break
             out = sorted(out, key=lambda m: m["id"])[:limit]
             read = {}
@@ -1897,7 +2524,7 @@ class Store:
                 for r in rows]
 
     def unread_by_member(self, org_id, skip_prefix=None):
-        """{member: [{id, sender, hop, at, reply_to}, ...]} over unread messages, oldest first; bodies starting with
+        """{member: [{id, sender, body, hop, at, reply_to}, ...]} over unread messages, oldest first; bodies starting with
         skip_prefix (automatic receipts) are left out."""
         with self.db() as db:
             rows = db.execute("SELECT id, sender, recipients, body, COALESCE(hop, 0), at, reply_to FROM messages "
@@ -1909,9 +2536,22 @@ class Store:
                 continue
             for member in json.loads(recipients):
                 if member != sender and (mid, member) not in read:
-                    out.setdefault(member, []).append({"id": mid, "sender": sender, "hop": hop, "at": at,
+                    out.setdefault(member, []).append({"id": mid, "sender": sender, "body": body, "hop": hop, "at": at,
                                                        "reply_to": reply_to})
         return out
+
+    def unread_counts(self, org_id):
+        """{member: number of unread messages}: the lengths of unread_by_member(org_id), without loading message
+        bodies or building an entry for every unread message (the organization snapshot needs only the counts)."""
+        with self.db() as db:
+            rows = db.execute("SELECT id, sender, recipients FROM messages WHERE org_id=?", (org_id,)).fetchall()
+            read = {(r[0], r[1]) for r in db.execute("SELECT message_id, member FROM reads WHERE org_id=?", (org_id,))}
+        counts = {}
+        for mid, sender, recipients in rows:
+            for member in json.loads(recipients):
+                if member != sender and (mid, member) not in read:
+                    counts[member] = counts.get(member, 0) + 1
+        return counts
 
     def sent_since(self, org_id, member, since, skip_prefix=None):
         """Recipients of the messages a member sent at or after `since` (an ISO time from now()); bodies starting with
@@ -2011,22 +2651,622 @@ class Store:
                 seat[self.WAITING] = (seat.get(self.WAITING) or [])[1:]
         return mid
 
-    def set_auto_wake(self, org_id, on):
-        """Organization-wide switch for automatic wake-ups (on unless the person turns it off in the Relic App)."""
+    @staticmethod
+    def _member_pause(on, until, by, reason):
+        """Whether switching off is a member's pause, which ends by itself: a member said who (by) or until when, or
+        gave a reason of its own (an older plugin's way). The person's switches (the Relic App gives no reason; Stop,
+        Stop all and their resumes give PERSON_REASONS) end with the person's next message instead."""
+        return not on and (until is not None or by != HUMAN or
+                           bool(reason and not str(reason).startswith(PERSON_REASONS)))
+
+    def _pause(self, db, kind, key, until, by, reason):
+        """A member's pause: it ends at the time until names, once the Codex limit has really reset (quota:codex), or
+        once the person has left the computer (idle). Without until it does not end by itself: its pauser is asked
+        every PAUSE_DEFAULT whether the reason is still there (chief, 2026-11-14: a soft stop gets a review, never a
+        blind restart)."""
+        end = pause_end(until, time.time())
+        pause = {"id": short_id("p_"), "at": now(), "until": iso(end), "by": by,
+                 "reason": str(reason or "").strip()[:500]}
+        db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES(?, ?, ?, ?)",
+                   (kind, key, end, pause["id"]))
+        if until is None:
+            pause["review"] = True
+        elif until in ("quota:codex", "idle"):
+            pause["wait_for"] = until
+        return pause
+
+    def set_auto_wake(self, org_id, on, reason="", until=None, by=HUMAN):
+        """Organization-wide switch for automatic wake-ups (on unless the person turns it off in the Relic App, or
+        Stop all does; the person's next message after a Stop turns it back on: monitor.back_to_work). A member who
+        turns it off pauses it: until when (until, see pause_end; by default PAUSE_DEFAULT), then fire_timers turns it
+        back on and tells the member."""
         with self.change(org_id) as (org, db):
             org["auto_wake"] = bool(on)
-            self._event(db, org_id, "human", "organization.auto_wake", {"on": bool(on)})
+            body = dict({"on": bool(on)}, **({"reason": reason} if reason else {}))
+            org.pop("pause", None)
+            db.execute("DELETE FROM timers WHERE kind='wake' AND key=?", (org_id,))
+            if self._member_pause(on, until, by, reason):
+                org["pause"] = self._pause(db, "wake", org_id, until, by, reason)
+                body.update(until=org["pause"]["until"], by=by)
+            self._event(db, org_id, "human" if by == HUMAN else by, "organization.auto_wake", body)
+
+    def set_seat_auto_wake(self, org_id, member, on, reason="", until=None, by=HUMAN):
+        """One seat's switch for automatic wake-ups (wake.wakeable reads it); the person's Stop in the Relic window
+        turns it off for every seat of the stopped session, and the person's next message (monitor.back_to_work) or
+        Resume turns back on what Stop turned off. A member who turns it off pauses it (see set_auto_wake)."""
+        with self.change(org_id) as (org, db):
+            seat = org["members"].get(member)
+            if seat is None:
+                raise OrgError("No member %s in %s" % (member, org["name"]))
+            seat["auto_wake"] = bool(on)
+            body = {"on": bool(on), "reason": reason}
+            seat.pop("pause", None)
+            key = "%s/%s" % (org_id, member)
+            db.execute("DELETE FROM timers WHERE kind='seat' AND key=?", (key,))
+            if self._member_pause(on, until, by, reason):
+                seat["pause"] = self._pause(db, "seat", key, until, by, reason)
+                body.update(until=seat["pause"]["until"], by=by)
+            self._event(db, org_id, member, "member.auto_wake", body)
+
+    # ---------------- keep-going (持续推进) ----------------
+    # Hongyi, 2026-11-07: members finish a step and stop; "I want them to go on by themselves: when a step is done they
+    # tell the head, and the head goes on with the next step." Keep-going names a driver (default: the leader) and the
+    # person's standing instruction; wake.drive_check sends the driver a notice when the organization and the ones below
+    # it have gone quiet with work unfinished.
+    def _apply_drive(self, db, org, on, goal=None, driver=None, by=HUMAN, reason="", until=None):
+        drive = dict(org.get("drive") or {})
+        drive.pop("resume_at", None)
+        drive.pop("pause", None)
+        db.execute("DELETE FROM timers WHERE kind='drive' AND key=?", (org["id"],))
+        if self._member_pause(on, until, by, reason):  # a member's pause of keep-going, like auto-wake's
+            drive["pause"] = self._pause(db, "drive", org["id"], until, by, reason)
+            if not drive["pause"].get("review"):
+                drive["resume_at"] = drive["pause"]["until"]
+        if on:
+            driver = driver or drive.get("driver") or org.get("leader") or next(iter(org["members"]), None)
+            if driver not in org["members"]:
+                raise OrgError("Unknown member %s; the driver is a member of %s." % (driver, org["name"]))
+            goal = (drive.get("goal") or "") if goal is None else str(goal)
+            if not goal.strip():
+                raise OrgError("Keep-going needs the goal the organization keeps working toward (goal), in the "
+                               "person's words where you have them.")
+            drive.update(on=True, goal=goal.strip()[:2000], driver=driver, set_by=by, set_at=now())
+            for key in ("off_reason", "unreachable_at"):
+                drive.pop(key, None)
+            db.execute("INSERT OR REPLACE INTO drive(org_id, next_check) VALUES(?, 0)", (org["id"],))
+        else:
+            drive.update(on=False, set_by=by, set_at=now())
+            if reason:
+                drive["off_reason"] = str(reason).strip()[:500]
+            db.execute("DELETE FROM drive WHERE org_id=?", (org["id"],))
+        org["drive"] = drive
+        self._event(db, org["id"], by, "organization.drive", dict(
+            {"on": bool(on), "driver": drive.get("driver")}, **({"reason": drive["off_reason"]}
+                                                                 if not on and drive.get("off_reason") else {}),
+            **({"until": drive["resume_at"]} if drive.get("resume_at") else {})))
+        return drive
+
+    def set_drive(self, org_id, on, goal=None, driver=None, by=HUMAN, reason="", until=None):
+        """Switch keep-going on (goal: what the organization keeps working toward; driver: who gets the notices) or
+        off: the person in the Relic App, or a member acting on the person's word (work op=drive), whose pause ends
+        by itself (until, see pause_end)."""
+        with self.change(org_id) as (org, db):
+            if org.get("status") != "active":
+                raise OrgError("%s is not active." % org["name"])
+            return self._apply_drive(db, org, on, goal, driver, by, reason, until)
+
+    # ---------------- pauses that end, questions that run out (the person, 2026-11-12/14) ----------------
+    # 「你得先知道我为什么停然后再根据我的痛点做处理」「我不是所有时间全都在电脑前面的，我不看就不动」: a member's pause
+    # ends at the time it names (PAUSE_DEFAULT when it names none), and a question to the person runs out after an
+    # hour, when the asker goes ahead with its recommendation. wake.drive_due runs fire_timers on every dispatch and
+    # arms the delayed background check for next_timer, so it happens with nobody at work too.
+    SCAN_EVERY = 600
+    LEASE = 60  # a claimed timer comes again after this if its process died before finishing it
+    AWAY_LOOK = 300  # while a question to the person is open, whether the person has left the computer is looked at this often
+
+    def next_timer(self, now_ts=None):
+        """When the next pause or question is due: what the delayed background check is armed for. The scan of old
+        switch-offs is not one: it runs when members' hooks do, and never keeps a background check coming by itself.
+        An open question brings a check every AWAY_LOOK seconds: it stops waiting once the person has left."""
+        with self.db() as db:
+            row = db.execute("SELECT MIN(due) FROM timers WHERE kind<>'scan'").fetchone()
+            asking = db.execute("SELECT 1 FROM timers WHERE kind='ask' LIMIT 1").fetchone() is not None
+        due = row[0] if row and row[0] is not None else None
+        if asking:
+            look = (time.time() if now_ts is None else now_ts) + self.AWAY_LOOK
+            due = look if due is None else min(due, look)
+        return due
+
+    def fire_timers(self, now_ts=None):
+        """End the pauses and questions whose time has come. Each due timer is claimed for LEASE seconds (two processes
+        never take the same one), then acted on in one transaction with the record it belongs to, the notice it sends
+        and its own removal or re-arming: a failure leaves everything as it was and the timer comes again when the
+        lease runs out; a timer whose record changed meanwhile (switched back on, paused anew, answered) does nothing.
+        Every SCAN_EVERY seconds it also gives an end to switches an older plugin turned off without one."""
+        now_ts = time.time() if now_ts is None else now_ts
+        with self.db() as db:  # every hook asks: nothing due costs one read, no write lock
+            asking = db.execute("SELECT 1 FROM timers WHERE kind='ask' AND due>? LIMIT 1", (now_ts,)).fetchone()
+        if asking and self.person_away(now_ts):  # nobody to answer: the open questions are due now (_ask_ran_out)
+            with self.db() as db:
+                db.execute("UPDATE timers SET due=? WHERE kind='ask' AND due>?", (now_ts, now_ts))
+        with self.db() as db:
+            nothing_due = db.execute("SELECT 1 FROM timers WHERE due<=? LIMIT 1", (now_ts,)).fetchone() is None
+            scanned = db.execute("SELECT 1 FROM timers WHERE kind='scan'").fetchone() is not None
+        if nothing_due:
+            return [] if scanned else self._scan_pauses(now_ts)
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            due = db.execute("SELECT kind, key, ref FROM timers WHERE due<=? ORDER BY due", (now_ts,)).fetchall()
+            db.execute("UPDATE timers SET due=? WHERE due<=?", (now_ts + self.LEASE, now_ts))
+        done = []
+        for kind, key, ref in due:
+            try:
+                result = self._fire(kind, key, ref, now_ts)
+            except Exception as error:  # nothing was half done: the lease runs out and it comes again
+                result = {"kind": kind, "key": key, "error": str(error)[:200]}
+            if result:
+                done.append(result)
+        if not any(kind == "scan" for kind, _, _ in due) and self._never_scanned():
+            done += self._scan_pauses(now_ts)
+        return done
+
+    def _never_scanned(self):
+        with self.db() as db:
+            return db.execute("SELECT 1 FROM timers WHERE kind='scan'").fetchone() is None
+
+    @staticmethod
+    def _still(db, kind, key, ref):
+        """Whether the claimed timer is still the one in the store (not replaced by a new pause or question, not
+        cancelled)."""
+        row = db.execute("SELECT ref FROM timers WHERE kind=? AND key=?", (kind, key)).fetchone()
+        return bool(row) and row[0] == ref
+
+    @staticmethod
+    def _rearm_in(db, kind, key, ref, due):
+        db.execute("UPDATE timers SET due=? WHERE kind=? AND key=? AND ref=?", (due, kind, key, ref))
+
+    @staticmethod
+    def _holder(org, kind, member):
+        """(the record a pause sits on, whether its switch is still off, its name for notices)."""
+        if kind == "wake":
+            return org, not org.get("auto_wake", True), org["name"]
+        if kind == "seat":
+            seat = org["members"].get(member) or {}
+            return seat, not seat.get("auto_wake", True), "%s / %s" % (org["name"], member)
+        drive = org.get("drive") or {}
+        return drive, not drive.get("on") and bool((drive.get("goal") or "").strip()), org["name"]
+
+    def _fire(self, kind, key, ref, now_ts):
+        if kind == "scan":
+            return {"kind": "scan", "found": self._scan_pauses(now_ts)}
+        if kind == "ask":
+            return self._ask_ran_out(key, ref)
+        if kind not in ("wake", "seat", "drive"):
+            return None
+        from . import i18n, monitor
+        org_id, _, member = key.partition("/")
+        # What the pause waits for is looked at before the write (usage data, the person at the computer).
+        peek = (self._holder(self.get(org_id), kind, member)[0] or {}).get("pause") or {}
+        wait_for = peek.get("wait_for") if peek.get("id") == ref else None
+        limits = codex_limits() if wait_for == "quota:codex" else {}
+        away = presence().get("at_computer") is False if wait_for == "idle" else None
+        stopped = monitor.stopped()
+        with self.change(org_id) as (org, db):
+            if not self._still(db, kind, key, ref):
+                return None
+            holder, still_off, name = self._holder(org, kind, member)
+            pause = holder.get("pause") or {}
+            if org.get("status") != "active" or not still_off or pause.get("id") != ref:
+                db.execute("DELETE FROM timers WHERE kind=? AND key=? AND ref=?", (kind, key, ref))
+                return None
+            if stopped:  # the person's Stop or Stop all is in force: it goes first
+                self._rearm_in(db, kind, key, ref, now_ts + 600)
+                return {"kind": kind, "key": key, "outcome": "held by the person's stop"}
+            if pause.get("review"):  # no end was named: ask the pauser again, never restart blindly
+                self._rearm_in(db, kind, key, ref, now_ts + PAUSE_DEFAULT)
+                self._tell_pauser(db, pause, i18n.t("pause.review", what=name, reason=pause.get("reason") or "-",
+                                                    at=pause.get("at")))
+                return {"kind": kind, "key": key, "outcome": "review"}
+            if wait_for == "quota:codex":
+                resets = float(limits.get("resets_at") or 0)
+                later_reset = resets > (epoch(pause.get("until")) or 0) + 60
+                low_use = limits.get("used_percent") is not None and float(limits["used_percent"]) < 50
+                window_over = bool(resets) and now_ts >= resets + QUOTA_GRACE  # no newer reading: see QUOTA_GRACE
+                if not (later_reset or low_use or window_over):
+                    self._rearm_in(db, kind, key, ref, now_ts + 1800)
+                    return {"kind": kind, "key": key, "outcome": "quota not reset yet"}
+            if wait_for == "idle" and not away:
+                self._rearm_in(db, kind, key, ref, now_ts + 300)
+                return {"kind": kind, "key": key, "outcome": "person at the computer"}
+            why = self._ended(pause)
+            if kind == "drive":
+                self._apply_drive(db, org, True, by=SYSTEM)
+            else:
+                holder["auto_wake"] = True
+                holder.pop("pause", None)
+                db.execute("DELETE FROM timers WHERE kind=? AND key=? AND ref=?", (kind, key, ref))
+                if kind == "wake":
+                    self._event(db, org_id, "human", "organization.auto_wake", {"on": True, "reason": why})
+                else:
+                    self._event(db, org_id, member, "member.auto_wake", {"on": True, "reason": why})
+            self._tell_pauser(db, pause, i18n.t("pause.ended", what=name, reason=pause.get("reason") or "-",
+                                                at=pause.get("at")))
+            return {"kind": kind, "key": key, "outcome": "ended"}
+
+    @staticmethod
+    def _ended(pause):
+        return "pause ended at %s (set by %s at %s: %s)" % (pause.get("until"), pause.get("by"), pause.get("at"),
+                                                            (pause.get("reason") or "no reason given")[:200])
+
+    def _tell_pauser(self, db, pause, text):
+        """The member who paused hears of it in its own organization, in the same transaction as the change."""
+        place, _, name = str(pause.get("by") or "").rpartition("/")
+        if not place:
+            return
+        try:
+            home = self._load(db, place)
+        except OrgError:
+            return
+        if name in home["members"]:
+            self._post(db, home["id"], SYSTEM, [name], text)
+            self.__dict__.setdefault("posted", []).append(home["id"])
+
+    def _scan_pauses(self, now_ts):
+        """Switches an older plugin (or a script) turned off with a member's reason and no end become reviewed pauses:
+        their pauser is asked every PAUSE_DEFAULT whether the reason is still there. Runs every SCAN_EVERY seconds."""
+        found = []
+        with self.db() as db:
+            db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES('scan', 'all', ?, 'scan')",
+                       (now_ts + self.SCAN_EVERY,))
+        for org in self.list_orgs():
+            if org.get("status") != "active":
+                continue
+            switches = []
+            if not org.get("auto_wake", True) and not org.get("pause"):
+                switches.append(("wake", None, "organization.auto_wake"))
+            for member, seat in org["members"].items():
+                if not seat.get("auto_wake", True) and not seat.get("pause"):
+                    switches.append(("seat", member, "member.auto_wake"))
+            for kind, member, event in switches:
+                with self.db() as db:
+                    sql = "SELECT at, body FROM events WHERE org_id=? AND kind=?" + (" AND member=?" if member else "")
+                    row = db.execute(sql + " ORDER BY seq DESC LIMIT 1",
+                                     (org["id"], event) + ((member,) if member else ())).fetchone()
+                if not row:
+                    continue
+                body = json.loads(row[1] or "{}")
+                reason = body.get("reason") or ""
+                if body.get("on") is not False or not self._member_pause(False, None, HUMAN, reason):
+                    continue
+                due = max((epoch(row[0]) or now_ts) + PAUSE_DEFAULT, now_ts)
+                key = org["id"] if kind == "wake" else "%s/%s" % (org["id"], member)
+                with self.change(org["id"]) as (o, db):
+                    holder = o if kind == "wake" else o["members"][member]
+                    if holder.get("auto_wake", True) or holder.get("pause"):
+                        continue
+                    pause = {"id": short_id("p_"), "at": row[0], "until": iso(due), "by": body.get("by") or "",
+                             "reason": reason[:500], "review": True}
+                    holder["pause"] = pause
+                    db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES(?, ?, ?, ?)",
+                               (kind, key, due, pause["id"]))
+                found.append({"kind": kind, "key": key, "review_at": iso(due)})
+            drive = org.get("drive") or {}
+            if (drive and not drive.get("on") and not drive.get("pause") and drive.get("set_by") not in
+                    (None, HUMAN, SYSTEM) and (drive.get("goal") or "").strip()):
+                due = max((epoch(drive.get("set_at")) or now_ts) + PAUSE_DEFAULT, now_ts)
+                with self.change(org["id"]) as (o, db):
+                    current = o.get("drive") or {}
+                    if current.get("on") or current.get("pause"):
+                        continue
+                    pause = {"id": short_id("p_"), "at": current.get("set_at"), "until": iso(due),
+                             "by": current.get("set_by"), "reason": (current.get("off_reason") or "")[:500],
+                             "review": True}
+                    o["drive"] = dict(current, pause=pause)
+                    db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES('drive', ?, ?, ?)",
+                               (org["id"], due, pause["id"]))
+                found.append({"kind": "drive", "key": org["id"], "review_at": iso(due)})
+        return found
+
+    # questions to the person: message to=[human] with recommend (P8, P9: once, with a recommendation, an hour)
+    def _ask_send(self, org, member, to, body, recommend, due, executor, key, episode_id):
+        """A question to the person, asked once: the message, its record and its timer are written in one transaction,
+        and a question with the same key that is still open is not asked again (its first deadline stands). key: the
+        decision's own name, the same for whoever asks it (a seat that takes over asks under the same key); by default
+        the question and the recommendation themselves."""
+        names = [str(n) for n in (to if isinstance(to, list) else ([to] if to else []))]
+        if HUMAN not in names:
+            raise OrgError("recommend goes with a question to the person: to=['human'].")
+        others = [n for n in dict.fromkeys(names) if n != HUMAN]
+        unknown = set(others) - set(org["members"])
+        if unknown:
+            raise OrgError("Unknown members: " + ", ".join(sorted(unknown)))
+        if executor and executor not in org["members"]:
+            raise OrgError("executor: a member of %s, who goes ahead when the hour is over." % org["name"])
+        key = str(key).strip()[:200] if key else "auto:" + hashlib.sha1(
+            ("%s\n%s" % (" ".join(body.split())[:1000], recommend)).encode("utf-8")).hexdigest()[:16]
+        hop = self._sender_hop(org["id"], member)
+        away = self.person_away()  # the person is not at the computer: the question does not wait (person_away)
+        from . import i18n
+        with self.change(org["id"]) as (o, db):
+            for ask in (o.get("asks") or {}).values():
+                if ask.get("status") == "open" and ask.get("key") == key:
+                    return {"message_id": ask["message_id"], "to": [HUMAN] + others, "ask": dict(ask),
+                            "already_asked": True}
+            doer = executor or member
+            why = away_why(away) if away else ""
+            if away:
+                text = body.rstrip() + "\n\n" + i18n.t("ask.away_note", recommend=recommend, why=why, executor=doer)
+            else:
+                text = body.rstrip() + "\n\n" + i18n.t("ask.note", recommend=recommend, due=central(due), executor=doer)
+            recipients = [HUMAN] + others
+            cur = db.execute("INSERT INTO messages(org_id,sender,recipients,body,episode_id,at,hop,reply_to) "
+                             "VALUES(?,?,?,?,?,?,?,?)", (o["id"], member, json.dumps(recipients), text, episode_id,
+                                                         now(), hop, None))
+            mid = cur.lastrowid
+            self._event(db, o["id"], member, "message.sent", {"id": mid, "to": recipients})
+            asks = o.setdefault("asks", {})
+            o["counters"]["ask"] = o["counters"].get("ask", 0) + 1
+            aid = "A%d" % o["counters"]["ask"]
+            asks[aid] = {"id": aid, "key": key, "asker": member, "executor": doer, "message_id": mid,
+                         "recommend": recommend[:1000], "due": iso(due), "status": "open", "at": now()}
+            go = None
+            if away:  # settled at once: the asker reads the go-ahead in its result, another executor gets it as a notice
+                asks[aid].update(status="away", settled_at=now())
+                self._event(db, o["id"], member, "ask.away", {"id": aid, "message_id": mid})
+                go = i18n.t("ask.away", id=mid, recommend=recommend, executor=doer, why=why)
+                if doer != member:
+                    self._post(db, o["id"], SYSTEM, [doer], go)
+                    self.__dict__.setdefault("posted", []).append(o["id"])
+            else:
+                db.execute("INSERT OR REPLACE INTO timers(kind, key, due, ref) VALUES('ask', ?, ?, ?)",
+                           ("%s/%s" % (o["id"], aid), due, aid))
+                self._event(db, o["id"], member, "ask.opened", {"id": aid, "message_id": mid, "due": iso(due)})
+            settled = [k for k, v in asks.items() if v.get("status") != "open"]
+            for old in settled[:-50]:
+                asks.pop(old, None)  # keep the open ones and the last 50 settled
+            result = {"message_id": mid, "to": recipients, "ask": dict(asks[aid])}
+            if go:
+                result["person_away"] = go
+            return result
+
+    ASK_ID = re.compile(r"(?<![A-Za-z0-9])A(\d+)(?![0-9])")
+    MESSAGE_ID = re.compile(r"#(\d+)")
+
+    def _answer_asks(self, org_id, root, body, message_id):
+        """The person answered a question: by replying in its thread (root: the question's message), or by naming it
+        anywhere in the organization (A3, or #<its message id>). Only those are settled: a message that names none
+        settles none."""
+        named = {"A" + n for n in self.ASK_ID.findall(body or "")}
+        messages = {int(n) for n in self.MESSAGE_ID.findall(body or "")}
+
+        def hit(ask):
+            return ask.get("status") == "open" and (ask.get("message_id") == root or ask.get("id") in named or
+                                                    ask.get("message_id") in messages)
+        if not any(hit(a) for a in (self.get(org_id).get("asks") or {}).values()):
+            return []
+        settled = []
+        with self.change(org_id) as (org, db):
+            for ask in (org.get("asks") or {}).values():
+                if hit(ask):
+                    ask.update(status="answered", answer_id=message_id, settled_at=now())
+                    db.execute("DELETE FROM timers WHERE kind='ask' AND key=?", ("%s/%s" % (org_id, ask["id"]),))
+                    self._event(db, org_id, HUMAN, "ask.answered", {"id": ask["id"], "message_id": message_id})
+                    settled.append(ask["id"])
+        return settled
+
+    def _ask_ran_out(self, key, ref):
+        """An hour passed with no answer: one notice to the executor (and the asker) to go ahead with the
+        recommendation, written in the same transaction as the question's new state and the timer's removal. When the
+        person has stopped the work meanwhile (Stop, Stop all, or this organization's auto-wake switched off by the
+        person) the question is held and nobody is told."""
+        org_id, _, aid = key.partition("/")
+        from . import i18n, monitor
+        stopped = monitor.stopped()
+        away = self.person_away()  # before its hour is up when the person has left the computer (fire_timers)
+        with self.change(org_id) as (org, db):
+            if not self._still(db, "ask", key, ref):
+                return None
+            db.execute("DELETE FROM timers WHERE kind='ask' AND key=? AND ref=?", (key, ref))
+            ask = (org.get("asks") or {}).get(aid)
+            if not ask or ask.get("status") != "open":
+                return None
+            held = stopped or (not org.get("auto_wake", True) and not org.get("pause"))
+            gone = "away" if away else "ran_out"
+            ask.update(status="held" if held else gone, settled_at=now())
+            self._event(db, org_id, ask["asker"], "ask.held" if held else "ask." + gone,
+                        {"id": aid, "message_id": ask["message_id"]})
+            if held:
+                return {"kind": "ask", "key": key, "outcome": "held by a stop"}
+            to = [m for m in dict.fromkeys([ask.get("executor") or ask["asker"], ask["asker"]]) if m in org["members"]]
+            if to:
+                text = (i18n.t("ask.away", id=ask["message_id"], recommend=ask["recommend"], executor=to[0],
+                               why=away_why(away)) if away else
+                        i18n.t("ask.ran_out", id=ask["message_id"], recommend=ask["recommend"], executor=to[0]))
+                self._post(db, org_id, SYSTEM, to, text)
+                self.__dict__.setdefault("posted", []).append(org_id)
+            return {"kind": "ask", "key": key, "outcome": "person away" if away else "ran out"}
+
+    def open_asks(self, org_id, member=None):
+        return [dict(a) for a in (self.get(org_id).get("asks") or {}).values()
+                if a.get("status") == "open" and (member is None or member in (a.get("asker"), a.get("executor")))]
+
+    # the person's own words, typed into a member's session (relic_hook: UserPromptSubmit). Only sessions that hold a
+    # seat: the person's other chats stay theirs. Members read the words typed into seats of their organization and the
+    # organizations below it (said), with where and when, instead of asking each other for the exact words.
+    WORDS_KEPT = 1000
+
+    def person_said(self, harness, session, place, text):
+        text = mask_secrets(text).strip()
+        if not text or not place:
+            return None
+        with self.db() as db:
+            cur = db.execute("INSERT INTO person_words(at, harness, session, place, text) VALUES(?,?,?,?,?)",
+                             (now(), harness, str(session or "")[:80], str(place)[:200], text[:4000]))
+            db.execute("DELETE FROM person_words WHERE id <= ?", (cur.lastrowid - self.WORDS_KEPT,))
+            return cur.lastrowid
+
+    def said(self, org_id, limit=10, query=None, hours=72):
+        """What the person typed lately into the sessions of seats in org_id and the organizations below it, newest
+        first: [{at, harness, place, text}]. query: only what contains it."""
+        orgs = [org_id] + [o["id"] for o in self.descendants(org_id)]
+        since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - float(hours or 72) * 3600))
+        sql = "SELECT at, harness, place, text FROM person_words WHERE at>=? AND (%s)" % " OR ".join(
+            ["place LIKE ?"] * len(orgs))
+        args = [since] + ["%s/%%" % o for o in orgs]
+        if query:
+            sql += " AND text LIKE ?"
+            args.append("%" + str(query) + "%")
+        with self.db() as db:
+            rows = db.execute(sql + " ORDER BY id DESC LIMIT ?", args + [max(1, min(int(limit or 10), 50))]).fetchall()
+        return [{"at": at, "harness": h, "place": p, "text": t} for at, h, p, t in rows]
+
+    def person_away(self, now_ts=None):
+        """None while the person is around: at the computer (presence: keyboard, mouse, the window in front), or typed
+        to a member's session or wrote in the Relic App within IDLE_AFTER (from a phone too), or when it cannot be
+        told. Else {"minutes", "locked"}: then nobody waits for the person (the person, 2026-11-15: 我不在的话，那么他们
+        就应该是一个自主运行的模式……我他妈不在我怎么审批啊)."""
+        seen = presence()
+        if seen.get("at_computer") is not False:
+            return None
+        now_ts = time.time() if now_ts is None else now_ts
+        recent = iso(now_ts - IDLE_AFTER)
+        with self.db() as db:
+            if db.execute("SELECT 1 FROM person_words WHERE at>=? LIMIT 1", (recent,)).fetchone():
+                return None
+            if db.execute("SELECT 1 FROM messages WHERE sender=? AND at>=? LIMIT 1", (HUMAN, recent)).fetchone():
+                return None
+        return {"minutes": int((seen.get("idle_seconds") or 0) // 60), "locked": bool(seen.get("locked"))}
+
+    def person_quotes(self, body, days=7, most=3):
+        """The person's own words that body quotes verbatim: [{id, at, place, quoted}], newest prompt first, from
+        what the person typed into seats' sessions (person_said) in the last `days`. A member may quote part of a
+        prompt and leave words out: each stretch of it found in body counts (spaces and quote marks aside), and a
+        prompt counts when its longest stretch weighs QUOTE_FLOOR; the stretches shown are as the person typed them."""
+        body = str(body or "")
+        flat = flat_words(body[:20000])
+        if len(flat) < QUOTE_SEED:
+            return []
+        seeds = {flat[k:k + QUOTE_SEED] for k in range(len(flat) - QUOTE_SEED + 1)}
+        with self.db() as db:
+            rows = db.execute("SELECT id, at, place, text FROM person_words WHERE at>=? ORDER BY id DESC",
+                              (iso(time.time() - days * 86400),)).fetchall()
+        found, seen = [], set()
+        for wid, at, place, text in rows:
+            if "W%d]" % wid in body:
+                continue  # already vouched for in this text (a message passed on): "[Relic check W<id>]"
+            words, places = _flat_with_places(text or "")
+            if not any(words[k:k + QUOTE_SEED] in seeds for k in range(len(words) - QUOTE_SEED + 1)):
+                continue
+            stretches, i = [], 0
+            while i <= len(words) - QUOTE_SEED:
+                if words[i:i + QUOTE_SEED] not in seeds:
+                    i += 1
+                    continue
+                size = QUOTE_SEED
+                while i + size < len(words) and words[i:i + size + 1] in flat:
+                    size += 1
+                stretch = words[i:i + size]
+                if stretch not in seen:
+                    seen.add(stretch)
+                    stretches.append((stretch, text[places[i]:places[i + size - 1] + 1].strip()))
+                i += size
+            if stretches and max(_weight(s) for s, _ in stretches) >= QUOTE_FLOOR:
+                quoted = [shown for s, shown in stretches if _weight(s) >= QUOTE_SHOWN]
+                found.append({"id": wid, "at": at, "place": place, "quoted": quoted})
+                if len(found) >= most:
+                    break
+        return found
+
+    def _place_name(self, place):
+        """"<org id>/<member>" as the person reads it: "<organization name> · <member>"."""
+        org_id, _, member = str(place or "").partition("/")
+        try:
+            return "%s · %s" % (self.get(org_id)["name"], member) if member else str(place)
+        except OrgError:
+            return str(place)
+
+    def with_quotes(self, body):
+        """body with Relic's check of the person's words it quotes (person_quotes) under it, else body unchanged."""
+        try:
+            found = self.person_quotes(body)
+        except (sqlite3.Error, ValueError):
+            return body
+        if not found:
+            return body
+        from . import i18n
+        lines = [i18n.t("quote.verified", quoted=" … ".join(q["quoted"]), id=q["id"], place=self._place_name(q["place"]),
+                        when=central(epoch(q["at"]) or time.time())) for q in found]
+        return body.rstrip() + "\n\n" + "\n".join(lines)
+
+    def drive_due(self, now_ts):
+        """The organizations with keep-going on whose next check is due, each claimed for a minute so that two
+        processes never check (and send a notice for) the same one at once."""
+        due = []
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for (org_id,) in db.execute("SELECT org_id FROM drive WHERE next_check<=?", (now_ts,)).fetchall():
+                db.execute("UPDATE drive SET next_check=? WHERE org_id=?", (now_ts + 60, org_id))
+                due.append(org_id)
+        return due
+
+    def set_drive_check(self, org_id, next_check):
+        """When wake.drive_check looks at the organization next; None: keep-going is off (or the organization gone)."""
+        with self.db() as db:
+            if next_check is None:
+                db.execute("DELETE FROM drive WHERE org_id=?", (org_id,))
+            else:
+                db.execute("UPDATE drive SET next_check=? WHERE org_id=?", (float(next_check), org_id))
+
+    def drive_checks(self):
+        """{org_id: next check} for every organization with keep-going on."""
+        with self.db() as db:
+            return {r[0]: r[1] for r in db.execute("SELECT org_id, next_check FROM drive")}
+
+    def arm_drive(self, at, now_ts):
+        """Whether the caller is to schedule the delayed keep-going check for `at`: no scheduled one that has not run
+        yet comes by then. Recorded at once, so that of all the processes asking together exactly one schedules it."""
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT due FROM drive_wake WHERE id=1").fetchone()
+            if row and row[0] is not None and now_ts < row[0] <= at + 5:
+                return False
+            db.execute("INSERT OR REPLACE INTO drive_wake(id, due) VALUES(1, ?)", (at,))
+            return True
+
+    def send_system(self, org_id, to, body):
+        """A message from the plugin itself (SYSTEM): a keep-going notice, a pause that ended or is to be reviewed, a
+        question to the person that ran out, a review to do. hop 0: it starts a new exchange. posted: the organizations
+        written in, for the caller to wake the recipients (wake.drive_due)."""
+        with self.db() as db:
+            mid = self._post(db, org_id, SYSTEM, list(to), body)
+        self.__dict__.setdefault("posted", []).append(org_id)
+        return mid
 
     # ---------------- shared work ----------------
     def work(self, actor, op, a):
         """Shared work in your organization; with org=<an organization below yours>, read its documents and
-        assign or update its tasks."""
+        assign or update its tasks; with org=<one above yours, at any depth>, read its documents and nothing else."""
         if a.get("org"):
-            own, me, target, way = self.reach(actor, a.pop("org"))
+            ref = a.pop("org")
+            own, me, target, way = self.reach_to_read(actor, ref) if op == "doc_read" else self.reach(actor, ref)
+            if way == "up":  # read-only: nothing is written in the organization above
+                return self._doc_read(target, a.get("key"))
             if way:
                 return self._work_below(own, me, target, op, a)
         org, member = self.require(actor)
+        if op == "said":  # read-only, outside the organization's change
+            return {"said": self.said(org["id"], a.get("limit") or 10, a.get("query"), a.get("hours") or 72)}
         return self._work(org, member, op, a)
+
+    @staticmethod
+    def _doc_read(org, key=None):
+        """work op=doc_read: one of the organization's documents (key), or their index without the bodies."""
+        if key:
+            if key not in org["documents"]:
+                raise OrgError("No document " + key)
+            return {"key": key, **org["documents"][key]}
+        return {"documents": {k: {"revision": v["revision"], "author": v["author"], "at": v["at"]}
+                              for k, v in org["documents"].items()}}
 
     def _work(self, org, member, op, a):
         with self.change(org["id"]) as (org, db):
@@ -2042,13 +3282,7 @@ class Store:
                 self._event(db, org["id"], member, "document.written", {"key": key, "revision": revision + 1})
                 return {"key": key, "revision": revision + 1}
             if op == "doc_read":
-                key = a.get("key")
-                if key:
-                    if key not in org["documents"]:
-                        raise OrgError("No document " + key)
-                    return {"key": key, **org["documents"][key]}
-                return {"documents": {k: {"revision": v["revision"], "author": v["author"], "at": v["at"]}
-                                      for k, v in org["documents"].items()}}
+                return self._doc_read(org, a.get("key"))
             if op == "task":
                 tid = a.get("task_id")
                 if tid and tid not in org["tasks"]:
@@ -2089,6 +3323,9 @@ class Store:
                     task["done_at"] = now()
                 if report:
                     task["report"] = report
+                if a.get("job") is not None:
+                    job = attach_job(task, a["job"], member)
+                    self._event(db, org["id"], member, "task.job", {"id": tid, "pid": job["pid"] if job else 0})
                 task["at"] = now()
                 self._event(db, org["id"], member, "task.updated", dict(
                     {"id": tid, "status": task["status"], "owner": task["owner"]},
@@ -2098,7 +3335,7 @@ class Store:
                 target = a.get("member") or member
                 if target not in org["members"]:
                     raise OrgError("Unknown member " + target)
-                if target != member and org.get("leader") not in (None, member):
+                if target != member and leaders(org) and not leads(org, member):
                     raise OrgError("Only the leader assigns roles to others; members set their own.")
                 org["members"][target]["role"] = a.get("role", "")
                 self._event(db, org["id"], member, "role.set", {"member": target, "role": a.get("role", "")})
@@ -2108,7 +3345,59 @@ class Store:
                     raise OrgError("note needs body.")
                 org["members"][member]["notes"] = (org["members"][member].get("notes", []) + [a["body"]])[-30:]
                 return {"private_notes": len(org["members"][member]["notes"])}
+            if op == "drive":
+                return self._drive_op(org, db, member, a)
+            if op == "purpose":
+                return self._purpose_op(org, db, member, a)
             raise OrgError("Unknown work op " + str(op))
+
+    PURPOSE_LIMIT = 4000
+
+    def _purpose_op(self, org, db, member, a):
+        """work op=purpose: the leader brings its own organization's purpose up to date, or a member of an
+        organization above does it there (member "<org id>/<name>"), e.g. after the person changed a rule the purpose
+        states. It takes a reason; the person is told, with the purpose it replaces."""
+        if "/" not in member and org.get("governance") == "leader" and not leads(org, member):
+            raise OrgError("The purpose is changed by the leader (%s), or from an organization above."
+                           % ", ".join(leaders(org)))
+        text = (a.get("purpose") or "").strip()
+        if not text:
+            raise OrgError("purpose needs the new purpose text: the whole text, as members should read it.")
+        if len(text) > self.PURPOSE_LIMIT:
+            raise OrgError("Keep the purpose under %d characters; put the details in a document." % self.PURPOSE_LIMIT)
+        reason = (a.get("reason") or "").strip()
+        if not reason:
+            raise OrgError("Say why the purpose changes (reason): the person is told.")
+        old = org.get("purpose") or ""
+        if text == old:
+            return {"org": org["id"], "purpose": text, "changed": False}
+        org["purpose"] = text
+        self._event(db, org["id"], member, "organization.purpose",
+                    {"by": member, "reason": reason[:500], "old": old, "new": text})
+        from . import i18n
+        self._post(db, org["id"], member, [HUMAN],
+                   i18n.t("purpose.changed_by", member=member, org=org["name"], reason=reason, old=old, new=text))
+        return {"org": org["id"], "purpose": text, "previous": old, "changed": True}
+
+    def _drive_op(self, org, db, member, a):
+        """work op=drive: the leader switches keep-going in its own organization, or a member of an organization above
+        does it there (member "<org id>/<name>"). Switching it off tells the person why."""
+        if "/" not in member and org.get("governance") == "leader" and not leads(org, member):
+            raise OrgError("Keep-going is switched by the leader (%s), or from an organization above."
+                           % ", ".join(leaders(org)))
+        on = a.get("on")
+        if not isinstance(on, bool):
+            raise OrgError("drive needs on: true or false.")
+        reason = (a.get("reason") or "").strip()
+        if not on and not reason:
+            raise OrgError("Say why keep-going goes off (reason): the person is told.")
+        drive = self._apply_drive(db, org, on, a.get("goal"), a.get("driver"), member, reason, a.get("until"))
+        if not on:
+            from . import i18n
+            self._post(db, org["id"], member, [HUMAN],
+                       i18n.t("drive.off_by", member=member, org=org["name"], reason=reason))
+        return {k: drive[k] for k in ("on", "goal", "driver", "set_by", "set_at", "off_reason", "resume_at")
+                if k in drive}
 
     # ---------------- episodes and reflection ----------------
     def episode(self, actor, op, a):
@@ -2132,7 +3421,7 @@ class Store:
             if not ep:
                 raise OrgError("Unknown episode.")
             if op == "close":
-                if member not in (ep["owner"], org.get("leader")):
+                if member != ep["owner"] and not leads(org, member):
                     raise OrgError("The episode owner or leader closes it.")
                 if a.get("outcome") not in ("success", "failure", "partial", "cancelled"):
                     raise OrgError("outcome: success, failure, partial or cancelled.")
@@ -2178,7 +3467,7 @@ class Store:
         approvals = {m for m, v in p["votes"].items() if v["vote"] == "approve" and m in org["members"]}
         rejects = {m for m, v in p["votes"].items() if v["vote"] == "reject" and m in org["members"]}
         need = self._threshold(org)
-        leader_ok = org["governance"] != "leader" or org["leader"] in approvals
+        leader_ok = org["governance"] != "leader" or bool(set(leaders(org)) & approvals)
         if leader_ok and len(approvals) >= need:
             if p.get("retire_target"):
                 target = org["protocols"].get(p["retire_target"])
@@ -2194,7 +3483,7 @@ class Store:
             self._event(db, org["id"], p["author"], "protocol.activated", {"id": p["id"], "strength": p["strength"]})
             if p["status"] == "active":
                 self._copy_to_person(db, org, p)
-        elif len(rejects) > len(org["members"]) - need or (org["governance"] == "leader" and org["leader"] in rejects):
+        elif len(rejects) > len(org["members"]) - need or (org["governance"] == "leader" and bool(set(leaders(org)) & rejects)):
             p.update(status="rejected")
             self._event(db, org["id"], p["author"], "protocol.rejected", {"id": p["id"]})
 
@@ -2306,8 +3595,12 @@ class Store:
         return path_rules.absolute(override, base) if override else path_rules.absolute(base)
 
     def gate(self, actor, tool, tool_input, cwd=None):
-        """Return (allowed, reasons). Records review requests for require_review rules; runs the programs of the check
-        rules that cover the call (side by side, each in a process of its own) and does what they answer."""
+        """Return (allowed, reasons). A strong rule stops one call, never the work: every call the rules block gets a
+        request (one per exact call, however many rules block it), and one approval of it lets that exact call through
+        once. Another member approves it (review op=approve: what require_review and a check program's review ask
+        for), or the blocked member lets it through itself with a reason (review op=proceed), which the organizations
+        whose rules it passes read. Runs the programs of the check rules that cover the call (side by side, each in a
+        process of its own)."""
         tool, tool_input = normalize(tool, tool_input)
         actor = self.focused(actor)  # the organization the session works for now: its protocols bind this call
         org, member = self.whoami(actor)
@@ -2315,7 +3608,9 @@ class Store:
             return True, []
         cwd = self._tool_cwd(org, member, tool_input, cwd)
         role = org["members"][member].get("role", "")
-        reasons, consumed, checks = [], [], []
+        # blocks: (whether it asks another member to approve, protocol as named here, what the member reads, the rule's
+        # own reason for the request)
+        blocks, checks = [], []
         last_edit = None
         review_input = dict(tool_input)
         if cwd:
@@ -2333,47 +3628,48 @@ class Store:
                     continue  # a rule on Reply judges the reply that ends the turn (check_reply), not tool calls
                 label = "%s %s" % (pid, p["title"])
                 if rule["effect"] == "deny":
-                    reasons.append("%s: %s" % (label, rule.get("reason", "blocked by an adopted protocol.")))
+                    why = rule.get("reason", "blocked by an adopted protocol.")
+                    blocks.append((False, pid, "%s: %s" % (label, why), why))
                 elif rule["effect"] == "check":
                     checks.append((owner, p, pid, label, rule))
                 elif rule["effect"] == "require_before":
                     if last_edit is None:
                         last_edit = self._last_activity(org["id"], member, kind="edit") or 0.0
                     if not self._has_activity_since(org["id"], member, rule["before"], last_edit):
-                        reasons.append("%s: %s" % (label, rule.get("reason") or
-                                       "first run %s after your latest edit." % rule["before"]["tools"]))
+                        why = rule.get("reason") or "first run %s after your latest edit." % rule["before"]["tools"]
+                        blocks.append((False, pid, "%s: %s" % (label, why), why))
                 else:
-                    approved = self._approved_review(org, member, tool, review_input)
-                    if approved:
-                        consumed.append(approved)
-                    else:
-                        rid = self._request_review(org["id"], member, pid, tool, review_input)
-                        reasons.append("%s: another member must approve this exact action. Review request %s is open; "
-                                       "ask a member to run review approve %s, then retry the same call." % (label, rid, rid))
+                    blocks.append((True, pid, "%s: another member must approve this exact action." % label, None))
         outcomes = self._run_checks(org, member, role, checks, tool, tool_input)
         for (owner, p, pid, label, rule), outcome in zip(checks, outcomes):
             if outcome["decision"] == "deny":
-                reasons.append("%s: %s" % (label, outcome["reason"]))
+                blocks.append((False, pid, "%s: %s" % (label, outcome["reason"]), outcome["reason"]))
             elif outcome["decision"] == "review":
-                approved = self._approved_review(org, member, tool, review_input)
-                if approved:
-                    consumed.append(approved)
-                else:
-                    rid = self._request_review(org["id"], member, pid, tool, review_input, why=outcome["reason"])
-                    reasons.append("%s: %s. Another member must approve this exact action. Review request %s is open; "
-                                   "ask a member to run review approve %s, then retry the same call."
-                                   % (label, outcome["reason"].rstrip(". "), rid, rid))
-        if not reasons and consumed:
-            with self.change(org["id"]) as (o, db):
-                for rid in consumed:
-                    o["reviews"][rid]["status"] = "used"
+                blocks.append((True, pid, "%s: %s. Another member must approve this exact action."
+                               % (label, outcome["reason"].rstrip(". ")), outcome["reason"]))
+        reasons, passed = [], None
+        if blocks and not all(asks for asks, _, _, _ in blocks):
+            # a rule denies the call: a hard protection, no request, nobody lets it through
+            reasons = [text for _, _, text, _ in blocks] + [DENIED]
+        elif blocks:
+            passed = self._approved_review(org, member, tool, review_input)
+            if passed:  # one approval, one use
+                with self.change(org["id"]) as (o, db):
+                    o["reviews"][passed]["status"] = "used"
+            else:
+                rid, asked = self._request_review(org["id"], member, [pid for _, pid, _, _ in blocks], tool,
+                                                  review_input, why=next((why for _, _, _, why in blocks if why), None))
+                asked = asked or (org["reviews"].get(rid) or {}).get("asked") or self.reviewers(org, member)
+                reasons = [text + " Review request %s is open." % rid for _, _, text, _ in blocks] + [
+                    way_past(rid, asked)]
         if reasons:
             self.turn_note(actor, friction="blocked by protocol: " + reasons[0][:120])
         with self.db() as db:
             if reasons:
                 self._event(db, org["id"], member, "protocol.blocked", {"tool": tool, "reasons": reasons})
-            elif consumed:
-                self._event(db, org["id"], member, "protocol.review_used", {"tool": tool, "reviews": consumed})
+            elif passed:
+                self._event(db, org["id"], member, "protocol.review_used",
+                            {"tool": tool, "reviews": [passed], "protocols": [pid for _, pid, _, _ in blocks]})
             if checks:
                 self._record_checks(db, org, member, tool, tool_input, checks, outcomes)
         return not reasons, reasons
@@ -2665,27 +3961,52 @@ class Store:
                 return rid
         return None
 
-    def _request_review(self, org_id, member, pid, tool, tool_input, why=None):
-        """A review request for this exact action (why: the reason a check program gave for sending it to review)."""
+    def _request_review(self, org_id, member, pids, tool, tool_input, why=None):
+        """The request for this exact call that rules send to review, one per call however many rules do (pids: the
+        protocols, as named in this organization; why: the first rule's own reason). A new one is sent at once to the
+        members who can approve it (reviewers), and their auto-wake brings them to it: nobody waits for someone who
+        does not know. Returns (request id, the reviewers asked now: [] when the request was already open)."""
+        pids = list(dict.fromkeys(pids))
         key = canonical([tool, tool_input])
         with self.change(org_id) as (org, db):
             for rid, r in org["reviews"].items():
                 if r["subject"] == member and r["status"] == "pending" and r["action"] == key:
-                    return rid
+                    r["protocols"] = list(dict.fromkeys((r.get("protocols") or [r["protocol_id"]]) + pids))
+                    return rid, []
             org["counters"]["review"] += 1
             rid = "R%d" % org["counters"]["review"]
             summary = tool_input.get("command") or tool_input.get("file_path") or canonical(tool_input)[:200]
-            org["reviews"][rid] = {"id": rid, "protocol_id": pid, "subject": member, "tool": tool, "summary": str(summary)[:300],
-                                   "action": key, "status": "pending", "at": now()}
+            org["reviews"][rid] = {"id": rid, "protocol_id": pids[0], "protocols": pids, "kind": "review",
+                                   "subject": member, "tool": tool, "summary": str(summary)[:300], "action": key,
+                                   "status": "pending", "at": now()}
             if why:
                 org["reviews"][rid]["why"] = str(why)[:checker.REASON_MAX]
-            self._event(db, org_id, member, "review.requested", {"id": rid, "protocol_id": pid})
-            return rid
+            reviewers = self.reviewers(org, member)
+            org["reviews"][rid]["asked"] = reviewers
+            self._event(db, org_id, member, "review.requested", {"id": rid, "protocol_id": pids[0],
+                                                                  "asked": reviewers})
+            r = dict(org["reviews"][rid])
+        if reviewers:
+            from . import i18n
+            self.send_system(org_id, reviewers, i18n.t("review.asked", id=rid, member=member, tool=tool,
+                                                       summary=r["summary"][:200], why=r.get("why") or "-",
+                                                       protocols=", ".join(pids)))
+        return rid, reviewers
+
+    @staticmethod
+    def reviewers(org, subject):
+        """Who is asked to review a member's call: the leaders (those who are someone else), otherwise the other
+        members; three at most."""
+        heads = [m for m in leaders(org) if m in org["members"] and m != subject]
+        if heads:
+            return heads[:3]
+        return [m for m in org["members"] if m != subject][:3]
 
     def review(self, actor, op, a):
         org, member = self.require(actor)
         if op == "list":
             return [dict({k: r[k] for k in ("id", "protocol_id", "subject", "tool", "summary", "status")},
+                         protocols=r.get("protocols") or [r["protocol_id"]],
                          **({"why": r["why"]} if r.get("why") else {}))
                     for r in org["reviews"].values() if r["status"] == "pending"]
         if op != "approve":
@@ -2700,7 +4021,10 @@ class Store:
                 raise OrgError("Say what you checked.")
             r.update(status="approved", reviewer=member, note=a["note"][:500], approved_at=now())
             self._event(db, org["id"], member, "review.approved", {"id": r["id"], "subject": r["subject"]})
-            return r
+        from . import i18n
+        self.send_system(org["id"], [r["subject"]], i18n.t("review.approved", id=r["id"], reviewer=member,
+                                                           summary=r["summary"][:200]))
+        return r
 
     # ---------------- activity (called from PostToolUse) ----------------
     def record_activity(self, actor, tool, tool_input, failed=False, output="", cwd=None):

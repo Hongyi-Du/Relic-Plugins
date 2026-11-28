@@ -38,6 +38,14 @@ def plugin_dir(root=ROOT):
     return plugin
 
 
+def record_installed(plugin):
+    """Name this plugin folder in the data root (current.json): every Relic process, however old the copy it runs,
+    starts member turns and background checks from the Relic installed last (relic_core.runner.entry)."""
+    home = Path(os.environ.get('RELIC_HOME') or Path.home() / '.relic')
+    home.mkdir(parents=True, exist_ok=True)
+    write_json(home / 'current.json', {'plugin': str(plugin)})
+
+
 def configure(root=ROOT, python=None):
     """Point the plugin's MCP server and hooks at this Python and this folder."""
     python = str(Path(python or sys.executable).resolve())
@@ -66,6 +74,14 @@ def configure(root=ROOT, python=None):
                     if hook.get('type') == 'command':
                         hook['command'] = command
                         hook.pop('args', None)
+                        # Codex executes Windows hooks as PowerShell commands.
+                        # A quoted executable without & is a string expression,
+                        # so the old command failed before Python received stdin.
+                        if path.name == 'codex-hooks.json' and os.name == 'nt':
+                            quote = lambda value: "'" + value.replace("'", "''") + "'"
+                            hook['commandWindows'] = '& ' + quote(Path(python).as_posix()) + ' -X utf8 -c ' + quote(code)
+                        else:
+                            hook.pop('commandWindows', None)
         write_json(path, data)
     return plugin
 
@@ -78,7 +94,7 @@ def cli(name):
 def run(command, check=True):
     print('> ' + subprocess.list2cmdline(command), flush=True)
     env = platform_support.runtime_env(executables=[platform_support.find_executable('node'), command[0]])
-    return subprocess.run(command, check=check, env=env).returncode
+    return subprocess.run(command, check=check, env=env, creationflags=platform_support.creation_flags()).returncode
 
 
 def shortcut(python):
@@ -95,14 +111,14 @@ def shortcut(python):
     env = dict(os.environ, RELIC_LINK_TARGET=str(target), RELIC_LINK_ARGS='-X utf8 "%s"' % script,
                RELIC_LINK_DIR=str(ROOT / 'plugins' / 'relic'))
     subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', ps], check=True, env=env,
-                   stdout=subprocess.DEVNULL)
+                   stdout=subprocess.DEVNULL, creationflags=platform_support.creation_flags())
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', choices=('auto', 'claude', 'codex', 'both', 'none'), default='auto',
-                        help='Which hosts get the plugin: every installed one (auto, the default), one, both, or none '
-                             '(the Relic App alone).')
+    parser.add_argument('--host', choices=('auto', 'claude', 'codex', 'both', 'antigravity', 'none'), default='auto',
+                        help='Which hosts get the plugin: every installed one (auto, the default), one, both (Claude '
+                             'Code and Codex), antigravity (the Antigravity app), or none (the Relic App alone).')
     parser.add_argument('--configure-only', action='store_true',
                         help='Prepare this extracted folder without changing any host or making a shortcut.')
     parser.add_argument('--no-shortcut', action='store_true', help='Do not make the Relic shortcut on the desktop.')
@@ -125,12 +141,22 @@ def main(argv=None):
         if args.configure_only:
             print('Configuration only. No plugin was installed and no host settings were changed.')
             return 0
+        record_installed(plugin)
+        from relic_core import antigravity
         wanted = {'auto': ('claude', 'codex'), 'both': ('claude', 'codex'), 'none': ()}.get(args.host, (args.host,))
+        installed = []
+        # Antigravity has no plugin CLI: the plugin is a folder it loads by itself (relic_core/antigravity.py).
+        if args.host == 'antigravity' or (args.host == 'auto' and antigravity.installed()):
+            if not antigravity.installed():
+                raise RuntimeError('Antigravity not found: install it and open it once, so ~/.gemini/antigravity exists.')
+            folder = antigravity.install_plugin(plugin, read_json(plugin / '.claude-plugin/plugin.json')['version'])
+            print(f'Antigravity plugin: {folder}')
+            installed.append('Antigravity')
+        wanted = tuple(name for name in wanted if name != 'antigravity')
         found = {name: cli(name) for name in wanted}
         missing = [name for name, path in found.items() if not path]
         if missing and args.host not in ('auto',):
             raise RuntimeError(f'{" and ".join(missing)} CLI not found. Install it, sign in, and ensure it is on PATH.')
-        installed = []
         for host, exe in found.items():
             if not exe:
                 continue
@@ -150,9 +176,7 @@ def main(argv=None):
             except (OSError, subprocess.CalledProcessError) as error:
                 print(f'The desktop shortcut was not made ({error}). Open the App with scripts/open_app.py.')
         elif sys.platform == 'darwin' and not args.no_shortcut:
-            import macos_app
-            launcher = macos_app.install(ROOT, sys.executable)
-            print(f'Finder launcher: {launcher}')
+            print('Open the native Relic.app from Finder. Install the SwiftUI package if it is not present.')
         print()
         print('Installed Relic ' + read_json(plugin / '.claude-plugin/plugin.json')['version'] + '.'
               + (' Plugin added to: ' + ', '.join(installed) + '.' if installed else ' No host CLI was found: the plugin '
@@ -162,6 +186,15 @@ def main(argv=None):
               + (' (or the Relic shortcut on the desktop)' if os.name == 'nt' and not args.no_shortcut else '') + '.')
         print('Members you add in the App get Relic from the App. For your own Claude Code and Codex sessions, restart '
               'the host and review and trust the plugin hooks in its settings before relying on protocol enforcement.')
+        if 'Codex' in installed:
+            from relic_core import codex_trust
+            hooks = codex_trust.status(plugin=plugin)
+            if hooks['state'] in ('changed', 'untrusted'):
+                print('Codex: the %d Relic hooks are %s, so Codex skips them: Codex members get no messages between '
+                      'their own Relic calls and strict protocols are not enforced on them. In Codex, run /hooks and '
+                      'trust the hooks of %s. Codex asks again after every upgrade that changes the plugin.'
+                      % (hooks['hooks'], 'not approved for this version' if hooks['state'] == 'changed'
+                         else 'not approved yet', hooks['plugin']))
         print('The earlier Relic Codex edition (relic-organization) keeps its own tools and data; remove it in Codex '
               'if you no longer use it.')
         if sys.platform == 'darwin':
@@ -169,7 +202,8 @@ def main(argv=None):
                   'Check Settings > Harness connections or scripts/doctor.py --probe-desktop. '
                   'CLI, App-managed members and manual inbox work independently.')
         if args.open:
-            subprocess.Popen([sys.executable, '-X', 'utf8', str(ROOT / 'scripts' / 'open_app.py')])
+            subprocess.Popen([sys.executable, '-X', 'utf8', str(ROOT / 'scripts' / 'open_app.py')],
+                             creationflags=platform_support.creation_flags())
         return 0
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f'Installation stopped: {error}', file=sys.stderr)

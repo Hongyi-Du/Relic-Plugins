@@ -1,13 +1,13 @@
 {
   "name": "relic",
-  "version": "0.18.0-beta.1",
+  "version": "0.18.1-beta.1",
   "description": "Relic organizations across Codex and Claude Code: persistent members on either harness, shared work, organization-owned weak and strong protocols enforced on every member's tool calls.",
   "author": {
     "name": "Hongyi Du"
   },
   "skills": "./skills/",
   "mcpServers": "./codex.mcp.json",
-  "hooks": "./hooks/hooks.json",
+  "hooks": "./hooks/codex-hooks.json",
   "interface": {
     "displayName": "Relic",
     "shortDescription": "Codex 和 Claude Code 成员组成同一个 Relic 组织",

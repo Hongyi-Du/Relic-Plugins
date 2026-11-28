@@ -54,7 +54,8 @@ class Api(unittest.TestCase):
     def test_inbox_wait_is_bounded(self):
         clock = Clock()
         out = api.inbox(self.store, "s1", wait=10 ** 6, sleep=clock.sleep, clock=clock)
-        self.assertEqual(out["text"], "No unread messages.")
+        self.assertTrue(out["text"].startswith("No unread messages."))
+        self.assertIn("check status", out["text"])
         self.assertEqual(clock.t, api.MAX_WAIT)
 
     def test_inbox_without_wait_returns_at_once(self):

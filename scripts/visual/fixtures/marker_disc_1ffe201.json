@@ -1,0 +1,37 @@
+{
+  "recording": {
+    "source": "parity-1ffe201/full-reference-zh-CN-light/zh-CN-light-1024x700-file-markdown.{elements,ax,dom}.json",
+    "commit": "1ffe201",
+    "note": "Minimal actual marker/AX/layout recording. Computed list style fields were not saved by this old collector and are intentionally not invented in this fixture. Tests supply separate explicitly synthetic CSS inputs."
+  },
+  "browser": { "name": "Chromium", "version": "156.0.8078.4" },
+  "old_projection": {
+    "id": "dom-351::marker", "kind": "icon", "text": "• ", "name": "• ",
+    "bounds": { "x": 528, "y": 285.453125, "width": 7, "height": 19 },
+    "icon": { "source": "text-glyph", "glyph": "• " }
+  },
+  "snapshot": {
+    "index": 520,
+    "backend_node_id": 526,
+    "text": "• ",
+    "bounds": { "x": 528, "y": 284.453125, "width": 7, "height": 22.9375 },
+    "text_element_bounds": { "x": 528, "y": 285.453125, "width": 7, "height": 19 },
+    "layout_rows": [
+      { "layout_index": 414, "layout_quantity": "layout-without-transformed-text", "text": null, "text_index": -1,
+        "source_bounds": [528, 284.453125, 7, 22.9375], "paint_order": 102 },
+      { "layout_index": 415, "layout_quantity": "text-layout", "text": "• ", "text_index": 407,
+        "source_bounds": [528, 285.453125, 7, 19], "paint_order": 102 }
+    ],
+    "text_fragments": [
+      { "text_box_index": 111, "layout_index": 415, "start": 0, "length": 2,
+        "source_bounds": [528, 285.453125, 7, 19],
+        "bounds": { "x": 528, "y": 285.453125, "width": 7, "height": 19 } }
+    ]
+  },
+  "accessibility": {
+    "nodeId": "526", "backendDOMNodeId": 526, "ignored": false,
+    "role": { "type": "internalRole", "value": "ListMarker" },
+    "name": { "type": "computedString", "value": "• ", "sources": [{ "type": "contents", "value": { "type": "computedString", "value": "• " } }] },
+    "parentId": "525", "childIds": ["-1000000119"]
+  }
+}

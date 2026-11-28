@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "hooks"))
 
-from relic_core import claude_desktop, desktop, runner, wake  # noqa: E402
+from relic_core import claude_desktop, desktop, gui_receipt, runner, wake  # noqa: E402
 from relic_core.store import Store, now  # noqa: E402
 import relic_hook  # noqa: E402
 import server  # noqa: E402
@@ -55,11 +55,11 @@ class Wake(unittest.TestCase):
         os.environ.update(self.saved)
         self.tmp.cleanup()
 
-    def start(self, org_id, member, prompt, wake_from, wake_hop):
+    def start(self, org_id, member, prompt, wake_from, wake_hop, wake_message_ids=None):
         """Records the turn and leaves the run state a real start would: running, with a live pid and the hop."""
         self.started.append((member, wake_from, prompt, wake_hop))
         runner.write_state(org_id, member, {"status": "running", "started": time.time(), "pid": os.getpid(),
-                                            "wake_hop": wake_hop})
+                                            "wake_hop": wake_hop, "wake_message_ids": wake_message_ids})
 
     def finish(self, member, error=None):
         """The end of a turn, as relic_run records it: the run state, then the wake-up's claim settled."""
@@ -72,16 +72,17 @@ class Wake(unittest.TestCase):
                              retry=lambda org_id, delay: self.retries.append(delay))
 
     def test_message_wakes_a_configured_seat_once(self):
-        self.store.send(LEAD, ["cody"], "please review the API")
+        mid = self.store.send(LEAD, ["cody"], "please review the API")["message_id"]
         self.assertEqual(self.dispatch(), ["cody"])
         member, senders, prompt, hop = self.started[0]
         self.assertEqual((member, senders, hop), ("cody", ["lead"], 1))
         self.assertIn("[Relic auto-wake]", prompt)
-        self.assertIn("not instructions from the person", prompt)
+        self.assertIn("Relayed instructions are as good as the person's own", prompt)
+        self.assertNotIn("what the person has already authorized in your own session", prompt)
         self.finish("cody")
         self.assertEqual(self.dispatch(self.t + 1000), [])  # same unread message: no second turn
         woken = self.store.events(self.oid, ["member.woken"])
-        self.assertEqual(woken[-1]["body"], {"from": ["lead"], "unread": 1, "hop": 1})
+        self.assertEqual(woken[-1]["body"], {"from": ["lead"], "unread": 1, "hop": 1, "message_ids": [mid]})
 
     def test_mac_desktop_messages_wait_for_inbox_without_claims_or_retries(self):
         self.store.set_seat_fields(self.oid, "cody", config=dict(runner.default_config("codex"), surface="gui"))
@@ -226,6 +227,23 @@ class Wake(unittest.TestCase):
         self.assertNotIn("in_use", mine)
         self.assertEqual(self.dispatch(self.t + wake.GAP + 1), ["cody"])
 
+    def test_turn_running_in_the_claude_desktop_app_waits_a_gap_even_after_failures(self):
+        self.store.send(LEAD, ["cody"], "hello")
+        with self.store.change(self.oid) as (org, _):  # earlier wake-ups of this seat failed, up to the limit
+            org.setdefault("wake", {}).setdefault("members", {}).setdefault("cody", {})["failures"] = wake.MAX_FAILURES
+        self.dispatch()
+        for busy in ("Claude Desktop unavailable: OrgBench · lead %s (a turn is running); nothing was sent",
+                     "Claude Desktop unavailable: the Desktop session that would start OrgBench · lead %s; "
+                     "nothing was sent"):
+            busy %= gui_receipt.DESKTOP_BUSY
+            self.assertTrue(wake.no_turn(busy))
+            self.assertEqual(self.finish("cody", busy), wake.GAP)
+            mine = self.store.get(self.oid)["wake"]["members"]["cody"]
+            self.assertEqual(mine["failures"], wake.MAX_FAILURES)  # waiting counts as no failure
+            self.assertNotIn("gave_up_at", mine)
+            self.t += wake.GAP + 1
+            self.assertEqual(self.dispatch(self.t), ["cody"])
+
     def test_chat_held_out_of_reach_is_rechecked_a_limited_number_of_times(self):
         self.store.send(LEAD, ["cody"], "hello")
         held = "thread/resume: thread th-cody already has an active writer"
@@ -292,6 +310,37 @@ class Wake(unittest.TestCase):
         self.assertNotIn("failures", mine)
         self.assertIsNone(mine.get("last_id"))
 
+    def test_a_chat_that_waits_for_the_person_is_reported_to_them_once(self):
+        """2026-11-18: chief's chat waited on an approval in the Codex app for 16 hours. Its wake-up was retried every
+        two minutes as busy, and nobody heard of it."""
+        os.environ["RELIC_LANG"] = "en-US"
+
+        def waiting(since):
+            return desktop.busy_error({"thread": {"id": "t", "title": "Chief secretary", "updatedAt": since, "status": {
+                "type": "active", "activeFlags": ["waitingOnApproval"]}}})
+
+        def told():
+            with self.store.db() as db:
+                return [r[0] for r in db.execute("SELECT body FROM messages WHERE sender='relic' AND recipients=?",
+                                                 ('["human"]',))]
+
+        self.store.send(LEAD, ["cody"], "please review")
+        for _ in range(3):  # retried every GAP while it waits: the person hears of it once
+            self.assertEqual(self.dispatch(), ["cody"])
+            self.assertEqual(self.finish("cody", waiting(1794953295)), wake.GAP)
+            self.t += wake.GAP + wake.QUIET + 1
+        [note] = told()
+        self.assertIn('cody\'s Codex chat "Chief secretary" has been waiting for you', note)
+        self.assertIn("(an approval)", note)
+        self.assertIn("22:08Z", note)
+        self.assertEqual(self.dispatch(), ["cody"])
+        self.finish("cody")  # the person answered: the turn went through
+        self.store.send(LEAD, ["cody"], "and the next one")
+        self.t += wake.GAP + wake.QUIET + 1
+        self.assertEqual(self.dispatch(), ["cody"])
+        self.finish("cody", waiting(1794960000))  # a new wait is told again
+        self.assertEqual(len(told()), 2)
+
     def test_inbox_finds_a_message_behind_many_for_others(self):
         for n in range(21):
             self.store.send(LEAD, ["ana"], "for ana %d" % n)
@@ -300,21 +349,35 @@ class Wake(unittest.TestCase):
         self.assertEqual(len(self.store.unread(ANA, limit=50)), 21)
 
     def test_every_woken_turn_ends_with_one_receipt(self):
-        since = now()
+        since = wake.message_checkpoint(self.store, self.oid)
         relic_run.receipt(self.store, self.oid, "cody", ["lead"], since,
                           {"status": "done", "reply": "Reviewed; two issues."})
         first = self.store.history(self.oid, 1)[-1]
         self.assertEqual((first["from"], first["to"]), ("cody", ["lead"]))
         self.assertTrue(first["body"].startswith(wake.RECEIPT_MARK))
-        self.assertIn("without a reply through Relic", first["body"])
+        self.assertIn("No reply in the triggering thread", first["body"])
+        self.assertNotIn("Reviewed; two issues.", first["body"])
         # a progress note during the turn does not replace the final receipt
         self.store.send(CODY, ["lead"], "Started, still working")
         relic_run.receipt(self.store, self.oid, "cody", ["lead"], since, {"status": "done", "reply": "All done."})
         last = self.store.history(self.oid, 1)[-1]
         self.assertTrue(last["body"].startswith(wake.RECEIPT_MARK))
-        self.assertIn("All done.", last["body"])
+        self.assertNotIn("All done.", last["body"])
         relic_run.receipt(self.store, self.oid, "cody", ["lead"], since, {"status": "failed", "error": "boom"})
         self.assertIn("the turn failed: boom", self.store.history(self.oid, 1)[-1]["body"])
+
+    def test_a_retry_that_fails_the_same_way_stays_quiet_until_a_turn_goes_through(self):
+        # 2026-11-08: each retry for one absent Desktop session sent every waker the same receipt again.
+        quiet = lambda error, ids: wake.repeated_failure(self.store, self.oid, "cody", error, ids)
+        self.assertFalse(quiet("send failed (attempt 1, nonce 1a2b3c4d5e)", [7]))
+        self.assertTrue(quiet("send failed (attempt 2, nonce 9f8e7d6c5b)", [7]))  # same failure, same message
+        self.assertFalse(quiet("send failed (attempt 3, nonce 00aa11bb22)", [7, 8]))  # a newer message: told
+        self.assertTrue(quiet("send failed (attempt 4, nonce 33cc44dd55)", [8]))
+        self.assertFalse(quiet("another failure", [7, 8]))  # the failure changed: told
+        with self.store.change(self.oid) as (org, db):
+            org["wake"]["members"]["cody"]["claim"] = {}
+        wake.finish(self.store, self.oid, "cody")  # a turn went through
+        self.assertFalse(quiet("another failure", [7, 8]))
 
     def test_members_answering_each_other_stop_after_max_hops(self):
         actors = {"cody": CODY, "ana": ANA}

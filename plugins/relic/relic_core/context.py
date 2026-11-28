@@ -2,9 +2,54 @@
 import json
 import time
 
-from .store import has_check, language_name
+from .store import REPLY, WAY_PAST, away_note, has_check, language_name, leaders, leads
 
 RECENT_TROUBLE = 24 * 3600  # a check program's failures are mentioned for a day after the latest one
+DOCUMENTS_ABOVE = 15  # document names of each organization above in a member's context, the most recently written first
+
+
+def task_state(task):
+    """A task's status, with the background job it waits on (work op=task job=<pid>)."""
+    job = task.get("job")
+    if not job:
+        return task["status"]
+    if job.get("ended_at"):
+        return "%s; its background job, process %s, ended by %s" % (task["status"], job.get("pid"), job["ended_at"])
+    return "%s; waits on its background job, process %s" % (task["status"], job.get("pid"))
+
+
+def _pause_text(what, pause):
+    end = ("Relic asks %s every 2 hours whether the reason is still there; to end it at a set time, switch it off again "
+           "with until" % (pause.get("by") or "whoever paused it")) if pause.get("review") else (
+        "it ends %s%s" % (pause.get("until"), {"quota:codex": " once the Codex limit has really reset",
+                                                "idle": " once the person has left the computer"}.get(
+                                                    pause.get("wait_for"), "")))
+    return "%s is paused by %s since %s (%s): %s." % (what, pause.get("by") or "?", pause.get("at"),
+                                                     (pause.get("reason") or "no reason given")[:200], end)
+
+
+def pause_lines(store, org, member):
+    """Pauses that touch this member, and the member's questions to the person that are running."""
+    lines = []
+    if org.get("pause") and not org.get("auto_wake", True):
+        lines.append(_pause_text("Auto-wake in this organization", org["pause"]))
+    seat = org["members"].get(member) or {}
+    if seat.get("pause") and not seat.get("auto_wake", True):
+        lines.append(_pause_text("Your seat's auto-wake", seat["pause"]))
+    drive = org.get("drive") or {}
+    if drive.get("pause") and not drive.get("on"):
+        lines.append(_pause_text("Keep-going here", drive["pause"]))
+    for ask in sorted((org.get("asks") or {}).values(), key=lambda a: a.get("due") or ""):
+        if ask.get("status") == "open" and member in (ask.get("asker"), ask.get("executor")):
+            lines.append("Question to the person (message #%s by %s): if the person has not written to %s by %s, %s goes "
+                         "ahead with: %s" % (ask["message_id"], ask["asker"], ask["asker"], ask["due"],
+                                             ask.get("executor") or ask["asker"], ask["recommend"][:300]))
+    return lines
+
+
+def _stops_calls(protocol):
+    """Whether a protocol has a strong rule on tool calls (a rule on Reply judges the reply instead)."""
+    return protocol.get("strength") == "strong" and any(r.get("tools") != [REPLY] for r in protocol.get("rules") or [])
 
 
 def _rule_text(rule):
@@ -33,21 +78,62 @@ def _rule_text(rule):
     return "%s is blocked%s" % (what, who)
 
 
+def _drive_line(org, member, above):
+    """Keep-going (wake.drive_check) on here or above: what the person wants, and who decides the next step."""
+    for place in [org] + list(above):
+        drive = place.get("drive") or {}
+        if not drive.get("on"):
+            continue
+        from .wake import DRIVE_QUIET
+        mine = place["id"] == org["id"] and drive.get("driver") == member
+        goal = drive.get("goal") or ""
+        goal = goal if len(goal) <= 400 else goal[:400] + "..."
+        return ("Keep-going (持续推进) is on for %s and the organizations below it; the driver is %s. The person wants "
+                "the work to go on without waiting for them: when you finish a step, send the result and the next step "
+                "you propose to whoever gave you the work. When nobody there has worked for %d minutes and work is "
+                "unfinished, %s a keep-going notice to decide the next step and start it. The person's standing "
+                "instruction: %s" % (place["name"], "you" if mine else drive.get("driver"), DRIVE_QUIET // 60,
+                                     "you get" if mine else "the driver gets", goal))
+    return None
+
+
+def _governance(org):
+    if org["governance"] != "leader":
+        return "peer (majority)"
+    heads = leaders(org) or [org.get("leader")]
+    return ("leader-led (leaders of the same rank: %s)" % ", ".join(heads) if len(heads) > 1
+            else "leader-led (leader: %s)" % heads[0])
+
+
 def render(store, org, member, unread_count=None, full=True):
     seat = org["members"][member]
     lines = ["Relic organization '%s' (%s). You are member '%s'%s." % (
         org["name"], org["id"], member, (" with role '%s'" % seat["role"]) if seat.get("role") else "")]
     if org.get("purpose"):
         lines.append("Purpose: " + org["purpose"])
-    gov = ("leader-led (leader: %s)" % org["leader"]) if org["governance"] == "leader" else "peer (majority)"
+    gov = _governance(org)
     roster = ", ".join("%s%s(%s)" % (m, ("[%s]" % s["role"]) if s.get("role") else "", s.get("harness", "claude-code"))
                        for m, s in org["members"].items())
     lines.append("Governance: %s. Members (harness in parentheses): %s." % (gov, roster))
     lines.append("The person reads %s; write task titles, task reports and anything addressed to the person in that "
                  "language." % language_name())
+    try:
+        away = away_note(store.person_away()).strip()
+    except Exception:  # not knowing whether the person is around never breaks the context
+        away = ""
+    if away:
+        lines.append(away)
+    above = store.ancestors(org)
+    documents_above = _documents_above(above) if full else ""
     if org.get("auto_wake", True):
         lines.append("Auto-wake is on: a member you message gets a turn in its own session automatically when that seat "
                      "has a configured session and is idle; others read it at their next tool call.")
+    keep = _drive_line(org, member, above)
+    if keep:
+        lines.append(keep)
+    slack_line = _slack_note(store, org)
+    if slack_line:
+        lines.append(slack_line)
     if len({s.get("harness", "claude-code") for s in org["members"].values()}) > 1:
         lines.append("Members run on different harnesses (Claude Code, Codex). Protocol rules use one tool vocabulary for "
                      "everyone: Bash for shell commands, Edit/Write for file changes (Codex apply_patch counts as Edit), "
@@ -57,10 +143,13 @@ def render(store, org, member, unread_count=None, full=True):
                      "protocols. Its leader closes it with group op=close when the work is done."
                      % _org_name(store, org.get("parent")))
     if org.get("cabinet"):
-        lines.append("This organization is the cabinet (secretariat); its leader is the secretary-general, who "
-                     "approves changes to the formal organizations (group op=approve | deny). The leader of every "
-                     "formal organization holds a seat here.")
-        if org.get("leader") == member:
+        lines.append("This organization is the cabinet (secretariat); its %s the secretary-general, who "
+                     "approves changes to the formal organizations (group op=approve | deny). The leaders of the "
+                     "formal organizations right below it hold a seat here; organizations further down report to "
+                     "them first."
+                     % ("leaders (%s, of the same rank) are" % ", ".join(leaders(org)) if len(leaders(org)) > 1
+                        else "leader is"))
+        if leads(org, member):
             for r in [r for r in (org.get("requests") or {}).values() if r["status"] == "pending"][:8]:
                 lines.append("Approval request %s from %s: %s.%s Your call: group op=approve or op=deny, request_id=%s."
                              % (r["id"], _requester(r), store.request_text(r),
@@ -68,17 +157,25 @@ def render(store, org, member, unread_count=None, full=True):
     seat_office = seat.get("ex_officio")
     if seat_office:
         lines.append("You hold this seat ex officio, as the leader of %s." % _org_name(store, seat_office.get("org")))
-    above = store.ancestors(org)
     if above:
-        lines.append("Above this organization: %s. Their members can see it, write to its members, assign its tasks "
-                     "and issue protocols that take effect here directly. You report to them with message (org=<id>, "
-                     "to=[member]); their work belongs to them." % ", ".join("%s (%s)" % (a["name"], a["id"]) for a in above))
+        lines.append("Above this organization: %s. Their members can see it, assign its tasks and issue protocols "
+                     "that take effect here directly. You report to the organization right above yours, %s, with "
+                     "message (org=%s, to=[member]): its members carry what matters further up, and the ones above "
+                     "them ask it when they need something. Write past it only when it cannot wait or the person "
+                     "asked for it (2026-11-15, the person: 越级可以发，但是它的第一选择应该是只发给直属上级). You can "
+                     "read every organization above: status (org=<id>) shows one "
+                     "read-only and work op=doc_read (org=<id>, key=...) reads its documents; the rest of their work "
+                     "belongs to them." % (", ".join("%s (%s)" % (a["name"], a["id"]) for a in above), above[0]["name"],
+                                           above[0]["id"]))
     below = store.descendants(org["id"])
     if below:
         lines.append("Below this organization: %s. As a member you can act there with the org argument: status (see "
-                     "it), message (write to its members), work op=task (assign or update its tasks; doc_read reads its "
+                     "it), message (first to the organizations right below yours, whose members pass it on; further "
+                     "down only when it cannot wait), work op=task (assign or update its tasks; doc_read reads its "
                      "documents) and protocol op=propose (a protocol that takes effect there directly). protocol "
-                     "inherit=true makes a protocol bind every organization below the one it belongs to."
+                     "inherit=true makes a protocol bind every organization below the one it belongs to. Their members "
+                     "read this organization's documents and status too (read-only), so what they should keep knowing "
+                     "(run settings, working practices) can be a document instead of a protocol."
                      % ", ".join("%s (%s)" % (b["name"], b["id"]) for b in below))
     chats = [m for m, s in org["members"].items() if s.get("harness") in ("chatgpt", "claude-chat")]
     if chats:
@@ -117,6 +214,9 @@ def render(store, org, member, unread_count=None, full=True):
     for above, p, level, by, how in lineage["replaced"]:
         lines.append("- %s/%s '%s' of %s is %s by %s %s and does not bind here." % (
             above["id"], p["id"], p["title"], above["name"], how, level["name"], by))
+    if any(_stops_calls(p) for p in active) or any(_stops_calls(p) for _, p in inherited):
+        lines.append(WAY_PAST)
+    lines += pause_lines(store, org, member)
     for ref, title, kinds, latest in store.check_trouble(org):
         if time.time() - latest < RECENT_TROUBLE:
             lines.append("The check program of %s '%s' has failed (%s; latest %s UTC): calls it covers are allowed or "
@@ -132,7 +232,8 @@ def render(store, org, member, unread_count=None, full=True):
         lines.append("Proposal awaiting your vote: %s '%s' by %s (%s)." % (p["id"], p["title"], p["author"], p["strength"])
                      + (" It runs a check program: read its code and examples with protocol op=list protocol_id=%s "
                         "before you vote, and say in your vote what you checked." % p["id"] if has_check(p) else ""))
-    reviews = [r for r in org["reviews"].values() if r["status"] == "pending" and r["subject"] != member]
+    reviews = [r for r in org["reviews"].values()
+               if r["status"] == "pending" and r["subject"] != member and r.get("kind", "review") == "review"]
     for r in reviews[:5]:
         lines.append("Review requested: %s by %s for %s: %s%s" % (r["id"], r["subject"], r["tool"], r["summary"][:120],
                                                                  (" (why: %s)" % r["why"][:160]) if r.get("why") else ""))
@@ -143,12 +244,14 @@ def render(store, org, member, unread_count=None, full=True):
             r["reason"][:120]))
     mine = [t for t in org["tasks"].values() if t["owner"] == member and t["status"] not in ("done", "dropped")]
     if mine:
-        lines.append("Your open tasks: " + "; ".join("%s %s (%s)" % (t["id"], t["title"], t["status"]) for t in mine[:8]))
+        lines.append("Your open tasks: " + "; ".join("%s %s (%s)" % (t["id"], t["title"], task_state(t)) for t in mine[:8]))
     others = [t for t in org["tasks"].values() if t["owner"] != member and t["status"] not in ("done", "dropped")]
     if others and full:
-        lines.append("Others' open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], t["status"]) for t in others[:10]))
+        lines.append("Others' open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], task_state(t)) for t in others[:10]))
     if org["documents"] and full:
         lines.append("Shared documents: " + ", ".join("%s(r%d)" % (k, v["revision"]) for k, v in org["documents"].items()))
+    if documents_above:
+        lines.append(documents_above)
     opened = [e for e in org["episodes"].values() if e["status"] == "open" and member in e["participants"]]
     if opened:
         lines.append("Open episodes you take part in: " + "; ".join("%s %s (owner %s)" % (e["id"], e["title"], e["owner"]) for e in opened[:5]))
@@ -210,15 +313,22 @@ def _org_name(store, org_id):
         return str(org_id)
 
 
-def render_below(store, org, viewer_org, viewer):
-    """An organization below the viewer's, as a member of the organization above sees it."""
-    lines = ["Organization '%s' (%s), below your organization '%s'. You see it from above: write to its members "
-             "(message org=%s), assign or update its tasks (work op=task org=%s) and issue protocols that take effect "
-             "here directly (protocol op=propose org=%s)." % (org["name"], org["id"], viewer_org["name"], org["id"],
-                                                                 org["id"], org["id"])]
+def _slack_note(store, org):
+    """While the person's Slack is connected and this organization may read it, say so (relic_core/slack.py)."""
+    try:
+        from . import slack
+        return slack.context_note(store, org)
+    except Exception:  # a broken Slack setting never breaks a member's context
+        return ""
+
+
+def _outline(store, org):
+    """What both views of an organization from outside show (render_below, render_above): its purpose, governance and
+    members, the titles of the protocols in effect there and its open tasks."""
+    lines = []
     if org.get("purpose"):
         lines.append("Purpose: " + org["purpose"])
-    gov = ("leader-led (leader: %s)" % org["leader"]) if org["governance"] == "leader" else "peer (majority)"
+    gov = _governance(org)
     roster = ", ".join("%s%s(%s)" % (m, ("[%s]" % s["role"]) if s.get("role") else "", s.get("harness", "claude-code"))
                        for m, s in org["members"].items())
     lines.append("Governance: %s. Members (harness in parentheses): %s." % (gov, roster or "none yet"))
@@ -236,14 +346,59 @@ def render_below(store, org, viewer_org, viewer):
                                                                     p["title"], above["name"]))
     tasks = [t for t in org["tasks"].values() if t["status"] not in ("done", "dropped")]
     if tasks:
-        lines.append("Open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], t["status"])
+        lines.append("Open tasks: " + "; ".join("%s %s -> %s (%s)" % (t["id"], t["title"], t["owner"], task_state(t))
                                                for t in tasks[:15]))
+    return lines
+
+
+def _documents_index(org):
+    """The index of an organization's documents, as both views from outside show it."""
+    if not org["documents"]:
+        return []
+    return ["Shared documents (work op=doc_read org=%s key=...): %s" % (
+        org["id"], ", ".join("%s(r%d)" % (k, v["revision"]) for k, v in org["documents"].items()))]
+
+
+def _documents_above(above):
+    """One line naming the documents of each organization above (nearest first), for a member's context: members below
+    read them (work op=doc_read org=<id>), so an organization above can keep what they should know in a document
+    instead of a protocol. At most DOCUMENTS_ABOVE names an organization, the most recently written first."""
+    parts = []
+    for place in above:
+        names = [k for k, _ in sorted((place.get("documents") or {}).items(), key=lambda kv: kv[1].get("at") or "",
+                                      reverse=True)]
+        if names:
+            more = len(names) - DOCUMENTS_ABOVE
+            parts.append("%s (%s): %s%s" % (place["name"], place["id"], ", ".join(names[:DOCUMENTS_ABOVE]),
+                                            (", +%d more" % more) if more > 0 else ""))
+    if not parts:
+        return ""
+    return "Documents of the organizations above (work op=doc_read org=<id> key=...): " + "; ".join(parts)
+
+
+def render_above(store, org, viewer_org, viewer):
+    """An organization above the viewer's, as a member of the organization below sees it (status org=<it>): read-only,
+    and what render_below shows of an organization except its messages, episodes, finished tasks and the
+    organizations below it. Nothing that belongs to its members alone: no reviews, proposals or votes, trajectory
+    requests, unread messages or notes (render_below leaves those out too)."""
+    lines = ["Organization '%s' (%s), above your organization '%s'. You see it from below, read-only: read its "
+             "documents (work op=doc_read org=%s key=...) and report to its members (message org=%s, to=[member]); "
+             "the rest of its work belongs to them." % (org["name"], org["id"], viewer_org["name"], org["id"],
+                                                         org["id"])]
+    return "\n".join(lines + _outline(store, org) + _documents_index(org))
+
+
+def render_below(store, org, viewer_org, viewer):
+    """An organization below the viewer's, as a member of the organization above sees it."""
+    lines = ["Organization '%s' (%s), below your organization '%s'. You see it from above: write to its members "
+             "(message org=%s), assign or update its tasks (work op=task org=%s) and issue protocols that take effect "
+             "here directly (protocol op=propose org=%s)." % (org["name"], org["id"], viewer_org["name"], org["id"],
+                                                                 org["id"], org["id"])]
+    lines += _outline(store, org)
     done = sorted((t for t in org["tasks"].values() if t["status"] == "done"), key=lambda t: t.get("done_at") or "")
     if done:
         lines.append("Recently done: " + "; ".join("%s %s (%s)" % (t["id"], t["title"], t["owner"]) for t in done[-5:]))
-    if org["documents"]:
-        lines.append("Shared documents (work op=doc_read org=%s key=...): %s" % (
-            org["id"], ", ".join("%s(r%d)" % (k, v["revision"]) for k, v in org["documents"].items())))
+    lines += _documents_index(org)
     opened = [e for e in org["episodes"].values() if e["status"] == "open" and e.get("kind") != "turn"]
     if opened:
         lines.append("Open episodes: " + "; ".join("%s %s (owner %s)" % (e["id"], e["title"], e["owner"]) for e in opened[:5]))

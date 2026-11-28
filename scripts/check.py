@@ -9,6 +9,8 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'plugins/relic'))
+from relic_core.process import creation_flags
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--suite', choices=('all','relic','packaging'), default='all')
 parser.add_argument('--output', type=Path, default=ROOT/'test-results')
@@ -26,7 +28,7 @@ for name, folder in roots.items():
         env.update(RELIC_HOME=str(Path(temp)/'relic'), RELIC_ORG_HOME=str(Path(temp)/'organization'),
                    CODEX_HOME=str(Path(temp)/'codex'), CLAUDE_CONFIG_DIR=str(Path(temp)/'claude'),
                    HOME=str(Path(temp)/'home'), USERPROFILE=str(Path(temp)/'home'), PYTHONDONTWRITEBYTECODE='1',
-                   TEMP=temp, TMP=temp, TMPDIR=temp)
+                   TEMP=temp, TMP=temp, TMPDIR=temp, RELIC_PRESENCE='here')  # tests that need the person away set it
         Path(env['HOME']).mkdir()
         start = time.monotonic()
         log_path = args.output/f'{name}.log'
@@ -35,7 +37,8 @@ for name, folder in roots.items():
         with log_path.open('w', encoding='utf-8') as log:
             try:
                 proc = subprocess.run([sys.executable,'-B','-X','utf8',str(ROOT/'scripts/run_fixture_suite.py')],
-                                      cwd=folder, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout)
+                                      cwd=folder, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout,
+                                      creationflags=creation_flags())
                 exit_code = proc.returncode
             except subprocess.TimeoutExpired:
                 timed_out, exit_code = True, 124

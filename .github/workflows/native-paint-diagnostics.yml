@@ -1,0 +1,192 @@
+name: Native paint diagnostics
+run-name: Paint diagnostics ${{ github.ref_name }} ${{ inputs.language }} ${{ inputs.theme }} producer-SMB-${{ inputs.producer_smb_mib || '0' }}MiB
+
+# Diagnostic-only: no push/PR trigger, native application, acceptance scene
+# filtering, or dependency on the full visual-review workflow.
+on:
+  # First branch-only dispatch at cb692a0 returned HTTP 404: this workflow
+  # was not found on the default branch. The already registered visual-review
+  # workflow invokes this same-ref reusable entry only for its manual paint mode.
+  workflow_call:
+    inputs:
+      language:
+        description: Fixture language
+        type: string
+        default: en-US
+      theme:
+        description: Production appearance
+        type: string
+        default: light
+      archive_run_id:
+        description: Optional original browser diagnostic run to decode without new capture
+        type: string
+        default: ''
+      producer_smb_mib:
+        description: Diagnostic producer SMB hypothesis only; 0 unchanged or 16 MiB
+        type: string
+        default: '0'
+  workflow_dispatch:
+    inputs:
+      language:
+        description: Fixture language
+        type: choice
+        options: [en-US, zh-CN]
+        default: en-US
+      theme:
+        description: Production appearance
+        type: choice
+        options: [light, dark]
+        default: light
+      archive_run_id:
+        description: Optional original browser diagnostic run to decode without new capture
+        type: string
+        default: ''
+      producer_smb_mib:
+        description: Diagnostic producer SMB hypothesis only; does not change acceptance checks
+        type: choice
+        options: ['0', '16']
+        default: '0'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  paint:
+    if: ${{ !inputs.archive_run_id }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - os: windows-2025
+            platform: windows
+            channel: headless-shell
+          - os: windows-2025
+            platform: windows
+            channel: chromium
+          - os: macos-15
+            platform: macos
+            channel: headless-shell
+          - os: macos-15
+            platform: macos
+            channel: chromium
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pillow playwright
+      - run: python -m playwright install chromium
+      - name: Describe the existing diagnostic cases without launching a client
+        shell: python
+        env:
+          DIAGNOSTIC_LANGUAGE: ${{ inputs.language }}
+          DIAGNOSTIC_THEME: ${{ inputs.theme }}
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          if os.environ.get("GITHUB_ACTIONS") != "true":
+              raise SystemExit("Paint diagnostics are CI-only.")
+          sys.path.insert(0, str(Path("scripts/visual").resolve()))
+          from capture import capture_cases
+
+          spec = json.loads(Path("scripts/visual/scenes.json").read_text(encoding="utf-8"))
+          language, theme = os.environ["DIAGNOSTIC_LANGUAGE"], os.environ["DIAGNOSTIC_THEME"]
+          scenes, sizes = ["group", "file-code", "file-markdown"], [[1440, 900]]
+          if language not in spec["languages"] or theme not in spec["themes"]:
+              raise ValueError("Unknown shared appearance setting")
+          if any(scene not in spec["scenes"] for scene in scenes) or sizes[0] not in spec["sizes"]:
+              raise ValueError("Diagnostic cases must already exist in the shared matrix")
+          # Same configured visual clock as capture.py. paint_trace.py starts
+          # the actual existing serve.py fixture; it supplies every runtime
+          # org/file/port/token value. No native executable or fake receipt.
+          manifest = {"version": 1, "client": "reference", "lang": language, "theme": theme,
+              "fixture": {"clock": "2026-10-29T11:02:00Z"},
+              "output": str(Path("visual/paint").resolve()),
+              "cases": capture_cases(scenes, sizes, language, theme),
+              "diagnostic_only": True, "canonical_measurements_changed": False}
+          directory = Path("visual/manifest")
+          directory.mkdir(parents=True, exist_ok=True)
+          (directory / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+      - name: Collect original browser paint and post-navigation LayerTree evidence
+        timeout-minutes: 5
+        shell: bash
+        env:
+          DIAGNOSTIC_PRODUCER_SMB_MIB: ${{ inputs.producer_smb_mib || '0' }}
+        run: python -X utf8 scripts/visual/paint_trace.py --producer-smb-mib "$DIAGNOSTIC_PRODUCER_SMB_MIB" --channel ${{ matrix.channel }} --manifest visual/manifest/manifest.json --scene group --scene file-code --scene file-markdown --width 1440 --height 900 --output visual/paint
+      - name: Retain original diagnostic records even when collection fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paint-diagnostic-${{ matrix.platform }}-${{ matrix.channel }}-${{ inputs.language }}-${{ inputs.theme }}
+          path: visual
+          if-no-files-found: error
+  archive-skp:
+    if: ${{ inputs.archive_run_id != '' }}
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download original Windows Chromium paint diagnostic
+        uses: actions/download-artifact@v4
+        with:
+          name: paint-diagnostic-windows-chromium-en-US-light
+          run-id: ${{ inputs.archive_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/skp-input/chromium
+      - name: Download original Windows headless-shell paint diagnostic
+        uses: actions/download-artifact@v4
+        with:
+          name: paint-diagnostic-windows-headless-shell-en-US-light
+          run-id: ${{ inputs.archive_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/skp-input/headless-shell
+      - name: Test the isolated decoder input contracts without a browser
+        run: python -m unittest discover -s scripts/visual/skp_probe -p test_contract.py -v
+      - name: Build the actual captured browser's pinned Skia decoder
+        run: python scripts/visual/skp_probe/build_ci.py --case "$env:RUNNER_TEMP/skp-input/chromium/paint/en-US-light-1440x900-group" --work "$env:RUNNER_TEMP/relic-skp-build" --output artifacts/skp/build
+      - name: Inspect every unique original paint record without rendering or changing canonical evidence
+        shell: python
+        env:
+          ARCHIVE_RUN_ID: ${{ inputs.archive_run_id }}
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          cases = [("chromium", "group"), ("chromium", "file-code"),
+                   ("chromium", "file-markdown"), ("headless-shell", "file-code")]
+          attempts = []
+          root = Path("artifacts/skp")
+          for channel, scene in cases:
+              case = Path(os.environ["RUNNER_TEMP"]) / "skp-input" / channel / "paint" / f"en-US-light-1440x900-{scene}"
+              output = root / channel / scene
+              attempt = {"run_id": os.environ["ARCHIVE_RUN_ID"],
+                  "source_artifact": f"paint-diagnostic-windows-{channel}-en-US-light",
+                  "case_path": str(case), "output_path": str(output), "status": "started"}
+              attempts.append(attempt)
+              (root / "archive-attempts.json").write_text(json.dumps(attempts, indent=2), encoding="utf-8")
+              result = subprocess.run([sys.executable, "scripts/visual/skp_probe/run_ci.py",
+                  "--case", str(case), "--archive-all-unique", "--build", str(root / "build"),
+                  "--output", str(output)], check=False)
+              attempt.update(status="completed", exit_code=result.returncode)
+              (root / "archive-attempts.json").write_text(json.dumps(attempts, indent=2), encoding="utf-8")
+          raise SystemExit(1 if any(item["exit_code"] for item in attempts) else 0)
+      - name: Retain raw decoder results including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archived-skp-diagnostic-windows
+          path: artifacts/skp
+          if-no-files-found: warn

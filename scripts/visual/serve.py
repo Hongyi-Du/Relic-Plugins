@@ -1,0 +1,326 @@
+"""CI-only realistic visual fixture served by the real Relic HTTP handler.
+
+No provider, runner, browser or member session is launched. The database belongs
+to this process's output directory. UI clients all consume these same routes.
+"""
+import argparse
+import datetime
+import json
+import os
+from pathlib import Path
+import secrets
+import sys
+import threading
+import time
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "plugins/relic"))
+
+LIVE_SCENES = frozenset(("live-busy", "live-tool-output", "live-typing"))
+SCENE_ENDPOINT = "/api/visual/scene"
+
+
+class SceneFixture:
+    """Switch CI-only live inputs without changing the existing stored fixture.
+
+    This owns a real Hub.Live and feeds the same ACP callbacks as a provider.
+    There is deliberately no agent, start(), prompt(), runner, or provider. The
+    permission worker only waits on the real Hub permission event; decide() or
+    stop() releases it. Existing CLI seat config and transcript files stay intact:
+    member_view already marks a member embedded when its Hub status exists.
+    """
+
+    def __init__(self, app, fixture, lang):
+        from app import hub
+
+        self.app, self.fixture, self.lang = app, fixture, lang
+        self.hub, self.module = app.hub, hub
+        self.key = (fixture["org"], fixture["member"])
+        self.scenes = set(json.loads((Path(__file__).with_name("scenes.json")).read_text(encoding="utf-8"))["scenes"]) | LIVE_SCENES
+        self.lock = threading.RLock()
+        self.live = None
+        self.worker = None
+        self.permission_ready = threading.Event()
+        self.permission_result = None
+        self.permission_error = None
+        self.clock = "2026-10-29T11:01:00Z"
+        self.original_now, self.original_publish = hub.now, self.hub.publish
+        # The real Hub event producer reads this clock; no returned record or
+        # frontend payload is rewritten after publication.
+        hub.now = lambda: self.clock
+        self.hub.publish = self._publish
+        self.closed = False
+
+    def _word(self, zh, en):
+        return zh if self.lang == "zh-CN" else en
+
+    def _publish(self, event):
+        self.original_publish(event)
+        # _request publishes its decision only after both the permission store
+        # entry and the waiting status have been created.
+        if event.get("type") == "decision" and event.get("org") == self.key[0]:
+            self.permission_ready.set()
+
+    def _clear(self):
+        if self.live is not None:
+            if self.hub._live.get(self.key) is not self.live:
+                raise RuntimeError("The visual fixture no longer owns its live session.")
+            if self.live.agent is not None:
+                raise RuntimeError("A visual fixture must never own a provider process.")
+            self.hub.stop(*self.key)
+            self.live = None
+        if self.worker is not None:
+            self.worker.join(timeout=5)
+            if self.worker.is_alive():
+                raise RuntimeError("The fixture permission worker did not stop.")
+            self.worker = None
+
+    def close(self):
+        with self.lock:
+            if self.closed:
+                return
+            self._clear()
+            self.hub.publish, self.module.now = self.original_publish, self.original_now
+            self.closed = True
+
+    def _update(self, **update):
+        self.hub._update(self.key, "session/update", {"update": update})
+
+    def _permission(self, params):
+        try:
+            self.permission_result = self.hub._request(self.key, "session/request_permission", params)
+        except BaseException as error:
+            self.permission_error = error
+        finally:
+            # Also unblock configure() if the request fails before publication.
+            self.permission_ready.set()
+
+    def configure(self, scene):
+        if not isinstance(scene, str) or scene not in self.scenes:
+            raise ValueError("Unknown visual fixture scene.")
+        with self.lock:
+            if self.closed or self.app.stopping.is_set():
+                raise RuntimeError("The visual fixture is stopping.")
+            self._clear()
+            result = {"scene": scene, "org": self.key[0], "member": self.key[1], "live": False}
+            if scene not in LIVE_SCENES:
+                return result
+            if not self.module.harnesses.has_hooks("claude-code"):
+                raise RuntimeError("The live fixture requires the hooked Claude Code harness; no protocol program may run.")
+            with self.hub._lock:
+                if self.key in self.hub._live:
+                    raise RuntimeError("The fixture member already has a live session.")
+                live = self.module.Live(*self.key, "claude-code")
+                live.cwd, live.session_id, live.model = self.fixture["workspace"], "visual-lead-session", "Claude"
+                self.hub._live[self.key] = self.live = live
+            try:
+                # Retain an older turn so the screen must really apply the last
+                # start marker, rather than receiving only prefiltered items.
+                self.clock = "2026-10-29T11:00:30Z"
+                self.hub._add(live, {"type": "prompt", "from": "human", "start": True,
+                                     "text": self._word("请列出上一轮的验收项目。", "List the previous review items.")})
+                self.hub._append_text(live, self._word("上一轮清单已经整理完毕。", "The previous checklist is complete."))
+                self.clock = "2026-10-29T11:01:00Z"
+                prompt = self._word("请检查本轮页面，并把需要我确认的工具操作列出来。",
+                                    "Review these screens and show the tool actions that need my approval.")
+                live.turn = {"origin": {"kind": "human", "text": prompt},
+                             "started": datetime.datetime(2026, 10, 29, 11, 1, tzinfo=datetime.timezone.utc).timestamp(),
+                             "after": self.module._last_id(self.app.store, self.key[0]), "reply": []}
+                self.hub._add(live, {"type": "prompt", "from": "human", "text": prompt, "start": True})
+                self.hub._set(live, "running", self.module._t("hub.replying"))
+                if scene == "live-typing":
+                    return dict(result, live=True, state="running", sequence=live.seq, tool=None, permission=None)
+
+                output = self._word("已读取 README.md\n\t布局：三栏\n\t检查：文字、间距与状态\n等待逐元素比较。",
+                                    "Read README.md\n\tLayout: three columns\n\tChecks: wording, spacing, and state\nWaiting for element comparison.")
+                tool_title = self._word("读取 README.md", "Read README.md")
+                tools = [
+                    ("visual-live-read", tool_title, "read", "completed", output),
+                    ("visual-live-compare", self._word("比较当前页面", "Compare current screens"), "read", "in_progress", ""),
+                    ("visual-live-approval", self._word("读取设计说明", "Read the design notes"), "read", "pending", ""),
+                    ("visual-live-image", self._word("读取图像预览", "Read the image preview"), "read", "failed",
+                     self._word("图像预览暂不可用。", "The image preview is unavailable.")),
+                ]
+                for call_id, title, kind, status, text in tools:
+                    self._update(sessionUpdate="tool_call", toolCallId=call_id, title=title, kind=kind, status="pending")
+                    self._update(sessionUpdate="tool_call_update", toolCallId=call_id, status=status,
+                                 content=[{"type": "content", "content": {"type": "text", "text": text}}] if text else [])
+                self.hub._add(live, {"type": "error", "text": self._word(
+                    "图像预览读取失败；其余检查仍可继续。", "The image preview could not be read; the remaining checks can continue.")})
+                for chunk in [self._word("我已经读完 **验收计划**。", "I've read the **review plan**."),
+                              self._word(" 接下来会核对三个窗口尺寸；读取设计说明需要您的确认。",
+                                         " Next I'll check all three window sizes; reading the design notes needs your approval.")]:
+                    self._update(sessionUpdate="agent_message_chunk", content={"type": "text", "text": chunk})
+                params = {"toolCall": {"toolCallId": "visual-live-approval", "title": tools[2][1], "kind": "read"},
+                          "options": [
+                              {"optionId": "visual-allow-once", "name": self._word("允许一次", "Allow once"), "kind": "allow_once"},
+                              {"optionId": "visual-reject-once", "name": self._word("拒绝", "Deny"), "kind": "reject_once"},
+                          ]}
+                self.permission_ready.clear()
+                self.permission_result = self.permission_error = None
+                self.worker = threading.Thread(target=self._permission, args=(params,), name="visual-permission", daemon=True)
+                self.worker.start()
+                if not self.permission_ready.wait(timeout=5):
+                    raise RuntimeError("The fixture permission request was not published.")
+                if self.permission_error is not None:
+                    raise RuntimeError("The fixture permission request failed.") from self.permission_error
+                with self.hub._lock:
+                    pending = [entry for entry in self.hub.permissions(self.key[0]) if entry["member"] == self.key[1]]
+                if len(pending) != 1 or self.hub.status(*self.key)["state"] != "waiting":
+                    raise RuntimeError("The fixture did not create one real waiting permission.")
+                return dict(result, live=True, state="waiting", sequence=live.seq, permission=pending[0],
+                            tool={"id": "visual-live-read", "title": tool_title, "open": scene == "live-tool-output"})
+            except BaseException:
+                self._clear()
+                raise
+
+
+def scene_handler(base_handler, fixture):
+    """Add only the CI fixture route; all real app routes retain their handler."""
+    class VisualHandler(base_handler):
+        def do_POST(self):
+            parts, _ = self._route()
+            if parts != ["api", "visual", "scene"]:
+                return super().do_POST()
+            body = self._body()
+            if body is None:
+                return self._error(413, "request too large")
+            if not self._host_ok():
+                return self._error(403, "wrong host")
+            if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                return self._error(403, "missing token")
+            try:
+                return self._json(fixture.configure(body.get("scene")))
+            except ValueError as error:
+                return self._error(400, str(error))
+            except RuntimeError as error:
+                return self._error(409, str(error))
+    return VisualHandler
+
+
+def seed(folder, lang):
+    from relic_core import store as stores
+    from relic_core.store import Store
+    from app import prefs
+    from PIL import Image, ImageDraw
+
+    zh = lang == "zh-CN"
+    def word(zh_text, en_text):
+        return zh_text if zh else en_text
+    workspace = folder / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "README.md").write_text(word(
+        "# 原生应用验收\n\n保留熟悉的三栏布局，使用系统原生控件。\n\n## 本周交付\n\n- 紧凑的组织树\n- 清晰的聊天与输入区\n- 浅色与深色主题\n\n| 项目 | 状态 |\n| --- | --- |\n| Windows | 审阅中 |\n| macOS | 审阅中 |\n",
+        "# Native app review\n\nKeep the familiar three-column layout with native system controls.\n\n## This week\n\n- Compact organization tree\n- Clear conversation and composer\n- Light and dark themes\n\n| Project | Status |\n| --- | --- |\n| Windows | In review |\n| macOS | In review |\n"), encoding="utf-8", newline="\n")
+    # The file API returns original bytes. Platform-default CRLF previously
+    # changed Windows's actual reference list parsing and byte-size label.
+    # Both clients and both reference browsers must receive the same fixture.
+    (workspace / "review.py").write_text('def review(platform: str) -> str:\n    """Keep evidence next to each decision."""\n    return f"Ready to review: {platform}"\n', encoding="utf-8", newline="\n")
+    image = Image.new("RGB", (560, 300), "#f4f3f0")
+    draw = ImageDraw.Draw(image)
+    for xy, color in [((24, 24, 145, 276), "#e7e5df"), ((161, 24, 375, 276), "#ffffff"), ((391, 24, 536, 276), "#ffffff")]:
+        draw.rounded_rectangle(xy, 12, fill=color)
+    for y in (52, 94, 136, 178):
+        draw.rounded_rectangle((176, y, 346, y + 28), 8, fill="#f6e8e0")
+    image.save(workspace / "layout.png")
+    store = Store()
+    import itertools
+    ids = itertools.count(1)
+    stores.short_id = lambda prefix="": prefix + ("%06d" % next(ids))
+    stores.now = lambda: "2026-10-29T11:00:00Z"
+    lead, design, build = "visual-lead-session", "visual-design-session", "visual-build-session"
+    parent = store.create("visual-parent", word("Relic 工作室", "Relic Studio"), word("让协作有据可查", "Make collaboration traceable"), "director")["id"]
+    store.issue_by_person(parent, {"title": word("重要变更先评审", "Review important changes"), "rationale": word("保持团队行动一致", "Keep the team aligned"), "trigger": word("发布或修改共享行为时", "Before release or shared behavior changes"), "guidance": word("提交证据并等待本人确认。", "Present evidence and wait for the person's decision."), "inherit": True})
+    oid = store.create(lead, word("秘书处", "Secretariat"), word("为 Hongyi Du 统筹 Codex 与 Claude Code 的日常协作，跟进任务、整理决策，并保留可核查的交付记录。", "Coordinate Hongyi Du's daily work with Codex and Claude Code, follow up tasks, organize decisions, and retain verifiable delivery records."), "secretary", word("秘书处负责人", "Secretary"))["id"]
+    store.set_parent(oid, parent)
+    store.set_seat_fields(oid, "secretary", secretary=True, display_name=word("秘书处负责人", "Secretary"), harness="claude-code", config={"harness": "claude-code", "surface": "cli", "folder": str(workspace), "model": "Claude"})
+    for actor, name, role, harness in [(design, "designer", word("界面设计与交互", "Interface and interaction"), "claude-code"), (build, "engineer", word("原生应用开发", "Native app development"), "codex")]:
+        store.join(actor, oid, name, role)
+        store.set_seat_fields(oid, name, display_name=word("设计师" if name == "designer" else "工程师", "Designer" if name == "designer" else "Engineer"), harness=harness, config={"harness": harness, "surface": "cli", "folder": str(workspace), "model": harness})
+    store.add_seat(oid, "reviewer", word("验收与回归检查", "Acceptance and regression checks"), {"harness": "codex", "surface": "cli", "folder": str(workspace)})
+    store.add_seat(oid, "advisor", word("产品建议", "Product advice"), {"harness": "chatgpt", "surface": "chat"})
+    store.set_auto_wake(oid, False)
+    group = store.create_group(lead, word("原生界面验收", "Native interface review"), word("逐屏检查视觉与交互", "Review each screen and interaction"), "designer", members=["designer", "engineer"])["id"]
+    store.set_focus(lead, oid)
+    store.issue_by_person(oid, {"title": word("页面尽量保持一致", "Keep the pages consistent"), "rationale": word("两端应有相同的信息层次与操作顺序。", "Both platforms should share information hierarchy and action order."), "trigger": word("调整原生界面时", "When changing native screens"), "guidance": word("对照参考截图检查布局、文字、间距和状态。", "Compare layout, wording, spacing, and states with reference screenshots."), "inherit": True})
+    store.work(lead, "task", {"title": word("确认通知与麦克风权限", "Confirm notification and microphone permissions"), "owner": "designer", "status": "blocked"})
+    store.work(lead, "task", {"title": word("整理双平台截图", "Collect cross-platform screenshots"), "owner": "engineer", "status": "working"})
+    done = store.work(lead, "task", {"title": word("检查消息与线程", "Review messages and threads"), "owner": "secretary"})
+    # Fixture storage contains completed historical records; no tool or check program runs.
+    with store.change(oid) as (o, db):
+        o["episodes"]["E1"] = {"id": "E1", "title": word("原生页面复核", "Native screen review"), "status": "open", "participants": ["engineer"], "reflections": {}, "kind": "shared", "opened_at": stores.now()}
+        o["members"]["engineer"]["turn_episode"] = "E1"
+        o["tasks"][done["id"]].update(status="done", report=word("消息、引用与线程已逐项核对。", "Messages, quotes, and threads have been reviewed."), evidence=[str(workspace / "README.md")], done_at=stores.now())
+        p = dict(o["protocols"]["P1"], id="P2", title=word("交付须附检查记录", "Attach checks to deliveries"), author="engineer", issued_by=None, strength="strong", summary_for_person=word("发送交付前确认附有检查结果；需要额外确认时交给本人决定。", "Before delivery, require check evidence and route exceptions to the person."), rules=[{"effect": "check", "tools": ["Bash"], "code": "result = {'decision': 'allow', 'reason': 'Evidence attached'}", "examples": []}], votes={"designer": {"vote": "approve"}}, inherit=True)
+        o["protocols"]["P2"] = p
+        o["counters"]["protocol"] = 2
+        store._copy_to_person(db, o, p)
+    store.record_activity(build, "Read", {"file_path": "README.md"}, cwd=str(workspace))
+    store.record_activity(design, "Read", {"file_path": "layout.png"}, cwd=str(workspace))
+    # Real transcript/session discovery formats, written as fixture data only.
+    # No CLI, provider, peer bridge, or member session is started.
+    project = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / "visual-workspace"
+    project.mkdir(parents=True)
+    transcript = [
+        {"type": "user", "timestamp": stores.now(), "cwd": str(workspace), "message": {"content": word("请核对本轮界面交付和截图记录。", "Review this delivery and its screenshot evidence.")}},
+        {"type": "assistant", "timestamp": stores.now(), "message": {"model": "Claude", "content": [{"type": "text", "text": word("我先读取验收计划，再对照页面检查。", "I'll read the review plan and compare the screens.")}, {"type": "tool_use", "id": "visual-read", "name": "Read", "input": {"file_path": str(workspace / "README.md")}}]}},
+        {"type": "user", "timestamp": stores.now(), "message": {"content": [{"type": "tool_result", "tool_use_id": "visual-read", "content": (workspace / "README.md").read_text(encoding="utf-8")}]}},
+        {"type": "assistant", "timestamp": stores.now(), "message": {"content": [{"type": "text", "text": word("已列出三种窗口尺寸、两种语言和浅深主题的检查项。", "The checklist now covers three sizes, both languages, and light and dark themes.")}]}}
+    ]
+    (project / (lead + ".jsonl")).write_text("\n".join(json.dumps(line, ensure_ascii=False) for line in transcript), encoding="utf-8")
+    (project / "visual-existing-session.jsonl").write_text(json.dumps({"type": "user", "timestamp": stores.now(), "cwd": str(workspace), "message": {"content": word("准备接手原生界面的验收工作", "Prepare to review the native interface")}}, ensure_ascii=False), encoding="utf-8")
+    # Keep activity states stable during the longer full screenshot matrix.
+    from app import views
+    from types import SimpleNamespace
+    fixture_now = datetime.datetime(2026, 10, 29, 11, 2, tzinfo=datetime.timezone.utc).timestamp()
+    # record_activity stores numeric wall time separately from stores.now().
+    # These are historical fixture records, set before any client loads them.
+    with store.db() as db:
+        db.execute("UPDATE activity SET at = ?", (fixture_now - 120,))
+    for path in (workspace / "README.md", workspace / "review.py", workspace / "layout.png", project / (lead + ".jsonl"), project / "visual-existing-session.jsonl"):
+        os.utime(path, (fixture_now - 120, fixture_now - 120))
+    views.time = SimpleNamespace(time=lambda: fixture_now, strptime=time.strptime, strftime=time.strftime, gmtime=time.gmtime)
+    store.work(lead, "doc_write", {"key": "review-plan", "body": (workspace / "README.md").read_text(encoding="utf-8")})
+    store.file_request(design, "leader", {"org": oid, "member": "engineer"}, word("让工程师协调本轮集成。", "Let the engineer coordinate this integration."))
+    root_message = store.send_from_human(oid, ["all"], word("这轮请把两个平台的页面放在一起看。布局要一致，也要像各自系统里完成度高的应用。", "Please compare both platforms side by side. Keep the layout consistent and make each feel like a finished desktop app."), channel="group")
+    everyone = list(store.get(oid)["members"]) + ["human"]
+    store.send_as(oid, "secretary", everyone, word("收到。我会按 **聊天、概况、工作区、设置** 的顺序整理验收记录。\n\n需要您决定的事项会留在右侧，不打断当前对话。", "Understood. I'll organize review evidence for **Chat, Overview, Workspace, and Settings**.\n\nDecisions will stay in the right pane without interrupting the conversation."))
+    store.send_as(oid, "designer", everyone, word("组织树使用紧凑行；消息保留头像、名称和时间。输入框里的工具会收在同一行。", "The tree uses compact rows. Messages keep avatars, names, and times. Composer tools stay on one line."))
+    store.send_as(oid, "engineer", everyone, word("工作区中的 `README.md` 已补充检查项。\n\n```python\nreview('Windows')\nreview('macOS')\n```", "The workspace `README.md` now includes review items.\n\n```python\nreview('Windows')\nreview('macOS')\n```"))
+    store.send_as(oid, "designer", ["human"], word("三个窗口尺寸都会检查，长标题会换行或显示省略提示。", "I'll check all three window sizes. Long titles will wrap or show an ellipsis with a tooltip."), reply_to=root_message)
+    store.send_from_human(oid, ["secretary"], word("请先整理今天需要我决定的事项。", "Please summarize the decisions I need to make today."), channel="private")
+    store.send_as(oid, "secretary", ["human"], word("目前有两项：确认权限设置，以及本轮集成负责人。任务和相关协议都在右侧概况中。", "There are two items: confirm permissions and choose the integration lead. Tasks and related protocols are in Overview."))
+    prefs.save({"lang": lang, "theme": "light", "name": "Hongyi Du", "voice": "browser", "notify": False, "font": "medium", "density": "comfortable"})
+    return store, {"org": oid, "parent": parent, "subgroup": group, "member": "secretary", "thread": str(root_message), "task": done["id"], "workspace": str(workspace), "files": {"markdown": str(workspace / "README.md"), "code": str(workspace / "review.py"), "image": str(workspace / "layout.png")}}
+
+
+def main():
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Visual fixture is CI-only; it must not launch on the person's computer.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--lang", choices=["en-US", "zh-CN"], required=True)
+    args = parser.parse_args()
+    folder = args.output.resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    os.environ.update(RELIC_HOME=str(folder / "relic"), RELIC_LANG=args.lang, CLAUDE_CONFIG_DIR=str(folder / "claude"), CODEX_HOME=str(folder / "codex"))
+    from app import web
+    store, fixture = seed(folder, args.lang)
+    app, server = web.serve(0, store)
+    scenes = SceneFixture(app, fixture, args.lang)
+    server.RequestHandlerClass = scene_handler(server.RequestHandlerClass, scenes)
+    fixture.update(port=app.port, token=app.token, instance=app.instance, pid=os.getpid(), lang=args.lang, home=os.environ["RELIC_HOME"])
+    fixture.update(scene_endpoint=SCENE_ENDPOINT, live_scenes=sorted(LIVE_SCENES))
+    (folder / "fixture.json").write_text(json.dumps(fixture, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        server.serve_forever(poll_interval=0.1)
+    finally:
+        app.stopping.set()
+        try:
+            scenes.close()
+        finally:
+            server.server_close()
+
+
+if __name__ == "__main__":
+    main()

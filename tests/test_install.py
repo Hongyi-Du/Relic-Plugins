@@ -59,8 +59,25 @@ class InstallerTests(unittest.TestCase):
             hook_env = dict(env, PLUGIN_ROOT=str(plugin), CLAUDE_PLUGIN_ROOT=str(plugin))
             event = json.dumps({'hook_event_name': 'SessionStart', 'session_id': 'release-fixture', 'cwd': str(Path(temp))})
             hook_run = subprocess.run(hooks['SessionStart'][0]['hooks'][0]['command'], shell=True, input=event,
-                                      capture_output=True, text=True, encoding='utf-8', env=hook_env, timeout=20)
+                                      capture_output=True, text=True, encoding='utf-8', env=hook_env, timeout=20,
+                                      creationflags=installer.platform_support.creation_flags())
             self.assertEqual(hook_run.returncode, 0, hook_run.stderr)
+            codex_manifest = installer.read_json(plugin / '.codex-plugin/plugin.json')
+            codex_hooks = installer.read_json(plugin / codex_manifest['hooks'])['hooks']
+            for name in ('SessionStart', 'UserPromptSubmit', 'SubagentStart', 'PostToolUse'):
+                self.assertEqual(codex_hooks[name][0]['hooks'][0]['additionalContextLimit'], 0)
+            if os.name == 'nt':
+                # CI-only real PowerShell check: stdin reaches the hook, with a
+                # private store and no seat, member turn, App, or native window.
+                command = codex_hooks['PostToolUse'][0]['hooks'][0]['commandWindows']
+                self.assertTrue(command.startswith("& '"))
+                event = json.dumps({'hook_event_name': 'PostToolUse', 'session_id': 'release-fixture',
+                                    'tool_name': 'Read', 'tool_input': {}})
+                result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', command],
+                                        input=event, capture_output=True, text=True, encoding='utf-8', env=hook_env,
+                                        timeout=20, creationflags=installer.platform_support.creation_flags())
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {})
 
     def test_installs_into_the_hosts_it_finds_and_turns_off_earlier_claude_editions(self):
         commands = []
@@ -77,6 +94,32 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(commands[add + 1], ['claude.exe', 'plugin', 'install', 'relic@relic-bridge'])
             self.assertFalse(any('codex' in c[0] for c in commands))
             self.assertEqual(installer.main(['--host', 'codex']), 1)  # asked for a host that is not there
+
+    def test_antigravity_gets_its_plugin_folder_when_it_is_installed(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.dict(os.environ, {'RELIC_HOME': temp, 'RELIC_GEMINI_DIR': str(Path(temp) / '.gemini')}), \
+                mock.patch.object(installer, 'configure', lambda root: ROOT / 'plugins' / 'relic'), \
+                mock.patch.object(installer, 'cli', lambda name: None), \
+                mock.patch.object(installer, 'shortcut', lambda python: None):
+            self.assertEqual(installer.main(['--host', 'antigravity', '--no-shortcut']), 1)  # not installed
+            self.assertEqual(installer.main(['--no-shortcut']), 0)  # auto: nothing to add it to, nothing written
+            plugin = Path(temp) / '.gemini' / 'config' / 'plugins' / 'relic'
+            self.assertFalse(plugin.exists())
+            (Path(temp) / '.gemini' / 'antigravity').mkdir(parents=True)
+            self.assertEqual(installer.main(['--no-shortcut']), 0)  # auto finds it
+            hooks = json.loads((plugin / 'hooks.json').read_text(encoding='utf-8'))
+            self.assertEqual(hooks['relic']['PreToolUse'][0]['matcher'], '*')
+            server = json.loads((plugin / 'mcp_config.json').read_text(encoding='utf-8'))['mcpServers']['relic_org']
+            self.assertEqual(Path(server['args'][-1]), ROOT / 'plugins' / 'relic' / 'server.py')
+
+    def test_records_the_installed_folder_for_every_relic_process(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ, {'RELIC_HOME': temp}),                 mock.patch.object(installer, 'configure', lambda root: ROOT / 'plugins' / 'relic'),                 mock.patch.object(installer, 'shortcut', lambda python: None):
+            self.assertEqual(installer.main(['--host', 'none', '--no-shortcut']), 0)
+            record = Path(temp) / 'current.json'
+            self.assertEqual(installer.read_json(record), {'plugin': str(ROOT / 'plugins' / 'relic')})
+            record.unlink()
+            self.assertEqual(installer.main(['--configure-only']), 0)  # a prepared folder is not installed yet
+            self.assertFalse(record.exists())
 
     def test_the_relic_app_alone_needs_no_host(self):
         with mock.patch.object(installer, 'configure', lambda root: ROOT / 'plugins' / 'relic'), \

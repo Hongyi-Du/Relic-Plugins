@@ -11,12 +11,14 @@ import sys
 import threading
 import time
 
+from relic_core.process import creation_flags
+
 
 def group_has_live_members(pgid):
     """Inspect state, never command lines; None means absence could not be established."""
     try:
         result = subprocess.run(["/bin/ps", "-axo", "pgid=,stat="], capture_output=True, text=True,
-                                timeout=1, env=dict(os.environ, LC_ALL="C"))
+                                timeout=1, env=dict(os.environ, LC_ALL="C"), creationflags=creation_flags())
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode or not result.stdout.strip():
@@ -92,7 +94,7 @@ class _Child:
                 elif self.process.poll() is None:
                     try:
                         subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.process.pid)],
-                                       capture_output=True, creationflags=0x08000000, timeout=2)
+                                       capture_output=True, creationflags=creation_flags(), timeout=2)
                     except (OSError, subprocess.TimeoutExpired):
                         pass
                     if self.process.poll() is None:
@@ -116,6 +118,7 @@ class ProcessRegistry:
 
     def popen(self, args, **kwargs):
         """Spawn and register a child atomically with respect to shutdown."""
+        kwargs["creationflags"] = creation_flags(kwargs.get("creationflags", 0))
         if os.name != "nt":
             kwargs["start_new_session"] = True
         with self._lock:

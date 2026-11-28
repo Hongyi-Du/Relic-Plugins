@@ -1,7 +1,10 @@
 """Turns for Codex chats that the Codex desktop app has open, through the app's own tool pipe.
 
 The desktop app loads a chat when the person opens it and keeps it loaded, which locks the chat for writing: the
-runner's own `codex app-server` then cannot start a turn there ("already has an active writer"). The app serves its
+runner's own `codex app-server` then cannot start a turn there ("already has an active writer"). The app also takes a
+prompt for a chat it knows but has not loaded, and loads it for the turn (run_turn load=True; 2026-11-16). Relic sends
+a desktop chat's turns there, so the chat and the subagents it spawns stay in the app's one process: a subagent thread
+the app holds takes input only from its parent in that process. The app serves its
 own tools (namespace codex_app) to the MCP servers of its chats over a named pipe, whose name it passes to them in
 CODEX_APP_TOOLS_PIPE_PATH; the older relic-organization plugin reached desktop chats through the same pipe. Relic uses
 two of those tools:
@@ -44,6 +47,11 @@ NOT_LOADED = "notLoaded"
 IDLE = "idle"
 FINISHED = ("completed", "failed", "interrupted")
 BUSY = "is busy in the Codex desktop app"  # a turn is running in the chat: wait for it, never interject
+# A running turn can stop on something only the person can give in the app: an approval, an answer (the thread's
+# status shows it in activeFlags). 2026-11-18: chief's chat waited on an approval for 16 hours, while Relic retried its
+# wake-up every two minutes without a word to anyone.
+WAITS_FOR_PERSON = "waits for the person"
+WAITS = re.compile(r"waits for the person: ([\w,]+) since (\S+), chat \"(.*)\"")
 MAX_FRAME = 8 * 1024 * 1024  # the desktop tools bridge's documented-by-installed-host frame limit
 REQUIRED_TOOLS = {"read_thread", "send_message_to_thread", "list_threads"}
 
@@ -362,6 +370,20 @@ def status(data):
     return ((data.get("thread") or {}).get("status") or {}).get("type")
 
 
+def busy_error(data):
+    """Why a chat cannot take a prompt now: its turn runs, and maybe waits for the person (WAITS: what for, since when
+    and which chat, so that wake._settle can tell the person once)."""
+    thread = data.get("thread") or {}
+    flags = [str(f) for f in (thread.get("status") or {}).get("activeFlags") or [] if str(f).startswith("waitingOn")]
+    text = "the chat %s (%s)" % (BUSY, status(data))
+    if flags:
+        since = thread.get("updatedAt")
+        since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since)) if isinstance(since, (int, float)) else "?"
+        title = " ".join(str(thread.get("title") or thread.get("id") or "").split()).replace('"', "'")[:80]
+        text += "; it %s: %s since %s, chat \"%s\"" % (WAITS_FOR_PERSON, ",".join(flags), since, title)
+    return text
+
+
 def reply_of(turn):
     text = ""
     for item in (turn or {}).get("items") or []:
@@ -387,16 +409,18 @@ def started_by(turn, prompt):
 
 
 def run_turn(app, thread_id, prompt, poll=5.0, start_wait=180.0, blind=600.0, limit=6 * 3600, sleep=time.sleep,
-             clock=time.time, host="local", caller=None):
+             clock=time.time, host="local", caller=None, load=False):
     """Send the prompt into a chat the app has open and follow the turn it starts until it ends.
     Returns (final reply, failed). Raises DesktopError(BUSY) without sending when a turn is already running there.
     Turns the person starts in that chat meanwhile are told apart (started_by) and not reported as the reply. Reads
     that fail now and then while a turn runs are waited out for up to `blind` seconds. A prompt is never sent twice:
     when the turn cannot be followed to its end, the reply says so instead.
-    host and caller: None and a Codex thread for a ChatGPT chat (see the module docstring)."""
+    host and caller: None and a Codex thread for a ChatGPT chat (see the module docstring).
+    load: the chat may also be one the app knows but has not loaded; the app loads it to run the turn."""
     before = app.read(thread_id, 3, host, caller)
-    if status(before) != IDLE:
-        raise DesktopError("the chat %s (%s)" % (BUSY, status(before)))
+    ready = (IDLE, NOT_LOADED) if load else (IDLE,)
+    if status(before) not in ready:
+        raise DesktopError(busy_error(before))
     known = {t.get("id") for t in before.get("turns") or []}
     unconfirmed = None
     try:
@@ -421,7 +445,7 @@ def run_turn(app, thread_id, prompt, poll=5.0, start_wait=180.0, blind=600.0, li
                 if isinstance(error, dict):
                     error = error.get("message")
                 return reply_of(turn) or str(error or ""), turn.get("status") != "completed"
-        elif clock() - sent > start_wait and status(data) == IDLE:
+        elif clock() - sent > start_wait and status(data) in ready:
             if unconfirmed:
                 return ("The Codex desktop app did not confirm the prompt (%s) and no turn of it appeared; it is not "
                         "sent again." % unconfirmed), False

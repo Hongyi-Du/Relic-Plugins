@@ -72,7 +72,8 @@ class PackageTests(unittest.TestCase):
                                         self.assertTrue(hook['command'].startswith(interpreter + ' -X utf8 -c '))
                                         self.assertNotIn(str(ROOT), hook['command'])
                                         self.assertNotIn('args', hook)
-                    platform_templates = {'.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/claude-extra.json'}
+                    platform_templates = {'.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/claude-extra.json',
+                                          'hooks/codex-hooks.json'}
                     plugin_sources.append({p.relative_to(plugin).as_posix(): p.read_bytes()
                                            for p in plugin.rglob('*') if p.is_file()
                                            and p.relative_to(plugin).as_posix() not in platform_templates})

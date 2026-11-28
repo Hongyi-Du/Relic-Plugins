@@ -6,16 +6,19 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'plugins/relic'))
+from relic_core.process import creation_flags
 SHARED = ('LICENSE','CHANGELOG.md','CONTRIBUTING.md','release.json')
 SCRIPTS = ('install.py','doctor.py','open_app.py')
 SKIP = {'__pycache__','.git','.DS_Store','.native-fixtures','.pytest_cache','.native-tmp'}
 README = '''# Relic · Public Beta
 
-Relic v0.7.0-beta.1 (plugin 0.18.0-beta.1): one source and feature set for Windows and macOS Apple silicon.
+Relic v0.7.1-beta.1 (plugin 0.18.1-beta.1): one source and feature set for Windows and macOS Apple silicon.
 Includes check/Reply rules, Copies, person-issued protocols, sidebar folding and the organization chart.
 
 [English user guide](docs/guide.en.md) · [中文完整指南](docs/guide.zh-CN.md)
@@ -24,14 +27,14 @@ Windows: `python -X utf8 scripts/install.py`
 
 macOS: `bash install.command`
 
-Then open the Relic App: `python -X utf8 scripts/open_app.py` (on Windows also the Relic shortcut on the desktop). The App runs members on your Claude Code and Codex and brings Relic into their sessions; the installer also adds the plugin to Claude Code and Codex, so your own sessions can join organizations too.
+Install the compiled native App separately using docs/native-install.md. This source package installs the plugin/engine; it contains no compiled WinUI/SwiftUI UI. Then open the Relic App: `python -X utf8 scripts/open_app.py` (on Windows also the Relic shortcut on the desktop). The App runs members on your Claude Code and Codex and brings Relic into their sessions; the installer also adds the plugin to Claude Code and Codex, so your own sessions can join organizations too.
 
 Requires Python 3.11+ and a signed-in Claude Code or Codex; App-managed ACP members need Node.js 22+. Keep this folder after installation.
 
 Back up the data directory before upgrading: the first open adds `activity.paths`. This migration has no automatic downgrade; restore a pre-upgrade backup to roll back.
 升级前备份数据：首次打开旧库会增加 `activity.paths` 列。迁移不可自动撤销，回退需恢复升级前备份。
 
-安装：Windows 运行 `python -X utf8 scripts/install.py`，macOS 运行 `bash install.command`。然后打开 Relic App：`python -X utf8 scripts/open_app.py`（Windows 桌面上也有 Relic 快捷方式）。App 用你的 Claude Code 和 Codex 运行成员，自己把 Relic 带进它们的会话；安装脚本也把插件加到 Claude Code 和 Codex，你自己的会话也能加入组织。需要 Python 3.11+ 和已登录的 Claude Code 或 Codex。安装后保留本目录。
+安装：Windows 运行 `python -X utf8 scripts/install.py`，macOS 运行 `bash install.command`。此源码包只含插件与引擎；请按 docs/native-install.md 另装编译好的原生 App。然后打开 Relic App：`python -X utf8 scripts/open_app.py`（Windows 桌面上也有 Relic 快捷方式）。App 用你的 Claude Code 和 Codex 运行成员，自己把 Relic 带进它们的会话；安装脚本也把插件加到 Claude Code 和 Codex，你自己的会话也能加入组织。需要 Python 3.11+ 和已登录的 Claude Code 或 Codex。安装后保留本目录。
 
 On macOS, check Settings → Harness connections or doctor.py --probe-desktop before using desktop delivery.
 CLI/App-managed members and manual inbox work independently. macOS 桌面投递需先通过能力验证；CLI、App 内成员与手动 inbox 可独立使用。
@@ -122,12 +125,19 @@ def main():
     parser.add_argument('--platform',choices=('all','windows','macos'),default='all',help='Which packages to build')
     parser.add_argument('--macos-format',choices=('tar.gz','zip','both'),default='tar.gz',
                         help='macOS archive format; ZIP keeps Unix executable permission metadata')
+    parser.add_argument('--native-build',type=Path,help='Compiled WinUI publish directory or Swift release directory; build a native candidate')
     args=parser.parse_args()
     args.output.mkdir(parents=True,exist_ok=True)
     release=json.loads((ROOT/'release.json').read_text())
     version=release['version']
     files=source_files()
     validate(files)
+    if args.native_build:
+        if args.platform == 'all':
+            parser.error('--native-build requires one --platform')
+        from native_package import assemble
+        assemble(ROOT, args.native_build, args.platform, args.output, files)
+        return
     assets=[]
     for system in [s for s in ('windows','macos') if args.platform in ('all',s)]:
         prefix=f'relic-{system}-v{version}'
@@ -170,8 +180,8 @@ def main():
     # LF on every platform: `sha256sum -c` reads a CR as part of the file name
     (args.output/'SHA256SUMS.txt').write_text(''.join(f'{a["sha256"]}  {a["name"]}\n' for a in assets),encoding='utf-8',
                                               newline='\n')
-    result=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
-    dirty=subprocess.run(['git','status','--porcelain'],cwd=ROOT,capture_output=True,text=True)
+    result=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True,creationflags=creation_flags())
+    dirty=subprocess.run(['git','status','--porcelain'],cwd=ROOT,capture_output=True,text=True,creationflags=creation_flags())
     manifest={'release':version,'source_commit':result.stdout.strip() if result.returncode==0 else None,
               'source_dirty':bool(dirty.stdout.strip()) if dirty.returncode==0 else None,
               'base_release':release.get('base_release'), 'plugin_version':release['plugin']['version'],

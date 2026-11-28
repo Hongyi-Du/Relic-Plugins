@@ -74,6 +74,15 @@ class RunTurn(unittest.TestCase):
         clock = Clock()
         return desktop.run_turn(app, THREAD, "[Relic auto-wake] read your inbox", sleep=clock.sleep, clock=clock, **kw)
 
+    def test_a_chat_the_app_has_not_loaded_is_loaded_for_the_turn_only_when_asked(self):
+        with self.assertRaisesRegex(desktop.DesktopError, desktop.BUSY):
+            self.run_turn(FakeApp([thread("notLoaded")]))
+        app = FakeApp([thread("notLoaded", [turn("t1", "completed", "old")]),
+                       thread("active", [turn("t2", "inProgress")]),
+                       thread("idle", [turn("t2", "completed", "Done; replied.")])])
+        self.assertEqual(self.run_turn(app, load=True), ("Done; replied.", False))
+        self.assertEqual(len(app.sent), 1)
+
     def test_turn_in_the_app_is_followed_to_its_reply(self):
         app = FakeApp([thread("idle", [turn("t1", "completed", "old")]),
                        thread("active", [turn("t1", "completed", "old")]),
@@ -88,6 +97,22 @@ class RunTurn(unittest.TestCase):
             self.run_turn(app)
         self.assertIn(desktop.BUSY, str(caught.exception))
         self.assertTrue(wake.no_turn(str(caught.exception)))
+        self.assertEqual(app.sent, [])
+        self.assertIsNone(desktop.WAITS.search(str(caught.exception)))
+
+    def test_a_chat_that_waits_for_the_person_says_for_what_and_since_when(self):
+        """2026-11-18: chief's chat waited on an approval in the app for 16 hours; all Relic saw was "busy"."""
+        data = {"thread": {"id": THREAD, "title": 'Chief "secretary"\n office', "updatedAt": 1794953295,
+                           "status": {"type": "active", "activeFlags": ["waitingOnApproval"]}},
+                "turns": [turn("t1", "inProgress")]}
+        app = FakeApp([data])
+        with self.assertRaises(desktop.DesktopError) as caught:
+            self.run_turn(app)
+        text = str(caught.exception)
+        self.assertIn(desktop.BUSY, text)
+        self.assertTrue(wake.no_turn(text))  # still a wait, retried quietly: nothing was sent
+        self.assertEqual(desktop.WAITS.search(text).groups(),
+                         ("waitingOnApproval", "2026-11-17T22:08:15Z", "Chief 'secretary' office"))
         self.assertEqual(app.sent, [])
 
     def test_failed_turn_is_reported_as_failed(self):
@@ -279,7 +304,7 @@ class Route(unittest.TestCase):
     def run_codex(self, app, server=FakeServer):
         with mock.patch.object(runner, "find_codex", return_value="codex"), \
                 mock.patch.object(runner, "CodexAppServer", server), \
-                mock.patch.object(desktop, "run_turn", lambda a, t, p: ("done in the app", False)):
+                mock.patch.object(desktop, "run_turn", lambda a, t, p, **kw: ("done in the app", False)):
             return relic_run.run_codex(self.store, self.org, "cody", self.config, "wake up", False,
                                        self.tmp.name, connect=lambda: app)
 
@@ -347,7 +372,7 @@ class Route(unittest.TestCase):
 
     def test_failed_turn_in_the_app_is_reported_not_retried(self):
         with mock.patch.object(runner, "find_codex", return_value="codex"), \
-                mock.patch.object(desktop, "run_turn", lambda a, t, p: ("model overloaded", True)):
+                mock.patch.object(desktop, "run_turn", lambda a, t, p, **kw: ("model overloaded", True)):
             _, reply, failed, _ = relic_run.run_codex(self.store, self.org, "cody", self.config, "wake up", False,
                                                       self.tmp.name, connect=lambda: FakeApp([thread("idle")]))
         self.assertFalse(failed)  # failed would give the claim back and send the same prompt again
@@ -359,7 +384,7 @@ class Route(unittest.TestCase):
         sent, clock, real = [], Clock(), desktop.run_turn
         follow = lambda app, t, p, **kw: real(app, t, p, sleep=clock.sleep, clock=clock, **kw)
 
-        def start(org_id, member, prompt, wake_from, wake_hop):
+        def start(org_id, member, prompt, wake_from, wake_hop, wake_message_ids):
             app = FakeApp([thread("idle")], send_error=desktop.Uncertain("timed out"))
             with mock.patch.object(runner, "find_codex", return_value="codex"), \
                     mock.patch.object(desktop, "run_turn", follow):
@@ -380,11 +405,44 @@ class Route(unittest.TestCase):
         self.assertEqual(len(sent), 1)
 
     def test_chat_held_by_a_terminal_session_is_retried_later(self):
-        with self.assertRaises(RuntimeError) as caught:
-            self.run_codex(FakeApp([thread("notLoaded")]))
+        # the app knows the chat but takes nothing (a terminal session holds it): the runner finds the lock, as before
+        def refused(app, t, p, **kw):
+            raise desktop.DesktopError("send_message_to_thread: thread %s already has an active writer" % t)
+        with mock.patch.object(runner, "find_codex", return_value="codex"),                 mock.patch.object(runner, "CodexAppServer", FakeServer),                 mock.patch.object(desktop, "run_turn", refused):
+            with self.assertRaises(RuntimeError) as caught:
+                relic_run.run_codex(self.store, self.org, "cody", self.config, "wake up", False, self.tmp.name,
+                                    connect=lambda: FakeApp([thread("notLoaded")]))
         self.assertIn(wake.IN_USE, str(caught.exception))
         with self.assertRaises(RuntimeError):
             self.run_codex(None)  # no desktop app running at all
+
+    def test_chat_the_app_has_not_loaded_goes_to_the_app_which_loads_it(self):
+        # one process for the chat and the subagents it spawns: a runner cannot reach a subagent thread the app holds
+        loads = []
+
+        def in_app(app, t, p, load=False, **kw):
+            loads.append(load)
+            return "done in the app", False
+
+        def no_server(*_, **__):
+            raise AssertionError("the app takes the turn: no runner app-server")
+        with mock.patch.object(runner, "find_codex", return_value="codex"),                 mock.patch.object(runner, "CodexAppServer", no_server),                 mock.patch.object(desktop, "run_turn", in_app):
+            session, reply, failed, _ = relic_run.run_codex(self.store, self.org, "cody", self.config, "wake up",
+                                                           False, self.tmp.name,
+                                                           connect=lambda: FakeApp([thread("notLoaded")]))
+        self.assertEqual((session, reply, failed), ("codex:" + THREAD, "done in the app", False))
+        self.assertEqual(loads, [True])
+
+    def test_chat_that_started_a_turn_meanwhile_waits_instead_of_a_runner(self):
+        def busy(app, t, p, **kw):
+            raise desktop.DesktopError("the chat %s (active)" % desktop.BUSY)
+
+        def no_server(*_, **__):
+            raise AssertionError("a turn is running in the app: no runner app-server")
+        with mock.patch.object(runner, "find_codex", return_value="codex"),                 mock.patch.object(runner, "CodexAppServer", no_server),                 mock.patch.object(desktop, "run_turn", busy):
+            with self.assertRaisesRegex(desktop.DesktopError, desktop.BUSY):
+                relic_run.run_codex(self.store, self.org, "cody", self.config, "wake up", False, self.tmp.name,
+                                    connect=lambda: FakeApp([thread("notLoaded")]))
 
 
 if __name__ == "__main__":

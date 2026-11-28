@@ -35,7 +35,7 @@ from . import __version__, platform_support
 from .store import Store, data_home
 
 WINDOWS = os.name == "nt"
-NO_WINDOW = 0x08000000 if WINDOWS else 0
+NO_WINDOW = platform_support.creation_flags()
 CLAUDE_MODES = ["auto", "acceptEdits", "plan", "dontAsk"]
 CODEX_SANDBOXES = ["workspace-write", "read-only"]
 EFFORTS = ["", "low", "medium", "high", "xhigh", "max"]
@@ -53,6 +53,8 @@ def introduction(org, member):
 def default_config(harness="codex"):
     if harness in ("chatgpt", "claude-chat"):  # chat members (chat.py): no folder, model or permission to choose
         return {"harness": harness, "surface": "chat"}
+    if harness == "antigravity":  # a conversation in the Antigravity app (antigravity.py): the app keeps the rest
+        return {"harness": harness, "surface": "app", "model": ""}
     return {"harness": harness, "surface": "cli", "model": "", "effort": "", "folder": str(Path.home()),
             "environment": "local", "permission": "auto" if harness == "claude-code" else "workspace-write", "env": {}}
 
@@ -97,6 +99,59 @@ def codex_overrides():
 
 def find_codex():
     return platform_support.find_executable("codex")
+
+
+def test_run():
+    """Whether this process is a test run (a test framework is loaded: no Relic process imports one)."""
+    return "unittest" in sys.modules or "pytest" in sys.modules
+
+
+def detach_allowed():
+    """Whether this process may start a detached Relic process: a member's turn, a delayed wake-up retry or keep-going
+    check. A test run may not (2026-11-14: a test file run directly left hundreds of background checks behind, some of
+    them on the real store), unless it replaced Popen (nothing really starts) or says so (RELIC_TEST_DETACH=1) and works
+    on a data root of its own, never the real one."""
+    if not test_run() or not isinstance(subprocess.Popen, type):
+        return True
+    home = os.environ.get("RELIC_HOME")
+    return (os.environ.get("RELIC_TEST_DETACH") == "1" and bool(home) and
+            Path(home).resolve() != (Path.home() / ".relic").resolve())
+
+
+CURRENT = "current.json"  # in the data root: the plugin folder of the Relic installed last (scripts/install.py)
+
+
+def installed_plugin():
+    """The plugin folder of the Relic installed last, as scripts/install.py records it in the data root, or None. A
+    test run reads only a data root of its own."""
+    if test_run() and not os.environ.get("RELIC_HOME"):
+        return None
+    try:
+        plugin = Path(json.loads((data_home() / CURRENT).read_text(encoding="utf-8"))["plugin"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return plugin if (plugin / "relic_core" / "runner.py").is_file() else None
+
+
+def entry(name):
+    """scripts/<name> to start a member's turn or a background check with: the Relic installed last. Whatever copy
+    of Relic dispatches, an MCP server a long-running session loaded before the last upgrade or a Codex plugin that
+    waits for the person's hook trust, the work runs the newest code (2026-11-14: wake-ups started by older copies
+    kept the delivery route the new version had replaced). This copy's own when nothing is recorded or the installed
+    folder lacks the script."""
+    own = Path(__file__).resolve().parents[1] / "scripts" / name
+    plugin = installed_plugin()
+    script = plugin / "scripts" / name if plugin else None
+    return script if script is not None and script.is_file() else own
+
+
+def detached_env():
+    """The environment of a detached Relic process: a test run's children say so (RELIC_TEST), and the background
+    entry then refuses the real store (scripts/relic_dispatch.py)."""
+    env = dict(os.environ)
+    if test_run():
+        env["RELIC_TEST"] = "1"
+    return env
 
 
 def runs_dir():
@@ -163,6 +218,45 @@ def pid_alive(pid):
     return True
 
 
+def process_start(pid):
+    """(whether process pid runs on this computer, when it started in epoch seconds or None when that cannot be read).
+    The start time tells a process from a later one that got the same id. A process of another account (a sandbox
+    user) that Windows will not open for querying still runs; its start time is unknown."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False, None
+    if pid <= 0:
+        return False, None
+    if WINDOWS:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5, None  # ERROR_ACCESS_DENIED: it exists
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:  # STILL_ACTIVE
+                return False, None
+            times = [wintypes.FILETIME() for _ in range(4)]  # creation, exit, kernel, user
+            if not kernel32.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+                return True, None
+            ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime  # 100 ns since 1601
+            return True, ticks / 1e7 - 11644473600
+        finally:
+            kernel32.CloseHandle(handle)
+    if not pid_alive(pid):
+        return False, None
+    try:
+        out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10,
+                             env=dict(os.environ, LC_ALL="C"), creationflags=NO_WINDOW)
+        return True, time.mktime(time.strptime(out.stdout.strip(), "%a %b %d %H:%M:%S %Y"))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return True, None
+
+
 def is_running(org_id, member, now=None):
     """A turn is running while its runner process is alive; a runner that died leaves a "running" state behind."""
     state = run_state(org_id, member)
@@ -216,7 +310,8 @@ def parse_env(text):
     return env
 
 
-def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake_from=None, wake_hop=0):
+def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake_from=None, wake_hop=0,
+               wake_message_ids=None):
     """Run one turn of a seat in the background: the introduction of a new session, text the person wrote, or an
     automatic wake-up for unread messages (wake_from names the senders, who get a receipt when the turn ends;
     wake_hop is the turn's depth in a chain of wake-ups, carried by the messages it sends)."""
@@ -239,30 +334,33 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
                 raise RuntimeError("%s is still working on a turn for another organization it sits in." % member)
         store.set_focus(seat["carrier"], org_id)  # the turn is this organization's work: its protocols bind it
     if config.get("surface") == "acp":
-        return app_turn(org_id, member, prompt, wake_from, wake_hop)
+        return app_turn(org_id, member, prompt, wake_from, wake_hop, wake_message_ids)
     fd, prompt_file = tempfile.mkstemp(prefix="relic-prompt-", suffix=".txt", dir=str(runs_dir()))
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(prompt)
     started = time.time()
     write_state(org_id, member, {"status": "running", "started": started, "prompt": prompt[:300],
                                  "new_session": new_session, "wake_from": list(wake_from or []),
+                                 "wake_message_ids": list(wake_message_ids or []),
                                  "wake_hop": int(wake_hop or 0)})
     python = Path(sys.executable)
     if WINDOWS and python.with_name("pythonw.exe").exists():
         python = python.with_name("pythonw.exe")
-    script = Path(__file__).resolve().parents[1] / "scripts" / "relic_run.py"
+    script = entry("relic_run.py")
     args = [str(python), "-X", "utf8", str(script), "--org", org_id, "--member", member, "--prompt-file", prompt_file]
     if new_session:
         args.append("--new")
-    if open_after:
+    if open_after and not wake_from and not wake_hop:
         args.append("--open")
     if wake_from:
         args += ["--wake-from", ",".join(wake_from)]
     flags = (NO_WINDOW | 0x00000200) if WINDOWS else 0  # no console, own process group
     try:
+        if not detach_allowed():
+            raise RuntimeError("a test run does not start member turns (runner.detach_allowed)")
         with open(runs_dir() / ("%s-%s.log" % (org_id, member)), "a", encoding="utf-8") as log:
             proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log, creationflags=flags,
-                                    start_new_session=not WINDOWS)
+                                    start_new_session=not WINDOWS, env=detached_env())
     except Exception as error:
         # nothing started: replace the "running" state written above (no other turn was running, checked first)
         write_state(org_id, member, {"status": "failed", "started": started, "prompt": prompt[:300],
@@ -279,7 +377,7 @@ def start_turn(org_id, member, prompt, new_session=False, open_after=False, wake
     return True
 
 
-def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0):
+def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0, wake_message_ids=None):
     """A seat the Relic App runs through ACP (config surface "acp"): the App hosts its session, so it takes the turn.
     Raises when the App is not open; the wake-up is then retried with back-off like any failed start."""
     import urllib.request
@@ -288,6 +386,7 @@ def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0):
         request = urllib.request.Request(
             "http://127.0.0.1:%d/api/org/%s/turn" % (int(info["port"]), org_id),
             data=json.dumps({"member": member, "prompt": prompt, "wake_from": list(wake_from or []),
+                             "wake_message_ids": list(wake_message_ids or []),
                              "wake_hop": int(wake_hop or 0)}).encode("utf-8"),
             headers={"Content-Type": "application/json", "X-Relic-Token": info["token"]}, method="POST")
         with urllib.request.urlopen(request, timeout=10) as reply:
@@ -298,16 +397,9 @@ def app_turn(org_id, member, prompt, wake_from=None, wake_hop=0):
 
 
 def open_window():
-    """Open the Relic App on the person's screen (scripts/relic_app.py starts its server when it is not running), as a
-    process of its own: it outlives the session that asked for it."""
-    python = Path(sys.executable)
-    if WINDOWS and python.with_name("pythonw.exe").exists():
-        python = python.with_name("pythonw.exe")
-    script = Path(__file__).resolve().parents[1] / "scripts" / "relic_app.py"
-    subprocess.Popen([str(python), "-X", "utf8", str(script)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, creationflags=(NO_WINDOW | 0x00000200) if WINDOWS else 0,
-                     start_new_session=not WINDOWS, close_fds=True)
-    return str(script)
+    """Launch the native App independently; report a missing installation to the caller."""
+    from scripts.relic_app import open_native_app
+    return open_native_app()
 
 
 def open_command(config, session_id, harness, cwd):
@@ -364,7 +456,7 @@ def open_session(config, session_id, harness, cwd):
                 exe = codex_desktop_exe()
                 if not exe:
                     raise RuntimeError("Could not open the Codex desktop app; open the chat from its sidebar.")
-                subprocess.Popen([exe, url], env=env)
+                subprocess.Popen([exe, url], env=env, creationflags=platform_support.creation_flags())
         else:
             platform_support.open_external(url)
         return args
@@ -376,12 +468,20 @@ def open_session(config, session_id, harness, cwd):
             raise RuntimeError("Claude Desktop launch failed; no GUI turn was delivered.")
         return {"status": "launch_requested", "turn_delivered": False, "command": args}
     elif WINDOWS:
-        subprocess.Popen(args, cwd=cwd, env=env, creationflags=0x00000010)  # CREATE_NEW_CONSOLE: its own terminal window
+        # Opening a terminal is an explicit person action. The launcher itself
+        # still must not allocate a surprise console when Relic runs via pythonw.
+        terminal = shutil.which("wt.exe")
+        if not terminal:
+            raise RuntimeError("Windows Terminal was not found; open the session from your terminal with: "
+                               + subprocess.list2cmdline(args))
+        subprocess.Popen([terminal, "-w", "new", "--", *args], cwd=cwd, env=env,
+                         creationflags=platform_support.creation_flags())
     elif sys.platform == "darwin":
         platform_support.open_terminal(args, cwd, env, runs_dir())
     else:
         terminal = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal")
-        subprocess.Popen(([terminal, "--"] if terminal else []) + args, cwd=cwd, env=env)
+        subprocess.Popen(([terminal, "--"] if terminal else []) + args, cwd=cwd, env=env,
+                         creationflags=platform_support.creation_flags())
     return args
 
 

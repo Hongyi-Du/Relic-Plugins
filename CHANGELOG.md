@@ -1,5 +1,562 @@
 # Changelog / 更新记录
 
+## Unreleased / 未发布
+
+- Antigravity, Google's agent app, joins Relic as a harness: a conversation in it holds a seat as
+  `antigravity:<conversation id>`. The installer writes a plugin to `~/.gemini/config/plugins/relic` when it finds
+  Antigravity (`--host antigravity` asks for it alone). The plugin brings the Relic MCP server and hooks
+  (`hooks/antigravity_hook.py`, which turns Antigravity's hook events into Relic's):
+  - calls to Relic's own server through `call_mcp_tool` are allowed and carry the conversation's identity, as on
+    Claude Code;
+  - every other call goes through the organization's strong protocols (`run_command` counts as Bash, `edit_file` as
+    Edit, `write_file` as Write, `read_file` as Read): a call they block is denied, and anything else gets `ask`,
+    which leaves it to Antigravity's own permission rules, as the host decides on Claude Code and Codex (measured:
+    an answer without a decision denies the call, while `ask` keeps the app's preset and monitors);
+  - the organization's context and new messages come before the model's calls;
+  - a Stop goes on for due reflection and direct messages.
+
+  Relic wakes an idle Antigravity seat by sending the wake-up into its conversation through the app's local endpoint
+  (`relic_core/antigravity.py`), and starts a new conversation for a seat that has none. A conversation Relic starts
+  gets the model the seat names, or else the app's own default agent model (`GetAvailableModels`): left to itself,
+  `CreateConversation` runs it on the app's lightest tier ("flash"), and measured on 2026-11-27 that was
+  gemini-4-hydrogen-tiered-high while the app's default was gemini-4-neon-high. `antigravity.models()` lists the
+  models the app offers, in its own order.
+  - Google 的智能体应用 Antigravity 成了 Relic 的宿主：它的一个对话可以占一个席位，身份是 `antigravity:<对话 id>`。
+    安装器找到 Antigravity 后，会把插件写到 `~/.gemini/config/plugins/relic`（`--host antigravity` 只装这一处）。
+    插件带上 Relic 的 MCP 服务器和钩子（`hooks/antigravity_hook.py`，把 Antigravity 的钩子事件转成 Relic 的）：
+    - 通过 `call_mcp_tool` 调用 Relic 自己服务器的请求会被放行，并带上对话的身份，和 Claude Code 上一样；
+    - 其他每次调用都要过组织的强协议（`run_command` 算 Bash，`edit_file` 算 Edit，`write_file` 算 Write，`read_file`
+      算 Read）：被拦的拒绝，其余答 `ask`，交给 Antigravity 自己的权限规则，和 Claude Code、Codex 上由宿主决定一样
+      （实测：不给结论的回答会直接拒绝调用，`ask` 则保留应用的预设和监督器）；
+    - 组织上下文和新消息在模型调用前送到；
+    - 有该写的反思和直接消息时，Stop 会接着干。
+
+    Antigravity 席位空闲时，Relic 通过应用的本地接口把叫醒消息送进它的对话（`relic_core/antigravity.py`）；还没有
+    对话的席位，Relic 新开一个。Relic 新开的对话用席位指定的模型，没指定就用应用自己的默认智能体模型
+    （`GetAvailableModels`）。不传模型的话，`CreateConversation` 会用应用最轻的一档（"flash"）：2026-11-27 实测这一档是
+    gemini-4-hydrogen-tiered-high，而应用默认是 gemini-4-neon-high。`antigravity.models()` 按应用自己的顺序列出可选模型。
+
+- Answering a message that came from another organization works both ways the message tool describes
+  (`to=["<org id>/<member>"]`, or `org=<org id>` with `to=[member]`) together with `reply_to`. Such a message is kept
+  where it arrived, under a number of its own there, so looking the number up in the sender's organization refused
+  the reply (2026-11-24: benchlead could not answer research-head's #8542 either way and wrote a new message
+  instead). The reply now goes into that thread where the message is kept, and the sender gets a copy, as a reply to
+  a thread with members from elsewhere already did.
+  - 回复从别的组织发来的消息时，工具说明里的两种写法（`to=["<组织 id>/<成员>"]`，或 `org=<组织 id>` 加
+    `to=[成员]`）现在都能和 `reply_to` 一起用。这种消息存在收到它的组织里，编号是那边的，以前拿这个编号去发件方的
+    组织里找，回复就被拒（2026-11-24：benchlead 两种写法都回不了 research-head 的 #8542，只好另发一条）。现在回复
+    放进消息所在组织的那条线程，再给发件人送一份副本，和线程里有外部成员时的回复一样。
+
+- A Claude Desktop seat whose session is not running can be woken again. The desktop app runs a session's process
+  only while the session is open or at work, so after the app restarts a seat has no inbox until something starts
+  it, and only a Desktop session can start another one (2026-11-24: after the app restarted on 11-23, OrgBench's
+  benchlead could not be woken for a day; the CLI route needs a login the person does not keep). Relic now asks a
+  live, idle Desktop session of a member to start the seat's session with a short message: the secretary-general's
+  whenever one is live, else another session of the cabinet, else any member's, and never one of the person's own
+  chats. Once that session is up and idle, the wake-up goes into its own inbox word for word, as before. When the
+  sessions it would ask are in a turn, the wake-up waits quietly, as for a busy seat.
+  - 会话没在运行的 Claude 桌面席位又能叫醒了。桌面应用只在会话打开或正在干活时运行它的进程，应用一重启，席位就没有
+    收件箱，要等别的东西把它拉起来，而只有桌面会话能拉起另一个会话（2026-11-24：应用 11-23 重启后，OrgBench 的
+    benchlead 一整天叫不醒；CLI 路线又要人不打算保留的登录）。现在 Relic 会请一个在运行、闲着的成员桌面会话发一句
+    短话把席位的会话拉起来：秘书长的会话在运行就用它，否则用秘书处的其他会话，再否则用任一成员的，从不用人自己的
+    聊天。等它起来闲下来，叫醒消息照旧原样写进它自己的收件箱。要请的会话都在忙时，叫醒安静等着，和席位自己忙时一样。
+
+- A Claude Desktop session in the middle of a turn no longer counts as a failed wake-up; Relic waits and tries again,
+  as it does for a busy Codex chat. Before, each such retry counted toward the five failures after which Relic gives
+  up, and a seat whose earlier wake-ups had already failed that often gave up at the first busy one (2026-11-24:
+  benchlead, with 15 failures on record, gave up the moment the session that would start it was in a turn).
+  - Claude 桌面会话正在回合中，不再算一次叫醒失败：Relic 会等一会儿再试，和 Codex 聊天正忙时一样。以前每次这样的
+    重试都计入「失败 5 次就放弃」，之前已经失败够多次的席位，碰上第一次忙就直接放弃（2026-11-24：benchlead 记着 15
+    次失败，要拉起它的会话正在回合中，它当场就被放弃了）。
+
+- A pause that waits for the Codex weekly limit to reset (`until: quota:codex`) now also ends once the newest usage
+  reading's own reset time has been past for 30 minutes (2026-11-23: the limit reset at 15:34Z, but the newest
+  reading was from 11-19, because the Codex sessions that would have written a newer one were the paused ones; the
+  Learning and OrgBench pauses went on until the person said to start again). A newer reading that shows the reset
+  still ends it at once, as before.
+  - 等 Codex 周额度重置的暂停（`until: quota:codex`），现在只要最新一条用量记录自己的重置时间已过 30 分钟，也会结束
+    （2026-11-23：额度 15:34Z 就重置了，但最新记录还是 11-19 的，能写新记录的 Codex 会话正是被暂停的那些，Learning
+    和 OrgBench 的暂停一直没解除，直到人说开工）。有更新的记录显示已重置时，照旧立刻结束。
+
+- When a Codex desktop chat cannot be woken because its turn waits for the person in the app (an approval, an
+  answer), the person is told once: which member's chat, since when and what it waits for (2026-11-18: chief's chat
+  waited on an approval for 16 hours while its wake-up was retried every two minutes as "busy" and nobody heard of
+  it). The retries go on as before; a new wait is told again.
+  - Codex 桌面聊天的回合在 App 里等人处理（审批、回答）、Relic 因此叫不醒它时，会告诉人一次：哪个成员的聊天、
+    从什么时候起、在等什么（2026-11-18：chief 的聊天等审批等了 16 小时，Relic 每 2 分钟当作「忙」重试一次，谁也
+    不知道）。重试照旧；之后再遇到新的等待会再说一次。
+
+- Keep-going hands over the messages that woke nobody because they were sent in the last turn of an exchange of
+  automatic wake-ups (2026-11-18: research-head's four work handoffs to research-coordinator sat unread for 20 minutes,
+  and the notice said nothing was waiting to be delivered; in the three days before, 51 of 62 such recipients stayed
+  silent for more than 10 minutes). When the organization has been quiet for 10 minutes, each seat below whose new
+  unread messages all came that way gets a note of its own, which starts a new exchange with those messages; the
+  driver's notice says who got what, so nobody sends them again. A message sent in such a turn says `wakes_nobody` in
+  its result, and the prompt of that turn says so too.
+  - 持续推进会把「一轮自动唤醒最后一回合里发的、没叫醒人的消息」送到收件人（2026-11-18：research-head 派给
+    research-coordinator 的四条实质任务停了 20 分钟没人看，持续推进的提醒还说没有待送的消息；之前三天里，62 个这样的
+    收件人有 51 个之后 10 分钟以上没动静）。组织安静 10 分钟时，下面凡是新未读消息全是这样来的席位，各收到一条提醒，
+    带着这些消息开新一轮；推进人的提醒里写明谁收到了哪几条，不用重发。这样的回合里发消息，结果会带 `wakes_nobody`，
+    这一回合的唤醒提示也会写明。
+
+- When a task's background job ends, the task's owner gets a message saying so, which wakes them (2026-11-17: the
+  OrgBench replay batch only runs, stops and writes its results, so nothing else says it ended). Keep-going alone was
+  not enough: it speaks only once the whole subtree has been quiet for 10 minutes, which does not happen while other
+  work goes on below. With no seated owner, the organization's leaders get the message. It goes out once, whichever
+  process finds the end: an older Relic records an end without telling anyone, and the next keep-going check then
+  sends the message. The keep-going notice still lists the job.
+  - 任务挂着的后台作业结束时，任务负责人会收到一条消息并被叫醒（2026-11-17：OrgBench 回放批处理只管跑、停和写
+    结果，作业结束没有别的东西会说）。只靠持续推进不够：它要等整个下属范围安静 10 分钟才提醒，下面还有别的工作在跑
+    时等不到。任务没有在座的负责人时，消息发给组织负责人。不管哪个进程先发现结束，消息都只发一次：旧版 Relic
+    发现结束时只记录、不通知，持续推进的下一次检查会补发。持续推进的提醒里照样会列出这个作业。
+
+- A task can name the background job it waits on: `work op=task {task_id, job: <pid>}` (2026-11-16: keep-going told
+  科研部 three times that nobody worked while the Glaze S model and its controller ran for hours).
+  - Relic records the process with its start time, so a later process that gets the same id is not taken for it.
+  - While the process runs, keep-going counts the organization as working and sends no notice. It holds the check
+    until the job's horizon (24 hours after it was attached), so an older Relic process cannot claim it meanwhile.
+  - watch_jobs looks at the process every 5 minutes and makes the check due once it is gone. The end counts as
+    progress: after 10 quiet minutes the driver's notice says which job ended. `job: 0` detaches it.
+  - Status shows the job on its task.
+  - 任务可以挂上它在等的后台作业：`work op=task {task_id, job: <进程号>}`（2026-11-16：Glaze S 的做题模型和控制器连跑
+    几个小时，持续推进却三次说科研部没人干活）。
+  - Relic 记下进程和它的启动时间，之后别的进程拿到同一个进程号也不会被当成它。
+  - 进程在跑，持续推进就算这个组织在干活，不发提醒。检查会一直推到作业的期限（挂上后 24 小时），这样旧版 Relic
+    进程在这期间抢不到检查、也发不了提醒。
+  - watch_jobs 每 5 分钟看一次进程，进程没了就让检查立刻到期。作业结束算进展：安静 10 分钟后，推进人收到的提醒里
+    会写哪个作业结束了。`job: 0` 取消挂接。
+  - 状态里的任务会显示挂着的作业。
+
+- A Codex desktop chat's turn goes to the Codex desktop app even when the app has not loaded the chat: the app loads
+  it (2026-11-16). Until now Relic ran such a turn in its own runner app-server. A subagent the chat had spawned and
+  the app still held was then out of the chat's reach ("already has an active writer"). Runner turns started from
+  inside another member's Codex turn were also seen to end when that turn ended; a turn in the app does not. The
+  runner route is left for when the app is not running or takes nothing, for example when a terminal session holds
+  the chat.
+  - Codex 桌面席位的聊天即使 App 没加载，回合也交给 App 跑，App 会自己加载（2026-11-16）。以前这种回合由 Relic
+    另起的 runner app-server 跑：聊天派生、仍挂在 App 里的子代理就够不着了（"already has an active writer"）。
+    还观察到：从别的成员的 Codex 回合里拉起的 runner 回合，会随那个回合一起结束；在 App 里跑的回合不会。App 没在
+    运行、或不接收（比如聊天被终端里的会话占着）时，仍走 runner。
+
+- A Codex subagent with a seat of its own is never woken by Relic (2026-11-16: Learning's astra-systems-lead had
+  been unreachable for 15 hours. The Codex desktop app kept its thread loaded after the parent left the app, so every
+  follow-up from the parent, whose turns ran in a Relic runner, failed with "already has an active writer". The app
+  also refuses direct input to such a thread: "direct app-server input is not allowed for multi-agent v2
+  sub-agents").
+  - Only the session that spawned it gives it a turn (followup_task). Relic never wakes the seat and never starts
+    anything on its thread. A wake-up that older copies started fails at once with that reason, and no app-server
+    is started.
+  - `codex_thread` and `codex_parent`: the carrier "codex:<session>/<agent>" names the subagent's own thread. Its
+    transcript, trajectory and monitor entry are that thread's.
+  - A turn's runner (always the Relic installed last) ends by dispatching every organization that got a message
+    during the turn, with its own rules. The message may have been written by an older copy, such as a Codex plugin
+    waiting for the person's hook trust.
+  - 有自己席位的 Codex 子代理不由 Relic 叫醒（2026-11-16：Learning 的 astra-systems-lead 15 小时叫不醒。父线程离开
+    App 后，App 仍挂着子线程；父线程的回合在 Relic runner 里跑，每次 followup 都报 "already has an active writer"。
+    App 也拒收直接给这种线程的输入："direct app-server input is not allowed for multi-agent v2 sub-agents"）。
+  - 只有派生它的会话能给它回合（followup_task）。Relic 不叫醒这个席位，也不在它的线程上启动任何东西。旧版发起的
+    唤醒会带着这个原因立刻失败，不起 app-server。
+  - 席位 "codex:<会话>/<子代理>" 指子代理自己的线程，转录、轨迹和监控都按这条线程。
+  - 每个回合由最后安装的 Relic 跑；回合结束时，把这期间收到消息的组织都用它的规则再派发一遍。写消息的可能是旧版
+    （比如等人重新信任钩子的 Codex 插件）。
+
+- Reports go first to the organization right above, and the secretariat can have two heads of the same rank (2026-11-15, the person:
+  「不要让所有的下面干活的全都直接给秘书长汇报啊……你该汇报的你就跟他的科研领导汇报，然后我去问秘书长的时候，秘书长再去找
+  这个科研的负责人去要啊」 and 「相当于 Claude 和 Codex 那边各有一个秘书处的负责人」).
+  - A report goes first to the organization right above yours, and work first to the one right below it. Past them
+    a message still goes through (the person: 「越级可以发，但是它的第一选择应该是只发给直属上级」): its result names
+    the first choice. The context says so. Reading, tasks, protocols and keep-going reach every level as before.
+  - Only the leaders of the formal organizations right below the cabinet, and of formal organizations under no other
+    one, sit in the cabinet ex officio. The leaders further down keep their seat in the organization above theirs.
+  - `Store.set_co_leaders`: co-leaders lead a leader-led organization with the leader's say: they approve requests in
+    the cabinet, change the purpose and keep-going, assign roles, close episodes, count as the leader in votes and
+    review calls. A co-leader's seat is no longer an ex officio one. The context names both heads.
+  - 汇报首选直属上级，秘书处可以有两位同级负责人（2026-11-15，人的原话见上）。
+  - 汇报首选直属上级，派活首选直属下级；越级照样送达（人的原话：「越级可以发，但是它的第一选择应该是只发给直属上级」），
+    结果里写明首选是谁，组织上下文里也这样写。读、派任务、协议和持续推进照旧能到各级。
+  - 秘书处里的因职务席位只给直属秘书处的正式组织负责人，以及上面没有正式组织的负责人；更下层的负责人只在直属上级
+    组织里有席位。
+  - `Store.set_co_leaders`：共同负责人和负责人说话一样算数：在秘书处批请求，改宗旨、开关持续推进，给别人定角色，
+    关 episode，表决和审查时算负责人。共同负责人的席位不再是因职务席位。组织上下文里写明两位负责人。
+- Members run on their own while the person is away from the computer (2026-11-15: the person, 「我如果不在的话…他们就
+  应该是一个自主运行的模式」「别他妈啥时候都问我了，我不在我怎么审批啊」「看鼠标啊前台啊」, and 「我跟 Claude 说的话，他转述
+  给 Codex，结果 Codex 那边说这不是我人说的，然后又不干」).
+  - Presence comes from the keyboard and mouse and the window in front: no input for 10 minutes, or a locked screen at
+    once, is away; a game or a full-screen window in front counts as at the computer. The running-process list is no
+    longer read. Typing to a member's session or writing in the Relic App within those 10 minutes counts as around (a
+    phone too). `RELIC_PRESENCE=here|away` sets it; the test suite runs with `here`.
+  - While the person is away nobody waits for them: a question with `recommend` goes ahead at once (the asker reads it
+    in the result, another executor gets the notice, the person reads what was done when back), an open question goes
+    ahead once the person leaves (looked at every 5 minutes), a message to `human` says in its result that nobody reads
+    it now, the harness's question tools (`AskUserQuestion`) are refused with the reason, and a turn that would end on a
+    question goes on once. Woken turns, keep-going notices and the organization context say the person is away.
+  - The person's words a member relays count: a message that quotes them verbatim gets `[Relic check W<n>]` under it,
+    with when and in which seat's session the person typed them (a stretch of a prompt counts; a word in common or a
+    paraphrase does not). The wake-up text no longer limits members to what the person authorized in their own
+    session, and says that a failed step (a tool, service, sandbox or network error, a bug) is not a refusal.
+  - 人不在电脑前时成员自主运行（2026-11-15，人的原话：「我如果不在的话…他们就应该是一个自主运行的模式」「别他妈啥时候都
+    问我了，我不在我怎么审批啊」「看鼠标啊前台啊」，还有「我跟 Claude 说的话，他转述给 Codex，结果 Codex 那边说这不是我人
+    说的，然后又不干」）。
+  - 在不在电脑前看键盘鼠标和前台窗口：10 分钟没有输入，或屏幕一锁，就算离开；前台是游戏或全屏窗口算在。不再读进程
+    列表。这 10 分钟里在成员会话或 Relic App 里打过字也算在（手机上也算）。`RELIC_PRESENCE=here|away` 可以指定；测试
+    固定用 `here`。
+  - 人不在时谁都不等人：带 `recommend` 的提问立即按推荐执行（提问人在结果里看到，执行人是别人就收到通知，人回来看到
+    做了什么）；已经在等的提问在人离开后照推荐执行（每 5 分钟看一次）；发给 `human` 的消息在结果里说明人现在看不到；
+    harness 自带的提问工具（`AskUserQuestion`）被拒并说明原因；要用提问结束的一轮会再接着做一次。被唤醒的回合、
+    持续推进的提醒和组织上下文都会写明人不在。
+  - 成员转述的人的原话算数：消息里原样引用的人的原话，下面附 `[Relic 核对 W<n>]`，写明人什么时候、在哪个席位的会话里
+    打的（引用一段也算；只是有个词一样或意思相近的不算）。唤醒提示不再说只认人在本会话里的授权，并写明一步失败
+    （工具、服务、沙箱、网络出错或 bug）不等于被拒。
+- Members read the organizations above theirs (2026-11-14: the person had most rules turned into documents, run
+  settings into 科研部's 「研究线运行配置」 and working practices into 秘书处's 「工作手册」, and the organizations below
+  could not read either: a member of OrgBench 搭建组 was refused six times when it looked at 科研部 and 秘书处).
+  - `work op=doc_read org=<an organization above, at any depth>` reads one of its documents (`key`), or without `key`
+    their index. Writing documents, tasks, keep-going, the purpose and `said` there stay refused: report to its
+    members with `message`. Organizations that are neither above nor below stay out of reach.
+  - `status org=<an organization above>` shows it read-only: purpose, leader, members and roles, the titles of the
+    protocols in effect, open tasks and the documents' index. Its messages, episodes, reviews, proposals and votes,
+    trajectory requests and members' notes stay out; the parts it shares with the view from above read the same.
+  - A member's context names the documents of each organization above (at most 15 an organization, the most recently
+    written first), and its hints say what can be read above; members of an organization above read that the ones
+    below see its documents, so what they should keep knowing can be a document instead of a protocol.
+  - A session reads up through whichever of its seats is below the organization, as it reports up.
+  - 成员可以读上级组织了（2026-11-14：人把大部分规矩改成了文档，运行参数放进科研部的「研究线运行配置」，工作做法放进
+    秘书处的「工作手册」，下级组织却两份都读不到：OrgBench 搭建组的一个成员想看科研部和秘书处，连续 6 次被拒）。
+  - `work op=doc_read org=<上级组织，隔几层也算>` 读它的一份文档（`key`），不写 `key` 列出文档目录。在上级写文档、
+    派任务、开关持续推进、改宗旨和 `said` 照旧被拒：向它的成员汇报用 `message`。既不在上面也不在下面的组织照旧够不着。
+  - `status org=<上级组织>` 只读地显示它：宗旨、负责人、成员和角色、生效协议的标题、未完成的任务和文档目录；它的
+    消息、episode、审批、提案和投票、轨迹申请和成员的私人笔记都不显示；和从上往下看的视图共有的部分写法一致。
+  - 成员的上下文列出每个上级组织的文档名（每个组织最多 15 个，最近写的在前），提示里写明能读上级的什么；上级组织的
+    成员也会看到下级能读它的文档，下级需要长期知道的事可以写成文档，不必写成协议。
+  - 会话像向上汇报一样，通过它在该组织下面的任一席位读上级。
+- Wake-ups no longer depend on which copy of Relic starts them (2026-11-14: after the inbox route was installed for
+  Claude Code, wake-ups started by the Codex plugin and by sessions' already-loaded MCP servers still took the old
+  CLI route and failed on the missing login).
+  - `scripts/install.py` records the installed plugin folder in the data root (`current.json`), and every Relic
+    process starts member turns and delayed checks from there (`runner.entry`): the newest code runs the work.
+  - A Claude Desktop wake-up that an older Relic failed on its CLI route is handed over: the next newer Relic that
+    runs clears the failure and starts it again through the session's inbox (`wake.hand_over_desktop`, at most one
+    look a minute). For a day after such a failure the delayed background check keeps looking every two minutes, so
+    nothing waits for a member's tool call.
+  - A session reaches an organization through whichever of its seats is above it: a department head who also sits
+    in the cabinet can see, write to and assign work in the organizations under the cabinet without naming the seat.
+  - 叫醒不再取决于由哪一份 Relic 发起（2026-11-14：Claude 侧装上收件箱投递后，Codex 插件和各会话早已加载的工具
+    进程发起的叫醒仍走旧的命令行路由，因缺登录而失败）。
+  - `scripts/install.py` 在数据目录记下安装的插件目录（`current.json`），所有 Relic 进程都从那里启动成员回合和延时
+    检查（`runner.entry`），干活的总是最新代码。
+  - 旧版因命令行路由失败的 Claude 桌面叫醒会被接手：下一个运行的新版 Relic 清掉失败记录，改走会话收件箱重新叫醒
+    （`wake.hand_over_desktop`，每分钟最多查一次）；出现这类失败后的一天里，后台检查每两分钟查一次，不必等哪个成员
+    调用工具。
+  - 会话可以通过它在上级组织的任一席位够到下级组织：兼任秘书处席位的部门负责人，不用点名席位，就能查看、写信、
+    派活给秘书处下面的组织。
+- A Claude Desktop seat is woken through its live session's own inbox (the person, 2026-11-14: a member that cannot
+  be woken means the design is wrong; software work is not the person's to do). Relic finds the session in Claude
+  Code's session registry, by the seat's session id and else by its title, and writes the wake-up there with the key
+  the session publishes for it, the way Claude Code's own sessions message each other: no `claude auth login`, no
+  extra model call, delivered within a second. A session in the middle of a turn is waited for, never interrupted.
+  The CLI router runs only when no live session can be reached. Tests never reach the person's real sessions.
+  - 桌面席位改为直接写进它在线会话自己的收件箱叫醒（人 2026-11-14：叫不醒说明设计有问题，软件层面的事不交给人）。
+    Relic 在 Claude Code 的会话登记里按席位的会话号（找不到再按标题）找到会话，用该会话公布的密钥写入，与 Claude
+    Code 会话之间互发消息的方式相同：不需要 `claude auth login`，不多花一次模型调用，约 1 秒送到。会话正在回合中就
+    等它结束，不插话；只有找不到在线会话时才退回原来的命令行路由。测试碰不到人的真实会话。
+- Pauses end and questions to the person run out (the person, 2026-11-12/14: stops must come with the condition that
+  ends them; "I am not at the computer all the time, I don't look and nothing moves"; a Falcon run waited 23 hours on a
+  confirmation inside the scope the person had already approved).
+  - A member who switches an organization's or a seat's auto-wake, or keep-going, off pauses it: `until` names the end
+    (a time, `6h`, `90m`, `quota:codex` once the Codex weekly limit has really reset, or `idle` once the person has left
+    the computer and no game runs), and Relic switches it back on then and tells the member. A pause without `until`
+    is never restarted blindly: Relic asks its pauser every 2 hours whether the reason is still there. Switches an older
+    plugin turned off with a member's reason become such reviewed pauses. The person's own switches (the Relic App,
+    Stop, Stop all) end with the person's next message, as before, never with a timer.
+  - A question to the person is a message to `human` with `recommend` (and `within`, at most 60 minutes, and an
+    `executor`). The message says until when (Chicago time); if the person has not written to the asker by then, the
+    executor gets one notice to go ahead with the recommendation, after looking at what the person said since, the
+    quota and the hard protections. Nothing happens if the person answered or stopped the work meanwhile.
+  - Timers live in the store: a restart of the App or a member keeps them, and two processes fire each once. Every
+    dispatch fires the due ones, and the delayed background check comes for the next one too.
+  - `work op=said {query?, limit?, hours?}`: what the person typed lately into the sessions of seats in your
+    organization and the ones below it, with where and when, keys and passwords masked. Members read it instead of
+    asking each other for the person's exact words; the person's other chats are not kept.
+  - The context shows the pauses that touch a member, with their reason and end, and the member's running questions.
+- A strong rule stops one call, never the work. A call a rule sends to review (`require_review`, a check program's
+  `review`) gets one request, and Relic asks the members who can approve it at once (the leader, otherwise the
+  others), so nobody waits for someone who does not know; the approved member hears it and makes the call again. The
+  blocked member goes on with the rest meanwhile, and the block message and the context say not to stop and wait for
+  the person. Nobody approves their own call, and a call a rule denies stays a hard protection with no request.
+  - 「停」会到点结束，问人的事会到点按推荐执行（人 2026-11-12/14：停必须带恢复条件；「我不是所有时间全都在电脑前面的，
+    我不看就不动」；Falcon 一轮在人已批准的范围内为一次确认空等了 23 小时）。
+  - 成员关掉组织或席位的自动唤醒、或持续推进，就是一次暂停：`until` 写结束条件（时间、`6h`、`90m`、`quota:codex`
+    即 Codex 周额度真的重置以后、`idle` 即人离开电脑且没在玩游戏），到时 Relic 自动打开并告诉关的人。没写 `until`
+    的暂停不会被盲目打开：Relic 每 2 小时问一次关的人原因还在不在。旧版插件带成员理由关掉的开关也按这种方式复查。
+    人自己的开关（Relic App、停止、全部停止）照旧在人下一次发话时恢复，不受计时器影响。
+  - 问人：发给 `human` 的消息带 `recommend`（可加 `within`，最多 60 分钟，和执行人 `executor`）。消息里写明截止时间
+    （芝加哥时间）；到点人没给提问方发话，执行人收到一条通知：先看人之后说过的话、额度和硬保护，然后按推荐执行。
+    人已经回复、或在此期间叫停了，就什么也不发。
+  - 计时记在库里：App 或成员重启不会丢，多个进程同时检查也只触发一次。
+  - `work op=said {query?, limit?, hours?}`：人最近在本组织及下属组织席位的会话里亲手打的字，带地点和时间，密钥和
+    密码已遮掉。成员直接查，不再互相要原话；人的其他对话不记录。
+  - 上下文里显示和成员有关的暂停（原因、结束条件）以及它正在等的提问。
+  - 强规则只拦一次调用，不卡死工作：送审的调用（`require_review`、检查程序判 `review`）生成一个请求，Relic 马上通知
+    能批的人（负责人；负责人本人被拦时通知其他成员），批准后被拦的成员会收到通知再做一次。等待期间被拦的成员接着做
+    别的，拦截消息和上下文都写明不要因此停下等人。谁也不能批自己的调用；被 deny 拦下的调用是硬保护，没有请求可批。
+
+- An organization's purpose can be brought up to date: `work op=purpose {purpose, reason}`, by its leader or from an
+  organization above. The person is told, with the text it replaces; members read the new purpose from their next
+  context on. Before, a purpose could only be set when the organization was made: on 2026-11-08 a research
+  organization's purpose still named the model the person had replaced, and its members took it for a current
+  instruction.
+  - A request kind an older version does not know is no longer carried out as "dissolve": approving it changes nothing
+    and says so.
+  - 组织宗旨可以更新了：`work op=purpose {purpose, reason}`，由负责人或上级组织的成员来改。改了会告诉人，并附上被替换
+    的原文；成员下一次看上下文起就读到新宗旨。以前宗旨只能在建组织时写：2026-11-08 有个科研组织的宗旨还写着人已经换掉
+    的模型，成员把它当成了现行要求。
+    - 旧版本不认识的请求种类不再被当成「解散」执行：批准它什么也不改，并说明原因。
+
+- Wake-ups of a Claude desktop seat no longer stall or repeat themselves.
+  - A Relic request the session has taken no longer holds the session after its turn ends, even when no receipt
+    bound (a human prompt came in between, or the turn ended without public text). Such a request used to hold the
+    session for 6 hours: on 2026-11-08 a newer message waited an hour while the session was up, and went out two
+    minutes after the session had been stopped. The runner sees it too, so it no longer waits up to an hour for a
+    receipt that will not come. A reply that quotes another request's nonce is still that request's.
+  - A retry that fails the same way for messages its wakers were already told about sends no receipt. The same
+    morning, four retries for one stopped desktop session sent every waker the same failure receipt four times. The
+    first failure receipt now says Relic retries quietly and where the messages wait; a newer message, a different
+    failure, or a turn that goes through is reported as before.
+  - Claude 桌面席位的自动唤醒不再卡住，也不再反复发同样的回执。
+    - 会话已经接到的 Relic 请求，在那一轮结束后就不再占住会话，即使回执没对上（中间来了人的提示，或那一轮结束时没有
+      公开正文）。以前这种请求会占住会话 6 小时：2026-11-08 有一条新消息在会话在线时等了一个小时，等会话被停掉两分钟后
+      才去送。派送进程也认这一点，不再为等不来的回执空等最多一小时。只引用另一条请求编号的回复仍算那条请求的。
+    - 重试失败的情况和上次一样、涉及的消息发信人也都已知道时，不再发回执。同一天早上，一个被停掉的桌面会话的四次重试
+      给每个发信人各发了四遍同样的失败回执。现在第一条失败回执会说明 Relic 会安静地再试几次、消息在哪里等；有新消息、
+      失败情况变了、或者这一轮成功了，照常回执。
+
+- Keep-going: an organization can carry its work on without the person. With keep-going on, when nobody in the
+  organization or the ones below it has worked for 10 minutes, nothing is waiting to be delivered and work is
+  unfinished, its driver (the leader by default) gets a notice with the person's standing instruction and the
+  unfinished tasks, and decides the next step.
+  - Members finished a step and stopped. Auto-wake only answers messages, and an exchange ends after six automatic
+    wake-ups, so a head that stopped after a batch, or a member that finished without telling anyone, left the work
+    standing until the person came back (on 2026-11-07, once for an hour and a half, once for 17 hours).
+  - It is not a timer. A second notice needs progress after the first (a message other than notices, receipts and
+    reports to the person, or an edit or a command anywhere below), so an organization that has stopped for good costs
+    one notice; at most 12 a day. A question to the person holds the notices for an hour, and Stop all pauses them.
+  - `work op=drive {on, goal, driver}` switches it: the leader, or a member of an organization above. Switching it off
+    takes a reason, which the person is told. Members see the driver and the person's instruction in their context.
+  - Notices come from `relic`, a reserved name like `human`. The checks run on this machine and cost no turns: in the
+    Relic App every 30 seconds, on every wake-up dispatch, and in a delayed background check that each check arms for
+    the next, so they go on with the App closed and while members still run an older plugin's hooks.
+  - 持续推进：组织可以不等人，自己把工作接着做下去。开着持续推进时，组织（连同下属组织）10 分钟没人干活、没有待送的消息、
+    工作还没做完，推进人（默认是负责人）会收到一条提醒，附上人的长期指令和没做完的任务，由它定下一步。
+    - 以前成员做完一步就停。自动唤醒只回应消息，一轮来回最多 6 次自动唤醒，所以 head 做完一批就停、或者成员做完没告诉
+      任何人，工作就一直停到人回来（2026-11-07 一次停了一个半小时，一次停了 17 小时）。
+    - 不是定时器。第二条提醒要求第一条之后有进展（提醒、回执和只发给人的汇报以外的消息，或者下属里有人改文件、跑命令），
+      所以已经彻底停下的组织只花一条提醒；每天最多 12 条。有人向人提了问题，提醒等一小时；全部停止时暂停。
+    - 用 `work op=drive {on, goal, driver}` 开关：负责人，或者上级组织的成员。关掉要写原因，会告诉人。成员在上下文里
+      能看到推进人和人的指令。
+    - 提醒的发信人是 `relic`，和 `human` 一样是保留名字。检查都在本机做，不占任何回合：Relic App 每 30 秒一次，每次
+      自动唤醒派发时一次，另外每次检查都会预约下一次的后台检查。所以 App 关着、成员还在用旧版插件的钩子时也照样检查。
+
+- Windows: the window's own state now lives with Relic's data, in `RELIC_HOME\native`
+  (`%USERPROFILE%\.relic\native` by default). That covers the open chat, read marks, folds and drafts
+  (`native-ui.json`), and the size and position (`window.json`).
+  - It used to be in `%LOCALAPPDATA%\Relic`. Windows redirects that folder for a program started from a packaged
+    app (the Claude desktop app and every agent session it runs), so a person had one state when an agent opened
+    Relic and another, empty one when they opened it from the desktop: every chat looked unread, and the window and
+    folds were reset.
+  - The first start copies the most recently written earlier state from either place and leaves the old files
+    where they were.
+  - Windows：窗口自己的状态改为和 Relic 的数据放在一起，位置是 `RELIC_HOME\native`（默认
+    `%USERPROFILE%\.relic\native`）。包括打开的聊天、已读、折叠和草稿（`native-ui.json`），以及窗口大小和位置
+    （`window.json`）。
+    - 以前放在 `%LOCALAPPDATA%\Relic`。从打包应用（Claude 桌面版及其中运行的所有代理会话）里启动的程序，
+      Windows 会把这个目录重定向到该应用包自己的文件夹。所以代理打开的 Relic 是一套状态，人从桌面打开的又是另一套
+      空的：所有聊天都像没读过，窗口和折叠也被重置。
+    - 第一次启动时，会从两处里拷来最近写过的那份旧状态，旧文件原地保留。
+- Relic now says when Codex skips its hooks. Codex ties its approval of a plugin's hooks to a fingerprint of the
+  plugin's whole folder, so after every Relic upgrade it skips them, silently, until the person approves them again
+  with `/hooks`. Meanwhile Codex members get no messages between their own Relic calls, strict protocols are not
+  enforced on their tool calls, and their activity is not recorded.
+  - Relic computes Codex's fingerprint the way Codex does and compares it with the approvals in `~/.codex/config.toml`.
+    On this machine it reproduced the stored approval exactly.
+  - When they differ, the Relic App shows a bar at the top of the window, `scripts/install.py` prints it, and a Codex
+    session is told at start to call inbox each turn and to ask the person once to run `/hooks`.
+  - Members the Relic App runs on Codex get the hooks' work from the App while Codex skips the hooks. Before, an
+    outdated approval counted as trusted, and they got neither.
+  - Relic never approves hooks itself and does not move code out of the fingerprinted folder to keep an old approval:
+    the approval is the person's safeguard.
+  - Relic 现在会在 Codex 跳过它的钩子时提醒。Codex 对插件钩子的信任绑定在整个插件文件夹的指纹上，所以 Relic 每次
+    升级后，Codex 都会悄悄跳过这些钩子，直到人用 `/hooks` 重新信任。在这之前，Codex 成员在两次调用 Relic 之间收不到
+    消息，严格协议对它们的工具调用不生效，它们的活动也不会被记录。
+    - Relic 按 Codex 的算法计算指纹，并和 `~/.codex/config.toml` 里的信任记录比对；在本机上和 Codex 存的值完全一致。
+    - 对不上时，Relic App 窗口顶部显示提示条，`scripts/install.py` 也会打印提示。Codex 会话在启动时会被告知：每轮先查
+      收件箱，并请人运行一次 `/hooks`。
+    - Codex 跳过钩子期间，由 Relic App 运行的 Codex 成员改由 App 代做钩子的工作。以前过期的信任也被当成有效，这些
+      成员两边都得不到。
+    - Relic 从不替人信任钩子，也不会为了保住旧的信任把代码挪出被计算指纹的文件夹：这份信任是人的安全把关。
+- A member woken for an old unread message is told how old it is. After auto-wake was off, or a Stop, a seat is woken
+  for its whole unread backlog, and a message older than six hours now reads "sent <time>, N days ago: check that it
+  still applies" in the wake-up prompt. On 2026-11-07 five seats were woken for a three-day-old message announcing a
+  pause that the person had already lifted.
+  - 成员因为一条旧的未读消息被叫醒时，会被告知这条消息有多旧。自动唤醒关过、或者停止过之后，席位会因为全部积压的
+    未读消息被叫醒。超过 6 小时的消息，在唤醒提示里会写明「发于某时，已过 N 天，先确认还适用」。2026-11-07 曾有 5
+    个席位被一条三天前的消息叫醒，那条消息宣布的暂停早已被人解除。
+- The Slack settings page lists organizations in the sidebar's order (the latest activity first) instead of by name.
+  - Slack 设置页里的组织顺序改成和侧栏一致（最近有动静的在前），不再按名称排。
+- After Stop or Stop all, the person's next message puts the organizations back to work. The message can be sent in
+  the Relic App (private chat, group chat, a forwarded reply) or typed into any member's own session.
+  - Every brake comes off. Auto-wake comes back on for the seats Stop turned off and for every active organization,
+    including organizations whose switch the person had turned off. The members the person talks to then wake the
+    others, in their own organization or in another one, just by messaging them.
+  - Timers stay off: Codex automations that Stop paused stay paused until Resume all or their own Resume. Claude
+    scheduled tasks are never touched. Prompts started by Relic or by a Codex automation do not count as the
+    person's message.
+  - Each resume is recorded as `organization.wake_resumed` in the organization the person wrote in: why ("the person
+    wrote to head in 研发部"), which organizations, seats and sessions came back, and which automations stay paused.
+    Its group chat shows a notice, and each switch event carries the same reason.
+  - Without a Stop in force nothing changes: seat and organization switches the person turns off stay off.
+  - The monitor, Overview and Stop texts say this in both languages. Before, typing to a stopped session released only
+    that session, and wake-ups stayed off until Resume.
+  - 「停止」或「全部停止」之后，人的下一条消息会让各组织回到干活状态。消息可以在 Relic App 里发（私聊、群聊、转发
+    回复），也可以在任何成员自己的会话里打字。
+    - 所有刹车松开。停止关掉的席位重新打开自动唤醒，每个在用的组织也重新打开自动唤醒，包括人自己关掉开关的组织。
+      人对话的成员给别人发消息，就能叫醒本组织或别的组织里的成员。
+    - 定时任务不跟着恢复：停止暂停的 Codex 定时任务一直暂停，等人点「全部恢复」或单独恢复；Claude 的定时任务从来不碰。
+      Relic 自己发起的轮次和 Codex 定时任务发起的轮次，不算人的消息。
+    - 每次自动恢复都记成事件 `organization.wake_resumed`，记在人发消息的那个组织里：原因（英文，例如 "the person
+      wrote to head in 研发部"）、恢复了哪些组织、席位和会话、哪些定时任务仍暂停。那个组织的群聊里会显示一条提示，
+      每个开关的事件也带同样的原因。
+    - 没有停止时什么都不变：人自己关掉的席位和组织开关保持关着。
+    - 运行监控、总览和停止的说明文字（中英文）都已改成这样。以前在停止的会话里打字只放开这一个会话，自动唤醒要等点「恢复」。
+- The person's Slack, read-only, as background for every member. In the Relic App (Settings, Slack) the person creates
+  an internal Slack app of their own from the manifest shown there (read scopes only, no bot user, nothing that
+  posts), installs it and pastes its User OAuth Token. The token is kept encrypted for the Windows user (DPAPI; a file
+  only the user can read elsewhere) and never sent back.
+  - Members get a `slack` tool: `search` (Slack's Real-Time Search API, with the legacy `search.messages` for tokens
+    that only have `search:read`), `history`, `thread` and `channels`. Messages are fetched when asked and never
+    stored.
+  - The person chooses per organization what it may read: everything, every channel without direct messages, a list
+    of conversations, or nothing. An organization without its own choice follows the nearest one above it, then the
+    default (everything).
+  - Every read is logged with the seat, what it asked for and how many messages came back (90 days, no message
+    text). The settings page shows the latest reads. The context of an organization that may read Slack says so.
+  - API: `GET /api/slack`, `GET /api/slack/conversations`, `POST /api/slack/connect|disconnect|scope`.
+  - 成员可以只读地查看人的 Slack 作为背景。人在 Relic App 的「设置 → Slack」里用页面给出的配置建一个自己的
+    Slack 应用（只有读取权限），装到工作区后把 User OAuth Token 贴进来；令牌按 Windows 账号加密保存，不再显示。
+    成员用 `slack` 工具搜索、读频道、读线程、列会话；能读什么由人按组织设定，没设定的跟上级组织；每次读取都会记录
+    （不存消息内容）。
+- Auto-wake carries the exact triggering message ids and a bounded message preview in the turn prompt, with
+  explicit inbox-by-id and task checks even when hooks have already marked the messages read.
+- Runner and App receipts quote only the member's new replies in the triggering threads, separately for each
+  sender. Unrelated session final text is never forwarded; a turn without a matching reply gets status only.
+  Message-id boundaries exclude earlier replies even when they have the same timestamp.
+- A Claude Desktop session that holds seats in several organizations is reached at one address: the title
+  `<organization> · <member>` of the seat configured for the desktop app. Every seat keeps its own organization in
+  the prompt.
+- Such a session takes one Relic request at a time. A request without its GUI Stop holds the session's other seats
+  too; their wake-ups wait quietly, without failures or receipts.
+  - After 6 hours the request stops holding the session. Its delivery stays unknown, so it is never sent again, and a
+    late Stop that quotes its nonce still answers it.
+  - A late Stop no longer goes to a newer request of another seat, even after the newer request's prompt reached the
+    session: a reply that quotes only the older nonce answers only the older request.
+- A seat's reply can name members of an organization above or below (`<org id>/<member>`) who are not in the
+  thread. They get a copy, and the reply stays in the thread. Organizations out of reach are still refused, now with
+  the reason.
+- A monitor of who is working on the computer and what it costs. The App server counts tokens per session from the
+  Claude Code and Codex transcripts (read once, incrementally; only per-minute and per-hour sums in usage.sqlite3).
+  - Stop ends Relic's processes for a session, makes the Relic hook refuse its tool calls so its turn ends, turns
+    off wake-ups for all its seats and pauses the Codex automations that start it. Typing to the session releases
+    it; Resume restores only what Stop changed. Stop all also pauses every Codex automation and every
+    organization's wake-ups.
+  - Token statistics by session, agent or organization for today, 24 hours, 7, 30 or 90 days, per period and
+    cumulative. API: `GET /api/monitor`, `GET /api/usage`, `POST /api/monitor/stop|resume`.
+- Windows App sidebar: every layer lists its own members. An organization that is not open lists them under it
+  once unfolded: its leader first, then its secretary, then the others, and a seat held as head of an organization
+  below marked Ex officio. One with organizations below it starts unfolded, any other folded. Folding adds or
+  removes only the rows under that organization; the list is no longer drawn again. `GET /api/orgs` gives each
+  organization's `roster`. The title bar's count badges are no longer clipped, and count digits sit in the middle.
+- An overview of the whole organization tree in the native Windows app (toolbar, next to the Monitor). For every
+  organization: its purpose, latest message and latest action, open tasks with owner and status, each member's state
+  (working, working in another organization, idle, stopped, no session) with its last activity, and what starts its
+  members on their own: auto-wake for the organization and each seat (and whether Relic can start the seat at all),
+  the Codex automations that start a member, and the Claude desktop app's scheduled tasks with their switch and time.
+  - From there the person turns auto-wake on or off for an organization or a seat, pauses or resumes a Codex
+    automation, stops or resumes a member (the Monitor's Stop) and opens a chat.
+  - Each refresh reads the organizations once plus a few grouped queries, nothing per member; the latest message and
+    action are read incrementally. API: `GET /api/overview`, `POST /api/org/<org>/seat_auto_wake`,
+    `POST /api/monitor/automation`.
+  - 原生 Windows App 的工具栏新增「总览」：整棵组织树一页看完，每个组织在做什么、未完成的任务、谁在干活、什么能让成员
+    自己开工；能直接开关自动唤醒、暂停或恢复 Codex 定时任务、停止或恢复成员、跳到群聊或私聊。
+- The overview keeps every row realized while it is open (rows are still built a few at a time), so its height is
+  exact and its end can be reached; its organizations follow the sidebar's order (latest activity first). The
+  toolbar no longer cuts the top of its commands and count badges: the CommandBar's clip had moved down by its
+  stock 48 px compact height minus the 39 px toolbar.
+- The overview builds only the rows around the view again (a full UI Automation read had held the UI thread for
+  about half a second with every row realized) and still reaches its end: the list remembers each row's built
+  height, so rows coming back into view or replaced by a refresh keep their height while they are built. A
+  refresh replaces only the rows whose content changed; at the bottom the view keeps its bottom edge, elsewhere
+  the first visible row keeps its place.
+- A single jump or drag to the end of the overview ends at the end. The list sized the rows it had not realized
+  from the average of those it had, so its height, and with it the end, moved whenever a row entered or left the
+  realized range: on the person's data one jump stopped 163 px short 4 of 4 times at 150%, and under refreshes that
+  change row heights a second jump could not settle either. The overview now lays its rows out at their known
+  heights (the height a row had when last built, else its estimate), so its height no longer depends on which rows
+  are realized; only the rows around the view are realized, as before. A move headed for the end pins the view
+  there until the person scrolls away, and it is scrolled there again when rows built for the first time change
+  the list's height.
+
+自动唤醒直接携带本次消息编号和正文预览，要求按编号重读并核对任务。回执仅引用本轮在触发线程中的回复；
+没有关联回复时只报告轮次状态，不再转发旧的待命答复或用户中途另派任务的结尾文字。
+
+在多个组织坐席的 Claude 桌面版会话统一按一个地址投递：配成桌面版的那个席位的「组织名 · 成员名」。每个席位在提示里
+仍保留自己的组织。这样的会话一次只接一条 Relic 请求：
+- 一条请求没等到 GUI Stop 回执时，同一会话的其他席位也先排队，唤醒安静地等，不算失败，也不发回执。
+- 6 小时后它不再挡住后来的请求。它的投递结果仍记为不确定，所以不会重发；迟到的 Stop 只要引用了它的编号，仍然算它的回执。
+- 迟到的回执不会再记到别的席位的新请求上。新请求的提示已经送进会话时也一样：只引用旧编号的回复只算旧请求的回执。
+
+席位回帖时，可以写给帖子以外的上下级组织成员（`<组织编号>/<成员>`）：对方收到一份副本，回帖仍留在原帖里。
+够不着的组织照样拒绝，并说明原因。
+
+新增运行监控：看这台电脑上谁在工作、用了多少 token。App 服务从 Claude Code 和 Codex 的会话记录里统计，只读新增
+部分，usage.sqlite3 里只存每分钟和每小时的小计。
+- 「停止」结束 Relic 为这个会话启动的进程，让钩子拒绝它的工具调用、这一轮马上结束，关掉它所有席位的自动唤醒，
+  并暂停会唤醒它的 Codex 定时任务。你在那个会话里打字就能继续用它；「恢复」只重新打开停止时关掉的东西。
+  「全部停止」还暂停所有 Codex 定时任务和每个组织的自动唤醒。
+- Token 统计可按会话、代理或组织，看今天、24 小时、7 天、30 天、90 天的分段数和累计数。
+- 接口：`GET /api/monitor`、`GET /api/usage`、`POST /api/monitor/stop|resume`。
+- Windows: no accent-coloured border around the window when "Show accent colour on title bars and window borders"
+  is on; Relic draws its own title bar, so Windows' border was the only coloured line (DWMWA_BORDER_COLOR = none).
+  Windows 版窗口外不再有系统强调色的边框（「在标题栏和窗口边框上显示强调色」开着时也没有）。
+
+Windows 版侧栏：每一层都列出自己的成员。没打开的组织展开后也列出它的成员：先负责人，再秘书，再其他人；作为下级组织
+负责人坐的席位标「因职务」。有下级组织的默认展开，其他默认收起。展开、收起只增减这个组织下面的行，不再整列重画。
+`GET /api/orgs` 给出每个组织的 `roster`。标题栏的计数红点不再被裁掉，计数的数字居中。
+
+## v0.7.1-beta.1 — 2026-10-29
+
+Plugin **0.18.1-beta.1**, based on the merged Windows/macOS v0.7.0 source.
+
+- Hook delivery fits organization context and whole messages into 9500 characters before marking messages read.
+  A preview or omitted message stays unread, with its id and an inbox recovery notice.
+- `inbox message_id=<id>` rereads any message addressed to the session's selected seats, including read messages.
+  An empty inbox lists open assigned tasks across those seats and points to `status`.
+- Waiting stdio inbox calls observe cancellation and EOF on an independent input thread, including while an
+  ordinary call holds the code lock. Messages are acknowledged only after a successful response write; cancelled
+  or broken-pipe replies leave them unread. Transport tests synchronize waiter lifecycle events instead of sleeps.
+- Auto-wake prompts name the context/inbox and status task list. Wake turns cannot take the manual `--open` path.
+- Windows subprocess creation uses one no-console flag helper, including App-owned jobs and probes. Explicit
+  manual CLI opening uses Windows Terminal without a separate launcher console. Tests mock that UI action and
+  hide the checker fixture's child process. Release-layout App tests skip when `scripts/open_app.py` is absent.
+- An explicit held seat takes precedence over upward reporting and qualified recipients, regardless of hierarchy.
+  Threaded replies remain in the receiving seat's organization and deliver a copy to cross-organization participants.
+- The installer gives Codex a Windows PowerShell command with the call operator for quoted Python paths;
+  Claude's shell command stays separate. Codex receives the hook's already-capped additional context without
+  a second host preview truncation (`additionalContextLimit: 0`).
+
+基于合并后的 Windows/macOS v0.7.0 源码，插件版本为 **0.18.1-beta.1**。
+修复 hook 截断后误标已读；新增按消息 ID 重读和空收件箱任务提示；统一 Windows 子进程隐藏标志，
+阻止自动唤醒进入人工开窗路径，修正会实际打开终端的测试夹具，并覆盖上级席位回复场景。
+本次不发布、不安装、不部署；真实桌面验收另行进行。
+
 ## v0.7.0-beta.1 — 2026-10-28
 
 One Relic version for Windows and macOS on Apple silicon, plugin **0.18.0-beta.1**. The macOS port contributed by

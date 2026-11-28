@@ -1,6 +1,7 @@
 """Organizations above and below: the person places an organization under another in the Relic App; members of an
 organization above see one below, write to its members, assign its tasks and issue protocols that take effect there
-directly; a protocol marked downward binds every organization below its own; members below only report upward."""
+directly; a protocol marked downward binds every organization below its own; members below report upward and read
+the organizations above (test_read_up)."""
 import json
 import os
 import sys
@@ -61,6 +62,22 @@ class Hierarchy(unittest.TestCase):
         self.assertIn("organization.child_added", kinds)
         self.assertIn("organization.child_removed", kinds)
 
+    def test_the_tree_lists_each_organization_s_own_members(self):
+        # Every layer has its own members, also an organization that is not open: the leader first, then the
+        # secretary, then the others; a head of an organization below sits there ex officio.
+        s = self.store
+        s.set_seat_fields(self.team, "dev", secretary=True)
+        rosters = {o["id"]: o["roster"] for o in views.org_list(s, "zh-CN")}
+        team = rosters[self.team]
+        self.assertEqual([(m["name"], m["leader"], m["secretary"]) for m in team],
+                         [("lead", True, False), ("dev", False, True), ("s1", False, False)])
+        self.assertEqual(team[2]["ex_officio"], {"org": self.sub, "org_name": "Sub"})
+        self.assertIsNone(team[0]["ex_officio"])
+        # the same member leading and acting as secretary is listed once, with both marks
+        self.assertEqual([(m["name"], m["leader"], m["secretary"]) for m in rosters[self.sub]], [("s1", True, True)])
+        self.assertEqual([m["name"] for m in rosters[self.sec]][:2], ["chief", "helper"])
+        self.assertEqual(rosters[self.other][0]["role"], "")
+
     def test_a_member_acts_only_below_and_reports_only_above(self):
         s = self.store
         self.assertEqual(s.reach(CHIEF, "Sub")[3], "down")  # any depth, by name or id
@@ -101,6 +118,35 @@ class Hierarchy(unittest.TestCase):
             s.send(CHIEF, ["dev"], "x", episode_id="E1", org=self.team)
         with self.assertRaises(OrgError):
             s.send(CHIEF, ["helper", self.team + "/dev"], "mixed")
+
+    def test_answering_a_message_from_another_organization_both_ways_keeps_its_thread(self):
+        # 2026-11-24: benchlead answered research-head's #8542 both ways the message tool describes; both were refused,
+        # because the message is kept in benchlead's organization under its own number, not in 科研部.
+        s = self.store
+        down = s.send(CHIEF, ["dev"], "Ship the landing page first.", org="Team")["message_id"]
+        s.unread(CHIEF, limit=None)  # whatever reached chief before
+        ways = ({"to": [self.sec + "/chief"]}, {"to": ["chief"], "org": self.sec}, {"to": ["chief"], "org": "秘书处"},
+                {"org": self.sec})
+        for n, way in enumerate(ways):
+            with self.subTest(way):
+                sent = s.send(DEV, way.get("to"), "answer %d" % n, reply_to=down, org=way.get("org"))
+                self.assertEqual((sent["reply_to"], sent["delivered_orgs"]), (down, [self.sec]))
+                self.assertNotIn("org_id", sent)  # kept in Team, in the thread it answers
+                got = s.unread(CHIEF)
+                self.assertEqual([(m["body"], m["from"]) for m in got], [("answer %d" % n, self.team + "/dev")])
+        with s.db() as db:
+            replies = [r[0] for r in db.execute("SELECT body FROM messages WHERE org_id=? AND reply_to=? ORDER BY id",
+                                                (self.team, down))]
+        self.assertEqual(replies, ["answer %d" % n for n in range(len(ways))])
+        # a message kept in the organization written to is answered there, as before
+        report = s.send(LEAD, ["chief"], "Weekly report.", org=self.sec)["message_id"]
+        sent = s.send(DEV, ["chief"], "One more point.", reply_to=report, org=self.sec)
+        self.assertEqual((sent["org_id"], sent["reply_to"]), (self.sec, report))
+        # and a message kept where the session holds no seat still cannot be answered from elsewhere
+        s.add_seat(self.other, "o2")
+        other = s.send(OTHER, ["o2"], "kept in Other")["message_id"]
+        with self.assertRaises(OrgError):
+            s.send(DEV, ["chief"], "x", reply_to=other, org=self.sec)
 
     def test_a_receipt_goes_back_to_the_organization_that_woke_the_member(self):
         s = self.store
@@ -176,8 +222,10 @@ class Hierarchy(unittest.TestCase):
         self.assertEqual(out["org_id"], self.team)
         self.assertIn("below your organization '秘书处'", out["context"])
         self.assertIn("start with the header", out["context"])
+        above = api.handle_call(s, "status", {"org": self.sec}, DEV)["context"]  # above: read-only (test_read_up)
+        self.assertIn("above your organization 'Team'", above)
         with self.assertRaises(OrgError):
-            api.handle_call(s, "status", {"org": self.sec}, DEV)
+            api.handle_call(s, "status", {"org": self.other}, DEV)  # unrelated
         self.assertIn("Below this organization: Team", render(s, s.get(self.sec), "chief"))
         self.assertIn("Above this organization: 秘书处", render(s, s.get(self.team), "dev"))
 

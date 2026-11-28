@@ -18,13 +18,13 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from relic_core import __version__, i18n, platform_support, runner, wake
+from relic_core import __version__, codex_trust, i18n, monitor, platform_support, runner, slack, usage, wake
 from relic_core.sessions import actor_for, all_sessions
 from relic_core.store import OrgError, Store, data_home, person_language
 
 from . import harness as harnesses
 from . import hub as hubs
-from . import explain, files, naming, prefs, views
+from . import explain, files, naming, overview, prefs, views
 from .processes import ProcessRegistry
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -155,6 +155,39 @@ class Bus:
                 pass
 
 
+def _iso_epoch(value):
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp() if value else 0
+    except (ValueError, TypeError):
+        return 0
+
+
+def _antigravity_sessions():
+    """Conversations the running Antigravity app lists; empty when Antigravity is not running."""
+    try:
+        from relic_core import antigravity
+    except ImportError:
+        return []
+    if antigravity.hub() is None:
+        return []
+    data = antigravity.call(antigravity.CONVERSATIONS + "ListConversations",
+                            {"pageSize": 50, "includeArchived": False})
+    out = []
+    for conv in data.get("conversations") or []:
+        cid = conv.get("id")
+        if not cid:
+            continue
+        ann = conv.get("annotations") or {}
+        state = conv.get("state") or {}
+        meta = conv.get("metadata") or {}
+        title = " ".join(str(ann.get("title") or state.get("summary") or cid).split())[:120]
+        updated = _iso_epoch(state.get("updateTime") or meta.get("createTime"))
+        out.append({"harness": "antigravity", "id": str(cid), "title": title, "surface": "app",
+                    "cwd": "", "updated": updated})
+    return out
+
+
 class App:
     def __init__(self, port=DEFAULT_PORT, store=None):
         self.store = store or Store()
@@ -190,12 +223,18 @@ class App:
 
     def watch(self):
         """Tell the page when an organization changed (any process may write the store)."""
-        last_reap = time.time()
+        last_reap = last_drive = time.time()
         while not self.stopping.wait(1.0):
             if time.time() - last_reap > 60:
                 last_reap = time.time()
                 try:
                     self.hub.reap()
+                except Exception:
+                    pass
+            if time.time() - last_drive > 30:  # keep-going checks that are due, whoever's hooks run or not
+                last_drive = time.time()
+                try:
+                    wake.drive_due(self.store)
                 except Exception:
                     pass
             try:
@@ -231,6 +270,7 @@ class App:
         with self.store.db() as db:
             row = db.execute("SELECT recipients FROM messages WHERE id=?", (mid,)).fetchone()
         sent_to = json.loads(row[0]) if row else (to or [])
+        self.back_to_work(org_id, "message", sent_to)  # before the turn or the wake-ups this message starts
         if len(sent_to) == 1 and self.hub.managed(org_id, sent_to[0]):
             threading.Thread(target=self._deliver, args=(org_id, sent_to[0], body, mid, reply_to), daemon=True).start()
         else:
@@ -328,8 +368,14 @@ class App:
 
     @staticmethod
     def sessions():
-        """Sessions on this computer that can take a seat: Claude Code sessions, Codex threads, ChatGPT chats."""
+        """Sessions on this computer that can take a seat: Claude Code sessions, Codex threads, Antigravity
+        conversations, ChatGPT chats."""
         found, problems = all_sessions()
+        try:
+            found = list(found) + _antigravity_sessions()
+        except (OSError, RuntimeError) as error:
+            problems = list(problems) + ["Antigravity: %s" % error]
+        found.sort(key=lambda s: s.get("updated") or 0, reverse=True)
         return {"sessions": found[:300], "problems": problems}
 
     def bind(self, org_id, a):
@@ -337,13 +383,13 @@ class App:
         session, member = a.get("session") or {}, (a.get("member") or "").strip()
         if not member or not session.get("id") or not session.get("harness"):
             raise OrgError(i18n.t("api.pick_session", self.lang()))
-        actor = actor_for(session)
+        actor = ("antigravity:" + session["id"]) if session["harness"] == "antigravity" else actor_for(session)
         for other, name, _ in self.store.seats_of(actor):  # it keeps its other seats; one run in the App cannot
             if other["id"] != org_id and ((other["members"].get(name) or {}).get("config") or {}).get("surface") == "acp":
                 raise OrgError(i18n.t("api.acp_one_seat", self.lang(), member=name, org=other["name"]))
         self.store.join(actor, org_id, member, (a.get("role") or "").strip())
-        if session["harness"] == "chatgpt":  # a ChatGPT chat takes part only through Relic: make it wakeable
-            self.store.set_config(org_id, member, runner.default_config("chatgpt"))
+        if session["harness"] in ("chatgpt", "antigravity"):
+            self.store.set_config(org_id, member, runner.default_config(session["harness"]))
         self.bus.publish({"type": "org", "org": org_id})
         return {"member": member}
 
@@ -374,6 +420,8 @@ class App:
                                   self.lang(), member=member))
         if (seat.get("config") or {}).get("surface") == "acp":
             raise OrgError(i18n.t("api.in_app", self.lang(), member=member))
+        if harness == "antigravity":
+            raise OrgError(i18n.t("api.antigravity_member", self.lang(), member=member))
         config = seat.get("config") if (seat.get("config") or {}).get("harness") == harness else {}
         session = carrier.split(":", 1)[1] if carrier.startswith("codex:") else carrier.split("/", 1)[0]
         state = runner.run_state(org_id, member) or {}
@@ -469,9 +517,22 @@ class App:
         if isinstance(to, str):
             to = [t.strip() for t in to.split(",") if t.strip()]
         result = self.store.forward_reply(org_id, a["member"], to, (a.get("body") or "").strip())
+        self.back_to_work(org_id, "forward", [a["member"]])
         threading.Thread(target=self._dispatch, args=(org_id,), daemon=True).start()
         self.bus.publish({"type": "org", "org": org_id})
         return result if isinstance(result, dict) else {"ok": True}
+
+    def back_to_work(self, org_id, via, members):
+        """The person's message ends a Stop or Stop all in force: brakes off, every organization's wake-ups back on,
+        the automations still paused (monitor.back_to_work). The windows redraw what changed."""
+        try:
+            done = monitor.back_to_work(self.store, org_id, via, members)
+        except Exception:  # the message is sent either way; Resume all in the monitor still works
+            return None
+        if done:
+            self.bus.publish({"type": "monitor"})
+            self._changed_all()
+        return done
 
     def lang(self):
         return prefs.load().get("lang") or self.page_lang or person_language()
@@ -511,7 +572,8 @@ class App:
     def turn(self, org_id, a):
         """A wake-up for a seat the App runs (relic_core.runner.start_turn hands surface=acp seats here)."""
         member = a["member"]
-        origin = {"kind": "wake", "wake_from": a.get("wake_from") or [], "hop": a.get("wake_hop") or 0}
+        origin = {"kind": "wake", "wake_from": a.get("wake_from") or [], "hop": a.get("wake_hop") or 0,
+                  "wake_message_ids": a.get("wake_message_ids") or []}
 
         def run():
             try:
@@ -552,7 +614,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _json(self, obj, code=200):
-        self._send(code, json.dumps(obj, ensure_ascii=False))
+        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8", "backslashreplace"))
 
     def _error(self, code, text):
         self._json({"error": text}, code)
@@ -614,13 +676,41 @@ class Handler(BaseHTTPRequestHandler):
                                    "instance": self.app.instance,
                                    "state": "stopping" if self.app.stopping.is_set() else "running"})
             if api == ["platform"]:
-                return self._json(platform_support.capabilities())
+                info = dict(views.platform_info(platform_support.capabilities()))
+                info["codex_hooks"] = codex_trust.status()  # the window says when Codex skips Relic's hooks
+                return self._json(info)
             if api == ["events"]:
                 return self._events()
             if api == ["orgs"]:
-                return self._json(views.org_list(self.app.store))
+                return self._json(views.org_list(self.app.store, self.app.lang()))
             if api == ["orgchart"]:
                 return self._json(views.orgchart(self.app.store, self.app.hub, self.app.lang()))
+            if api == ["monitor"]:  # who is working on this machine, what it costs, and what can start them again
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                return self._json(monitor.snapshot(self.app.store))
+            if api == ["overview"]:  # every organization: what it does, its open tasks, its members and what starts them
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                return self._json(overview.overview(self.app.store, self.app.hub, self.app.lang()))
+            if api == ["usage"]:  # tokens per period and cumulative, by session, agent or organization
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                org = q.get("org")
+                return self._json(monitor.report(self.app.store, span=q.get("span") or "7d", group=q.get("group") or "agent",
+                                                 org=("" if org == "-" else org), agent=q.get("agent"),
+                                                 bucket=q.get("bucket")))
+            if api and api[0] == "slack":  # the person's Slack (relic_core/slack.py); the token is never sent back
+                if not secrets.compare_digest(self.headers.get("X-Relic-Token") or "", self.app.token):
+                    return self._error(403, "missing token")
+                if api == ["slack"]:
+                    return self._json(slack.status(self.app.store))
+                if api == ["slack", "conversations"]:
+                    try:
+                        return self._json(slack.picker(self.app.store))
+                    except ValueError as error:
+                        return self._error(400, str(error))
+                return self._error(404, "not found")
             if api == ["cc"]:  # what was copied to the person
                 return self._json(views.copies(self.app.store, self.app.lang()))
             if api == ["harnesses"]:
@@ -766,7 +856,7 @@ class Handler(BaseHTTPRequestHandler):
             if getattr(app, "stopping", None) and app.stopping.is_set():
                 return self._error(503, "the Relic App is stopping")
             if api == ["platform"]:
-                return self._json(platform_support.configure_capabilities(a))
+                return self._json(views.platform_info(platform_support.configure_capabilities(a)))
             if api == ["orgs"]:
                 org = store.found(a["name"], a.get("purpose", ""), a.get("governance") or "leader")
                 return self._json({"org_id": org["id"]})
@@ -784,6 +874,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"avatar": prefs.avatar_url(a.get("org"), a.get("member"))})
             if len(api) == 3 and api[0] == "harnesses" and api[2] == "install":
                 return self._json(app.install(api[1]))
+            if api == ["monitor", "automation"]:  # the person pauses or resumes one Codex automation
+                result = monitor.set_automation(str(a.get("id") or ""), str(a.get("status") or ""))
+                app.bus.publish({"type": "monitor"})
+                return self._json(result)
+            if len(api) == 2 and api[0] == "monitor" and api[1] in ("stop", "resume"):
+                key = str(a.get("key") or "")
+                if not a.get("all") and not key:
+                    return self._error(400, "key or all is required")
+                if api[1] == "stop":
+                    # Turns the App runs are cancelled by the App, never by ending its own process.
+                    result = (monitor.stop_all(store, cancel_turn=hub.cancel) if a.get("all")
+                              else monitor.stop(store, key, cancel_turn=hub.cancel))
+                else:
+                    result = monitor.resume_all(store) if a.get("all") else monitor.resume(store, key)
+                app.bus.publish({"type": "monitor"})
+                return self._json(result)
+            if len(api) == 2 and api[0] == "slack":  # connect with a pasted token, disconnect, or who may read what
+                if api[1] == "connect":
+                    result = slack.connect(store, a.get("token"))
+                elif api[1] == "disconnect":
+                    result = slack.disconnect(store)
+                elif api[1] == "scope":
+                    result = slack.set_scope(store, str(a.get("org") or ""), a.get("mode"), a.get("conversations"),
+                                             a.get("dms"))
+                else:
+                    return self._error(404, "not found")
+                return self._json(result)  # no event: the settings page redraws from this answer; windows ignore it
             if len(api) == 3 and api[0] == "cc" and api[2] in ("read", "retire"):
                 cid = int(api[1])
                 return self._json(app.read_copy(cid) if api[2] == "read" else app.retire_copy(cid))
@@ -793,7 +910,7 @@ class Handler(BaseHTTPRequestHandler):
                 except PermissionError as error:
                     return self._error(403, str(error))
             if api == ["install-window"]:
-                return self._json(open_install_window(app.port))
+                return self._error(410, "Install the native Relic App package; browser installation is no longer supported.")
             if api == ["open"]:
                 target = {"data": data_home(), "logs": data_home() / "runs"}.get(a.get("what"), data_home())
                 platform_support.open_external(str(target))
@@ -846,6 +963,10 @@ class Handler(BaseHTTPRequestHandler):
                 if action == "auto_wake":
                     store.set_auto_wake(org_id, bool(a.get("on")))
                     return self._json({"ok": True})
+                if action == "seat_auto_wake":  # one seat's switch, from the overview
+                    store.set_seat_auto_wake(org_id, str(a.get("member") or ""), bool(a.get("on")),
+                                             reason="set by the person in the Relic App")
+                    return self._json({"ok": True})
                 if action == "cancel":
                     hub.cancel(org_id, a["member"])
                     return self._json({"ok": True})
@@ -857,22 +978,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(400, str(error))
         except Exception as error:
             return self._error(500, "%s: %s" % (type(error).__name__, error))
-
-
-def open_install_window(port):
-    """Open a normal browser window, where supported browsers can offer app installation."""
-    import subprocess
-    url = "http://127.0.0.1:%d/#install" % port
-    exe = platform_support.browser_executable()
-    if exe:
-        try:
-            subprocess.Popen([exe, "--new-window", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, close_fds=True)
-        except OSError:
-            exe = None  # an application removed since discovery: try the default browser
-    if not exe:
-        platform_support.open_external(url)
-    return {"opened": url, "browser": exe or "default"}
 
 
 class Server(ThreadingHTTPServer):
@@ -918,9 +1023,21 @@ def serve(port=DEFAULT_PORT, store=None, write_info=True):
     return app, server
 
 
+def count_usage(app, every=60):
+    """Keep the token sums current while the App runs; the first read covers the last 30 days of transcripts."""
+    ledger = usage.Ledger.shared()
+    while not app.stopping.is_set():
+        try:
+            ledger.scan()
+        except Exception:  # a transcript being written or removed: the next pass reads it
+            pass
+        app.stopping.wait(every)
+
+
 def main(port=DEFAULT_PORT):
     with LifecycleLock("app-server.lock", timeout=0):
         app, server = serve(port)
+        threading.Thread(target=count_usage, args=(app,), name="relic-usage", daemon=True).start()
         previous = {}
         if threading.current_thread() is threading.main_thread():
             for sig in (signal.SIGTERM, signal.SIGINT):

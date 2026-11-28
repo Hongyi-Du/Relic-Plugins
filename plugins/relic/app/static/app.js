@@ -2065,7 +2065,7 @@
       const acts = [
         own && (c.embedded || (hosted && canStart)) ? seatBtn(t('card.new_session'), () => seatAction('fresh', name, c.session ? t('card.new_session_confirm', { name: c.display || name }) : ''), t('card.new_session_hint')) : null,
         hosted && c.session ? seatBtn(t('card.open_session'), () => seatAction('open_session', name), t('card.open_session_hint')) : null,
-        hosted ? seatBtn(t('card.edit_setup'), () => { closeCard(); memberDialog({ edit: name }); }, t('card.edit_setup_hint')) : null,
+        hosted && c.harness !== 'antigravity' ? seatBtn(t('card.edit_setup'), () => { closeCard(); memberDialog({ edit: name }); }, t('card.edit_setup_hint')) : null,
         c.harness === 'chatgpt' ? seatBtn(c.waiting_replies ? t('card.forward_reply_waiting', { n: c.waiting_replies }) : t('card.forward_reply'), () => { closeCard(); forwardDialog(name); }, t('card.forward_reply_hint')) : null,
         c.session ? seatBtn(t('card.leave_seat'), () => seatAction('unbind', name, t('card.leave_seat_confirm', { name: c.display || name })), t('card.leave_seat_hint')) : null,
       ].filter(Boolean);
@@ -2092,16 +2092,16 @@
   // A member runs one of three ways, all from here: in the App (an ACP session the App hosts), in Claude Code or Codex
   // itself (command line or desktop app, started and woken by Relic), or as a session that already exists on this computer.
   function runModes() { return [['app', t('member.run_app')], ['host', hostSurfaces(PLATFORM).some(([, surface]) => surface === 'gui') ? t('member.run_host') : t('member.run_host_mac')], ['existing', t('member.run_existing')]]; }
-  function runNotes() {
+  function runNotes(harness) {
     return {
-      app: t('member.note_app'),
+      app: harness === 'antigravity' ? t('member.note_app_antigravity') : t('member.note_app'),
       host: !PLATFORM.codex_desktop_wake || !PLATFORM.claude_desktop_wake ? t('member.note_host_mac') : t('member.note_host'),
       existing: isMac() ? t('member.note_existing_mac') : t('member.note_existing'),
     };
   }
   function hostKinds() { return hostSurfaces(PLATFORM).map(([harness, surface]) => [harness, surface,
     surface === 'gui' ? t('member.harness_gui', { harness: HARNESS_TITLE[harness] }) : t('member.harness_cli', { harness: HARNESS_TITLE[harness] })]); }
-  const HARNESS_TITLE = { 'claude-code': 'Claude Code', codex: 'Codex', chatgpt: 'ChatGPT', 'claude-chat': 'Claude', 'kimi-code': 'Kimi Code', 'deepseek-harness': 'DeepSeek Harness' };
+  const HARNESS_TITLE = { 'claude-code': 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', chatgpt: 'ChatGPT', 'claude-chat': 'Claude', 'kimi-code': 'Kimi Code', 'deepseek-harness': 'DeepSeek Harness' };
   async function seatOptions() {
     if (!S.seatOptions) S.seatOptions = await get('/api/seat-options');
     return S.seatOptions;
@@ -2124,7 +2124,7 @@
     const choices = h('div', { class: 'choices' }, list.filter((x) => !x.later).map((x) => {
       const radio = h('input', { type: 'radio', name: 'harness', value: x.id, disabled: !x.available });
       radio.checked = x.id === picked;
-      radio.addEventListener('change', () => { picked = x.id; });
+      radio.addEventListener('change', () => { picked = x.id; note.textContent = edit ? t('member.edit_note') : runNotes(picked)[run]; });
       return h('label', { class: 'choice' + (x.available ? '' : ' off') }, radio, h('div', null, h('b', null, x.title), ' ', h('span', { class: 'dim' }, x.vendor),
         h('div', { class: 'dim', style: 'font-size:12px' }, x.available ? t('member.connected', { program: x.program ? clip(x.program, 48) : '' }) : x.problem)));
     }));
@@ -2185,7 +2185,7 @@
     const form = h('div', { class: 'form' });
     const tabs = h('div');
     const draw = () => {
-      note.textContent = edit ? t('member.edit_note') : runNotes()[run];
+      note.textContent = edit ? t('member.edit_note') : runNotes(picked)[run];
       form.textContent = '';
       tabs.textContent = '';
       if (!edit && !secretary) tabs.append(segControl(runModes(), run, (k) => { run = k; draw(); }));
@@ -2582,7 +2582,7 @@
       if (x.adapter) row('Node.js', x.node || t('settings.not_found'));
       row(t('settings.default_mode'), x.mode || (x.note ? t('settings.adapter_default_note', { note: x.note }) : t('settings.adapter_default')));
       if (x.models && x.models.length) row(t('settings.models'), x.models.join(t('settings.models_sep')));
-      const install = x.adapter ? h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+      const install = x.install ? h('button', { class: 'btn sm', type: 'button', onclick: async () => {
         installLogs[x.id] = ['$ ' + x.install]; log.hidden = false; log.textContent = installLogs[x.id].join('\n');
         try { await post('/api/harnesses/' + x.id + '/install', {}); } catch (e) { toast(e.message); }
       } }, x.adapter_installed ? t('settings.reinstall_adapter') : t('settings.install_adapter')) : null;

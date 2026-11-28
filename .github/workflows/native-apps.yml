@@ -1,0 +1,94 @@
+name: Native apps
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: native-${{ github.head_ref || github.ref_name }}
+  # Preserve an active run, including a Mac job waiting for a runner. GitHub
+  # replaces only the pending run when a newer push arrives.
+  cancel-in-progress: false
+jobs:
+  element-contracts:
+    uses: ./.github/workflows/native-element-checks.yml
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require complete reference route, vocabulary and flow coverage
+        run: python scripts/check_native_parity.py ${{ github.ref_name == 'native-macos' && '--platform macos' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-parity-report
+          path: test-results/native-parity.json
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build WinUI 3 without launching
+        run: dotnet build native/windows/Relic/Relic.csproj -c Release -p:Platform=x64
+      - name: Test HTTP, events, composer and language contracts without UI
+        run: dotnet test native/windows/Relic.Core.Tests/Relic.Core.Tests.csproj -c Release --logger trx --results-directory test-results/native-windows
+      - name: Test UIA range evidence with mock providers and no window
+        run: dotnet test native/windows/Relic.Capture/Tests/Relic.Capture.Tests.csproj -c Release --logger trx --results-directory test-results/native-windows
+      - name: Publish and assemble unsigned native installer
+        run: |
+          dotnet publish native/windows/Relic/Relic.csproj -c Release -p:Platform=x64 -o native-build/windows
+          python -X utf8 scripts/package.py --platform windows --native-build native-build/windows --output dist/native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Relic-native-Windows-unsigned
+          path: |
+            dist/native/*.exe
+            dist/native/*.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-windows-test-results
+          path: test-results/native-windows
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build native SwiftUI client for Apple silicon
+        run: swift build --package-path native/macos -c release --arch arm64
+      - name: Test client contracts without opening the App
+        run: swift test --package-path native/macos --arch arm64
+      - name: Retain actual native draw context and failed glyph assertions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-draw-diagnostics
+          if-no-files-found: ignore
+          path: native/macos/.build/draw-diagnostics/**
+      - name: Retain actual macOS crash reports after a failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-crash-reports
+          if-no-files-found: warn
+          path: |
+            ~/Library/Logs/DiagnosticReports/*.ips
+            ~/Library/Logs/DiagnosticReports/*.crash
+      - name: Assemble unsigned SwiftUI app bundle
+        run: python3 scripts/package.py --platform macos --native-build native/macos/.build/arm64-apple-macosx/release --output dist/native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Relic-native-macOS-arm64-unsigned
+          path: dist/native/*.zip
